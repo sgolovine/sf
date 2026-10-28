@@ -46,13 +46,13 @@ spawnThread.mutate({ prompt: "Add dark mode" });
 const { data: session } = useSession(); // live state: host, commands, messages, file changes
 ```
 
-The server listens on `127.0.0.1` only. Each `/api` call needs the session token (`x-sf-token` header, or `?t=` for SSE). The printed UI URL includes the token.
+The server listens on `127.0.0.1` only. Each `/api` call needs the session token in the `authToken` header. The printed UI URL carries the token in its fragment so the browser can add the header without sending the token in the HTTP URL.
 
 ## Development
 
 ```sh
 pnpm install
-pnpm dev            # Express on :4317 + Vite on :5173 → http://localhost:5173/?t=dev
+pnpm dev            # Express on :4317 + Vite on :5173 → http://localhost:5173/#authToken=dev
 pnpm typecheck
 ```
 

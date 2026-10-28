@@ -36,4 +36,6 @@ Repeat until the user tells you to stop:
 
 Use `node "$SF" say "<text>"` to post progress to the interface. Use `node "$SF" changes --since <cursor>` to see files changed since the last check.
 
+The server shuts itself down if this thread has not contacted it for 2 minutes, unless a `next` is waiting or a claimed command is still open. Rerun `next` promptly after each exit, and always close a claimed command with `done` or `fail`.
+
 When the user asks to stop, run `node "$SF" stop`.

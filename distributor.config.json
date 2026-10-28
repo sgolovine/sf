@@ -1,0 +1,8 @@
+{
+  "scope": "project",
+  "source": ".agents/skills",
+  "harnesses": [
+    { "name": "codex", "useHarnessFolder": true },
+    { "name": "claude-code", "useHarnessFolder": true }
+  ]
+}

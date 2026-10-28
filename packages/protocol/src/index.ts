@@ -140,7 +140,7 @@ export type ServerEvent = { type: "state"; state: SessionState };
 
 // ---------- HTTP API ----------
 
-export const TOKEN_HEADER = "x-sf-token";
+export const TOKEN_HEADER = "authToken";
 
 export const routes = {
   state: "/api/state",

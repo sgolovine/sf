@@ -10,11 +10,14 @@ import {
   type SpawnThreadCommand,
 } from "@sf/protocol";
 
-// The server prints the UI URL with ?t=<token>. Keep it for the session so
-// reloads and client-side navigation don't lose it.
+// The server prints the UI URL with the token in the fragment. Fragments are
+// not sent in HTTP requests; the client sends the token in the authToken header.
 const token = (() => {
-  const fromUrl = new URLSearchParams(location.search).get("t");
-  if (fromUrl) sessionStorage.setItem("sf-token", fromUrl);
+  const fromUrl = new URLSearchParams(location.hash.slice(1)).get("authToken");
+  if (fromUrl) {
+    sessionStorage.setItem("sf-token", fromUrl);
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+  }
   return fromUrl ?? sessionStorage.getItem("sf-token") ?? "";
 })();
 
@@ -49,12 +52,36 @@ export const sfApi = {
 
   /** Subscribes to live state. Returns an unsubscribe function. */
   subscribe(onState: (state: SessionState) => void, onError?: () => void) {
-    const source = new EventSource(`${routes.events}?t=${encodeURIComponent(token)}`);
-    source.onmessage = (e) => {
-      const event = JSON.parse(e.data as string) as ServerEvent;
-      if (event.type === "state") onState(event.state);
-    };
-    if (onError) source.onerror = onError;
-    return () => source.close();
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        while (!controller.signal.aborted) {
+          const res = await fetch(routes.events, {
+            headers: { [TOKEN_HEADER]: token },
+            signal: controller.signal,
+          });
+          if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (!controller.signal.aborted) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split("\n\n");
+            buffer = blocks.pop() ?? "";
+            for (const block of blocks) {
+              const data = block.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+              if (!data) continue;
+              const event = JSON.parse(data) as ServerEvent;
+              if (event.type === "state") onState(event.state);
+            }
+          }
+        }
+      } catch {
+        if (!controller.signal.aborted) onError?.();
+      }
+    })();
+    return () => controller.abort();
   },
 };

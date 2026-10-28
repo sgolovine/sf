@@ -38,6 +38,10 @@ Capability flags: --agent, --model, --host, --can-spawn-threads <bool>,
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const IDLE_SHUTDOWN_MS = 6 * 60 * 60 * 1000;
+// The server exits when the host thread has not been heard from for this long.
+// It does not count while the host is long-polling or working on a claimed command.
+const HOST_HEARTBEAT_MS = 120 * 1000;
+const HEARTBEAT_CHECK_MS = 10 * 1000;
 const POLL_SECONDS = 25;
 const BOOLEAN_FLAGS = new Set(["json", "no-open", "dev"]);
 
@@ -190,6 +194,16 @@ async function serve() {
   const info: DevServerInfo = { port, token, pid: process.pid, ...(dev ? { uiBase: "http://localhost:5173" } : {}) };
   fs.writeFileSync(stateFile, JSON.stringify(info));
   touch();
+  // In dev there may be no host thread, so only the idle timeout applies.
+  if (!dev) {
+    const startedAt = Date.now();
+    setInterval(() => {
+      const { host, commands } = store.state;
+      const busy = host.listening || commands.some((c) => c.status === "claimed");
+      const lastSeen = Math.max(host.lastSeenAt ?? 0, startedAt);
+      if (!busy && Date.now() - lastSeen > HOST_HEARTBEAT_MS) shutdown();
+    }, HEARTBEAT_CHECK_MS);
+  }
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
   if (dev) console.log(`sf-factory API on http://127.0.0.1:${port} | UI: ${url(info)} | workspace: ${workspace}`);

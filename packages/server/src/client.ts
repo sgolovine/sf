@@ -3,7 +3,7 @@ import { TOKEN_HEADER } from "@sf/protocol";
 export type ServerInfo = { port: number; token: string; pid: number };
 
 export function uiUrl(server: ServerInfo, base = `http://127.0.0.1:${server.port}`) {
-  return `${base}/?t=${server.token}`;
+  return `${base}/#authToken=${server.token}`;
 }
 
 /** Calls the sf-factory API. Resolves to null on 204. */

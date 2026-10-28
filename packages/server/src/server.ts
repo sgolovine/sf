@@ -34,8 +34,7 @@ export function createApp({ store, token, uiDir, onRequest, onStop }: ServerOpti
   app.use(express.json({ limit: "1mb" }));
 
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-    // EventSource cannot set headers, so the token may also come as ?t=.
-    const given = req.get(TOKEN_HEADER) ?? req.query.t;
+    const given = req.get(TOKEN_HEADER);
     if (given !== token) return void res.status(403).json({ error: "bad token" });
     next();
   });
@@ -132,7 +131,7 @@ export function createApp({ store, token, uiDir, onRequest, onStop }: ServerOpti
   if (uiDir && fs.existsSync(path.join(uiDir, "index.html"))) {
     app.use(express.static(uiDir, { index: false }));
     app.get("/{*path}", (_req, res) => {
-      res.set("cache-control", "no-store").sendFile(path.join(uiDir, "index.html"));
+      res.set("cache-control", "no-store").sendFile("index.html", { root: uiDir });
     });
   } else {
     app.get("/", (_req, res) => {
