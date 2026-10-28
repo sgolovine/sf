@@ -1,0 +1,30 @@
+{
+  "name": "sf",
+  "private": true,
+  "description": "Build and run a software factory.",
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @sf/server --filter @sf/web dev",
+    "dev:server": "pnpm --filter @sf/server dev",
+    "dev:web": "pnpm --filter @sf/web dev",
+    "build": "pnpm --filter @sf/web build && node scripts/build-skill.mjs && pnpm --filter @sf/cli build",
+    "typecheck": "pnpm -r typecheck",
+    "sf": "node packages/cli/dist/sf.mjs",
+    "sf-factory": "node dist/skills/sf-factory/scripts/sf-factory.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@sf/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts serve --dev --port 4317 --token dev --workspace ../..",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@sf/protocol": "workspace:*",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0"
+  }
+}
