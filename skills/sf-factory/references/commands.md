@@ -1,6 +1,6 @@
 # Commands
 
-`node "$SF" next` prints one claimed command. Add `--json` for the full record:
+`sf next` prints one claimed command. Add `--json` for the full record:
 
 ```json
 {
