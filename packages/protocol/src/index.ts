@@ -273,3 +273,12 @@ export type ProjectSnapshot = {
 };
 
 export type SfErrorCode = "claim_gone" | "claimed" | "invalid" | "not_found" | "no_project";
+
+/** A Story with its runtime status, as returned by the story routes. */
+export type StoryDetails = StoryView & {
+  claim?: Claim;
+  /** True while the Story waits for a Worker slot. */
+  queued?: boolean;
+  failure?: RuntimeState["failures"][string];
+  worktreeWarning?: RuntimeState["worktreeWarnings"][string];
+};
