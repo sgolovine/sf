@@ -6,14 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": [
-      "**",
-      "!.sf",
-      "!.distributor",
-      "!.agents",
-      "!.claude",
-      "!**/*.md"
-    ]
+    "includes": ["**", "!.sf", "!.distributor", "!.agents", "!.claude", "!**/*.md"]
   },
   "formatter": {
     "enabled": true,
@@ -51,9 +44,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "src/web/components/ui/**"
-      ],
+      "includes": ["src/web/components/ui/**"],
       "linter": {
         "enabled": false
       }
