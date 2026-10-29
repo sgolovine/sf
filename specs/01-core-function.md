@@ -1,89 +1,127 @@
 # Core Functionality
 
-Now that we have the basics of the app in place, this document describes the core function that app will perform.
+Now that we have the basics of the app in place, this document describes the core function that the app will perform. Terms are defined in [CONTEXT.md](../CONTEXT.md).
 
 ## High Level
 
-`sf` is a software factory manager. Users can create stories an add them to a kanban board within the app. Each column in the kanban contains a prompt that the user edits. Whenever a story is moved to a new column, this gets communicated back to the supervisor agent that then spawns a new thread with the story + the prompt associated with the column.
-
+`sf` is a software factory manager. Users create Stories and add them to a kanban Board in the app. Each Stage (column) can have a Stage Prompt that the user edits. When a Story Moves to a Stage with an enabled Stage Prompt, the Supervisor spawns a Worker with the Story and that prompt.
 
 ## Data Storage
 
-- Data is stored in the same folder where `sf` is run an is stored in an `.sf` directory.
-
-- Inside of the directory looks like this:
+- Data is stored in a `.sf` directory in the folder where `sf` runs. The `.sf` directory is committed with the repository, except `.sf/runtime/`, which is gitignored.
+- The directory looks like this:
 
 ```sh
-sf.config.json # sf configuration file, stores top level config for the project.
+sf.config.json        # Project configuration.
+runtime/              # gitignored: Claims, Worker thread ids, spawn failures, queued spawns.
 boards/
-  board-01/
-    board.config.json # board configuration file, overrides any values in `sf.config.json` for this board only
+  development/
+    board.config.json # Board key, Stage list, Story schema, and overrides of sf.config.json for this Board.
     stages/
-      todo.md # individual stage prompts.
-      in_progress.md
-      in_review.md
+      ready_for_dev.md  # Stage Prompt text, one file per Stage id.
+      in_development.md
       ...
     stories/
-      board-01.md # individual stores on the board.
-      board-02.md
-
+      DEV-1.md        # One file per Story, named by Story Key.
+      DEV-2.md
 ```
+
+- Disk is the source of truth. The server watches `.sf` and the UI shows hand edits live. But editing a Story's `stage` by hand is not a Move and does not trigger a Worker.
+- All writes to Stories go through sf commands (UI, Supervisor, or Worker), against the `.sf` directory in the Supervisor's checkout. Workers never edit `.sf` files in their worktree. See [ADR 0001](../docs/adr/0001-story-writes-through-sf.md).
+- If a Worker runs an sf command while the server is not running, the command writes to disk directly and queues any trigger in `.sf/runtime/`. The Supervisor runs queued triggers when it next starts.
+
+### Configuration
+
+`sf.config.json` holds:
+
+| Setting | Overridable per Board | Overridable per Stage |
+| --- | --- | --- |
+| Worker agent and model default | yes | yes |
+| Worktree base branch (default `main`/`master`) | yes | no |
+| Claim timeout (default 2h) | yes | no |
+| Extra preamble text for Worker Briefs | yes | no |
+| Max concurrent Workers (Project-wide total) | **no** | no |
+
+### Board config
+
+`board.config.json` holds:
+
+- The Board key used in Story Keys (for example `DEV`).
+- The ordered Stage list. Each Stage has a stable slug id, a display name, a prompt enabled/disabled flag, and optional agent/model overrides. The Stage Prompt text is in `stages/<stage-id>.md`. Renaming a Stage changes only its display name.
+- The Story schema: custom fields with types `text`, `number`, `single-select`, `multi-select`, `boolean`, or `date`.
+- Overrides of `sf.config.json` settings (see the table above).
+
+### Story file
+
+A Markdown file named `<Story Key>.md`. YAML frontmatter holds `stage` (a Stage id) and the custom field values. The body is the Story description. Story numbers increment per Board.
 
 ## SF Concepts
 
 ### Supervisor
 
-The agent thread where the `sf-factory` skill was started. It's the thread that kicked off the web UI and is responsible for kicking off new Workers when stories move between Stages
+The agent thread where the `sf-factory` skill was started. It starts the web UI and spawns Workers when Stories Move. (The current code and README call this the "host thread"; that term is retired.)
 
-### Workers 
+### Workers
 
-Other threads that are started by the supervisor. When a user moves a Story to a Stage like "In Progress", the prompt for "In Progress" and the content of the story are passed down from the Supervisor to a new Worker thread. The worker then executes the instructions 
+Agent threads spawned by the Supervisor. A Worker runs as a new top-level thread when the harness can spawn threads, otherwise as a subagent.
+
+- **Worker Brief.** A Worker receives an sf preamble (Story Key, Board, Stage list, the Project path, and the sf commands to Move, update, create, and release Stories), then the Stage Prompt, then the Story.
+- **Story Worktree.** Every Worker runs in its Story's worktree. The first Worker on a Story creates the worktree and branch from the configured base branch and records the branch on the Story. Later Workers on the same Story reuse it.
+- **Claim.** While a Worker is active, it claims its Story and no one else can Move it. The claim ends when:
+  - the Worker Moves the Story (this Move is allowed and triggers the next Stage as usual),
+  - the Worker runs `release` because it finished without Moving,
+  - the user force-releases the Story in the UI, or
+  - the Worker runs no sf command for the claim timeout.
+- When a claim ends without the Worker's knowledge, sf does not interrupt the thread. Any later sf command from that Worker is rejected with "claim is gone".
 
 ### Project
 
-The data root for sf. 
+The data root for sf: the `.sf` directory.
 
 ### Board
 
-Work on sf is split up into boards
+Work in sf is split into Boards.
 
-- Boards live within Projects
-- Boards contain Stories
-- A Board has Stages by which Stories are categorized
-- A Board contains the schema for a Story (custom fields)
+- Boards live within a Project.
+- Boards contain Stories.
+- A Board has Stages by which Stories are categorized.
+- A Board contains the Story schema (custom fields).
 
 ### Stages
 
-Stages are part of boards and represent where a Story is within a Board. Stages can be fully modified by the user but contain the following defaults:
+Stages are part of a Board and show where a Story is on it. Every Board is created with:
 
-- Backlog (default, cannot be changed)
-- TODO
-- In Progress
-- In Review
-- Done (default, cannot be changed)
+- **Backlog**: always first. It cannot be removed, renamed, reordered, or given a Stage Prompt.
+- **TODO**, **In Progress**, **In Review**: initial defaults that the user can rename, reorder, or remove.
+- **Done**: always last. It cannot be removed, renamed, reordered, or given a Stage Prompt.
 
-A stage can optionally contain a prompt. This should be a boolean enabled/disabled flag on each stage as well as the associated prompt markdown file.
-
-When a Story is moved from one Stage to another Stage, the story + the stage prompt assoicated with the stage it moved to gets passed back to the Supervisor and then the supervisor will spawn a new thread and hand the Story + Prompt to the thread.
-
-The Backlog and Done stages are permananet defaults and cannot be changed. Work yet to start is in Backlog and work that's done is in Done.
+Any other Stage can have a Stage Prompt, with an enabled/disabled flag. If a Story enters a Stage whose prompt is disabled or absent, nothing happens. The Story waits for a manual Move.
 
 ### Story
 
-Individual stories that describe what needs to be done.
+A Story describes a unit of work. The user, the Supervisor, and Workers can create Stories in any Stage. Creating a Story in a Stage counts as a Move into it.
 
+### Moves
 
+A Move changes a Story's Stage to any other Stage. Stages do not need to be adjacent. The user, Workers, and the Supervisor can all Move Stories, through the UI or sf commands.
+
+When a Story Moves into a Stage with an enabled Stage Prompt:
+
+1. If the Story is claimed by a Worker, the Move is rejected (unless that Worker is making it).
+2. If the Project is at max concurrent Workers, the spawn is queued, oldest first, and the Story shows "waiting for a Worker". The Story is not claimed while it is queued. A new Move replaces its queued spawn.
+3. Otherwise, the Supervisor spawns a Worker with the Worker Brief, and the Worker claims the Story.
+4. If the spawn fails, the Story stays in the new Stage, flagged as failed. The UI shows the error and a "retry" action.
+
+When a Story Moves to Done, sf removes the Story Worktree and keeps the branch. If the worktree has uncommitted or unpushed changes, sf keeps it, and the UI shows a warning with a "remove worktree" action.
 
 ## Practical Example
 
-- A user is building a TODO list application 
-
-- The user sets up the factory and sets up one board called "Development"
-
-- That board contains several stages
-  - Backlog - Agent does nothing, no prompt
-  - Ready for Development - A agent goes through the plan and highlights any gaps in the plan, then updates the story accordingly. If no gaps are found they move the story onboards to "In Development".
-  - In Development - Starts development on the story using a custom development skill written by the user (the skill is referenced in the stage prompt). After development is complete, it opens a PR and moves the story to In Review.
-  - In Review - At this stage the agent dispatches a PR review agent to go over the work that was done and address any issues. If the agent finds any issues they send the work to "PR Fixup" and if the agent does not find any issues then they merge the PR and move the story to "Done"
-  - In Fixup - Only accessed when a PR review yeilded some issues, work is sent here and is fixed up by another agent.
-  - Done - Work is only sent here after it is completed.
+- A user is building a TODO list application.
+- The user sets up the factory and creates one Board called "Development" (key `DEV`).
+- That Board has these Stages:
+  - **Backlog**: no Worker.
+  - **Ready for Development**: a Worker reviews the plan, finds any gaps, and updates the Story. If there are no gaps, it Moves the Story to "In Development".
+  - **In Development**: a Worker develops the Story with a custom development skill written by the user (the Stage Prompt references the skill). When development is complete, it opens a PR and Moves the Story to "In Review".
+  - **In Review**: a Worker dispatches a PR review agent to check the work. If the review finds issues, it Moves the Story to "In Fixup". If not, it merges the PR and Moves the Story to "Done".
+  - **In Fixup**: entered only when a PR review finds issues. A Worker fixes them in the same Story Worktree and Moves the Story back to "In Review".
+  - **Done**: work comes here only after it is complete. sf removes the Story Worktree.
