@@ -115,7 +115,7 @@ function StageRow({ board, stage, index, count, stories, act }: RowProps) {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => act(() => sfApi.removeStage(board.id, stage.id))}
             >
               Remove
