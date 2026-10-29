@@ -56,6 +56,8 @@ export type UpdateStageRequest = {
   prompt?: string;
   agent?: string | null;
   model?: string | null;
+  hilFlag?: string | null;
+  hilComment?: string | null;
 };
 export type ReorderStageRequest = { index: number };
 export type CreateStoryRequest = {
@@ -82,4 +84,6 @@ export type StoryDetails = StoryView & {
   queued?: boolean;
   failure?: RuntimeState["failures"][string];
   worktreeWarning?: RuntimeState["worktreeWarnings"][string];
+  /** Set while the Story's HIL flag for its Stage is true: it waits for a human. */
+  hil?: { flag: string; comment?: string };
 };

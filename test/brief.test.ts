@@ -48,3 +48,30 @@ test("shellQuote", () => {
   assert.equal(shellQuote("/a/b.mjs"), "/a/b.mjs");
   assert.equal(shellQuote("it's"), `'it'\\''s'`);
 });
+
+test("the sf preamble tells the Worker how to ask for a human when its Stage has HIL fields", () => {
+  const board = defaultBoard("Development", "DEV");
+  board.schema = [
+    { id: "dev_hil", name: "Dev HIL", type: "boolean" },
+    { id: "dev_hil_comment", name: "Dev HIL comment", type: "text" },
+  ];
+  board.stages.find((s) => s.id === "in_progress")!.hil = { flag: "dev_hil", comment: "dev_hil_comment" };
+  const brief = (stageId: string) =>
+    composeBrief({
+      storyKey: "DEV-3",
+      story: { title: "T", stage: stageId, fields: {}, body: "" },
+      boardId: "development",
+      board,
+      stageId,
+      root: "/abs/repo",
+      worktree: { path: "/abs/repo-sf-worktrees/DEV-3", branch: "sf/DEV-3" },
+      workerId: "w-1",
+      sf: "sf",
+      preamble: "",
+      prompt: "Build it.",
+    });
+  const line = 'sf story update DEV-3 --field dev_hil=true --field "dev_hil_comment=<what you need>" --worker w-1';
+  assert.ok(brief("in_progress").includes(line));
+  assert.ok(brief("in_progress").indexOf(line) < brief("in_progress").indexOf("## Stage Prompt"));
+  assert.ok(!brief("todo").includes("dev_hil"));
+});

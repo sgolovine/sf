@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { StoryDetails } from "#model/api";
-import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig } from "#model/config";
+import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
 import type { ProjectSnapshot, StoryView } from "#model/project";
 import type { RuntimeState, WorkerEndReason } from "#model/runtime";
 import { composeBrief } from "./brief.ts";
@@ -76,6 +76,10 @@ export type StagePatch = {
   prompt?: string;
   agent?: string | null;
   model?: string | null;
+  /** HIL flag field id; empty or null clears the Stage's HIL. */
+  hilFlag?: string | null;
+  /** HIL comment field id; empty or null clears it. */
+  hilComment?: string | null;
 };
 export type BoardPatch = { name?: string; schema?: FieldDef[]; overrides?: BoardOverrides };
 
@@ -99,6 +103,14 @@ export function createService(opts: ServiceOptions) {
       if (config.key === ref.toUpperCase()) return { id, config };
     }
     throw new SfError("not_found", `no Board "${ref}"`);
+  }
+
+  function boardOf(id: string) {
+    try {
+      return loadBoard(root, id);
+    } catch {
+      return null;
+    }
   }
 
   function storyFile(boardId: string, key: string) {
@@ -144,6 +156,11 @@ export function createService(opts: ServiceOptions) {
     return Boolean(stage?.promptEnabled && !isFixedStage(stageId) && promptText(boardId, stageId).trim());
   }
 
+  /** True when entering this Stage spawns a Worker for this Story: the Stage spawns and the Story is not held for HIL. */
+  function spawnsFor(boardId: string, board: BoardConfig, stageId: string, story: StoryData) {
+    return stageSpawns(boardId, board, stageId) && !activeHil(board, { ...story, stage: stageId });
+  }
+
   function view(key: string, boardId: string, story: StoryData): StoryView {
     return {
       key,
@@ -162,6 +179,9 @@ export function createService(opts: ServiceOptions) {
     if (rt.queue.some((q) => q.storyKey === v.key)) d.queued = true;
     if (rt.failures[v.key]) d.failure = rt.failures[v.key];
     if (rt.worktreeWarnings[v.key]) d.worktreeWarning = rt.worktreeWarnings[v.key];
+    const board = boardOf(v.board);
+    const hil = board && activeHil(board, v);
+    if (hil) d.hil = hil;
     return d;
   }
 
@@ -244,7 +264,7 @@ export function createService(opts: ServiceOptions) {
       const entry = tx.rt.queue.shift()!;
       const found = tryLocate(entry.storyKey);
       if (!found || tx.rt.claims[entry.storyKey] || found.story.stage !== entry.stageId) continue;
-      if (!stageSpawns(found.boardId, found.board, entry.stageId)) continue;
+      if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) continue;
       spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
     }
   }
@@ -324,12 +344,19 @@ export function createService(opts: ServiceOptions) {
     else tx.rt.pendingTriggers.push({ type: "cleanup", storyKey: key, at: now() });
   }
 
-  /** What follows a Story entering a Stage (a Move or a create). */
-  function enterStage(tx: Tx, key: string, boardId: string, board: BoardConfig, stageId: string, claimEnded: boolean) {
+  /** What follows a Story entering a Stage (a Move or a create). A Story held for HIL waits. */
+  function enterStage(tx: Tx, key: string, boardId: string, board: BoardConfig, story: StoryData, claimEnded: boolean) {
+    const stageId = story.stage;
     if (stageId === DONE) scheduleCleanup(tx, key);
     // Free capacity goes to the oldest queued spawn before this Story asks for one.
     if (claimEnded) drainQueue(tx);
-    if (stageSpawns(boardId, board, stageId)) requestSpawn(tx, key, boardId, stageId);
+    if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
+  }
+
+  /** Drops any queued or pending spawn for the Story. */
+  function dropSpawn(tx: Tx, key: string) {
+    tx.rt.queue = tx.rt.queue.filter((q) => q.storyKey !== key);
+    tx.rt.pendingTriggers = tx.rt.pendingTriggers.filter((t) => !(t.type === "spawn" && t.storyKey === key));
   }
 
   function requireStage(board: BoardConfig, stageId: string) {
@@ -454,6 +481,13 @@ export function createService(opts: ServiceOptions) {
           if (v) stage[k] = v;
           else delete stage[k];
         }
+        if (patch.hilFlag !== undefined || patch.hilComment !== undefined) {
+          const flag = patch.hilFlag !== undefined ? patch.hilFlag : stage.hil?.flag;
+          const comment = patch.hilComment !== undefined ? patch.hilComment : stage.hil?.comment;
+          if (flag) stage.hil = { flag, ...(comment ? { comment } : {}) };
+          else if (patch.hilComment) throw new SfError("invalid", "a HIL comment field needs a HIL flag field");
+          else delete stage.hil;
+        }
         saveBoard(root, id, config);
         if (patch.prompt !== undefined) atomicWrite(path.join(paths.stages(id), `${stageId}.md`), patch.prompt);
         return { ...stage, prompt: promptText(id, stageId) };
@@ -505,7 +539,7 @@ export function createService(opts: ServiceOptions) {
         const key = `${config.key}-${nextStoryNumber(paths.stories(id), config.key)}`;
         const story: StoryData = { title, stage: stageId, fields, body: input.body ?? "" };
         writeStory(id, key, story);
-        enterStage(tx, key, id, config, stageId, false);
+        enterStage(tx, key, id, config, story, false);
         return details(tx.rt, view(key, id, story));
       });
     },
@@ -528,6 +562,12 @@ export function createService(opts: ServiceOptions) {
           body: patch.body ?? story.body,
         };
         writeStory(boardId, key, next);
+        // Hold: a Story whose HIL flag is set waits. Wake: clearing the flag spawns as if the Story had just entered.
+        const wasHeld = Boolean(activeHil(board, story));
+        const held = Boolean(activeHil(board, next));
+        if (held && !wasHeld) dropSpawn(tx, key);
+        if (wasHeld && !held && !tx.rt.claims[key] && stageSpawns(boardId, board, next.stage))
+          requestSpawn(tx, key, boardId, next.stage);
         return details(tx.rt, view(key, boardId, next));
       });
     },
@@ -547,10 +587,9 @@ export function createService(opts: ServiceOptions) {
         const next = { ...story, stage: stageId };
         writeStory(boardId, key, next);
         delete rt.failures[key];
-        rt.queue = rt.queue.filter((q) => q.storyKey !== key);
-        rt.pendingTriggers = rt.pendingTriggers.filter((t) => !(t.type === "spawn" && t.storyKey === key));
+        dropSpawn(tx, key);
         if (claim) endClaim(tx, key, "moved");
-        enterStage(tx, key, boardId, board, stageId, Boolean(claim));
+        enterStage(tx, key, boardId, board, next, Boolean(claim));
         return details(rt, view(key, boardId, next));
       });
     },
@@ -584,6 +623,9 @@ export function createService(opts: ServiceOptions) {
         const { boardId, board, story } = locate(key);
         if (!stageSpawns(boardId, board, story.stage))
           throw new SfError("invalid", `Stage ${story.stage} has no enabled Stage Prompt`);
+        const hil = activeHil(board, story);
+        if (hil)
+          throw new SfError("invalid", `${key} is held for HIL (${hil.flag} is true); clear it to start a Worker`);
         delete rt.failures[key];
         requestSpawn(tx, key, boardId, story.stage);
         return details(rt, view(key, boardId, story));
@@ -637,7 +679,7 @@ export function createService(opts: ServiceOptions) {
           else if (
             found.story.stage === t.stageId &&
             !tx.rt.claims[t.storyKey] &&
-            stageSpawns(found.boardId, found.board, t.stageId)
+            spawnsFor(found.boardId, found.board, t.stageId, found.story)
           )
             requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
         }

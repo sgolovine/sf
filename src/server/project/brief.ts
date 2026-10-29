@@ -52,6 +52,12 @@ Change Stories only with these commands. Never edit files under \`.sf\` in your 
 
 Every command refreshes your Claim. If a command fails with "claim is gone", stop: your Claim ended and this Story is no longer yours.`,
   ];
+  const hil = b.board.stages.find((s) => s.id === b.stageId)?.hil;
+  // Part of the sf preamble.
+  if (hil)
+    sections[0] +=
+      `\n\nIf you need a human, set this Stage's HIL flag${hil.comment ? " and comment" : ""}, then release the Story; no Worker runs on it here until a human clears the flag:\n` +
+      `  ${b.sf} story update ${b.storyKey} --field ${hil.flag}=true${hil.comment ? ` --field "${hil.comment}=<what you need>"` : ""} ${tail}`;
   if (b.preamble.trim()) sections.push(b.preamble.trim());
   sections.push(`## Stage Prompt\n\n${b.prompt.trim()}`);
   sections.push(`## Story\n\n${storyText(b.storyKey, b.story, b.board.schema)}`);

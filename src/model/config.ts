@@ -11,7 +11,12 @@ export type StageConfig = {
   promptEnabled: boolean;
   agent?: string | null;
   model?: string | null;
+  /** HIL fields: while the boolean `flag` field is true on a Story in this Stage, no Worker runs on it. */
+  hil?: StageHil;
 };
+
+/** Field ids from the Board schema: `flag` a boolean field, `comment` an optional text field. */
+export type StageHil = { flag: string; comment?: string };
 
 export type WorkerSettings = { agent: string | null; model: string | null };
 
@@ -41,3 +46,14 @@ export type BoardConfig = {
   schema: FieldDef[];
   overrides: BoardOverrides;
 };
+
+/** The Story's HIL when the HIL flag of the Stage it is in is true, else null. */
+export function activeHil(
+  board: BoardConfig,
+  story: { stage: string; fields: Record<string, unknown> },
+): { flag: string; comment?: string } | null {
+  const hil = board.stages.find((s) => s.id === story.stage)?.hil;
+  if (!hil || story.fields[hil.flag] !== true) return null;
+  const comment = hil.comment ? story.fields[hil.comment] : undefined;
+  return { flag: hil.flag, ...(typeof comment === "string" && comment.trim() ? { comment } : {}) };
+}
