@@ -1,26 +1,30 @@
 import { useState, type ReactNode } from "react";
 import { useSession } from "./api/hooks.ts";
 import { AppSidebar } from "./components/AppSidebar.tsx";
+import { BoardSettings, type SettingsTab } from "./components/BoardSettings/BoardSettings.tsx";
 import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { ErrorBanner, type Act } from "./components/ErrorBanner.tsx";
-import { SchemaEditor } from "./components/SchemaEditor.tsx";
-import { StageSettings } from "./components/StageSettings.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
+import { ArrowLeft, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
 /** What the main area shows. Navigation is plain state: the URL hash carries the auth token. */
-type View = { kind: "board"; boardId: string | null } | { kind: "create-board" };
+type View =
+  | { kind: "board"; boardId: string | null }
+  | { kind: "settings"; boardId: string; tab: SettingsTab }
+  | { kind: "create-board" };
 
-type Panel = { kind: "story"; key: string | null } | { kind: "stage"; stageId: string } | { kind: "schema" } | null;
+/** The Story being edited in the dialog; key null means a new Story. */
+type Editing = { key: string | null } | null;
 
 export function App() {
   const { data: session, error } = useSession();
   const [view, setView] = useState<View>({ kind: "board", boardId: null });
-  const [panel, setPanel] = useState<Panel>(null);
+  const [editing, setEditing] = useState<Editing>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   const act: Act = async (fn) => {
@@ -40,12 +44,17 @@ export function App() {
   const { capabilities, listening } = session.supervisor;
   const project = session.project;
   const boards = project?.boards ?? [];
-  const selectedId = view.kind === "board" ? view.boardId : null;
+  const selectedId = view.kind === "create-board" ? null : view.boardId;
   const board = boards.find((b) => b.id === selectedId) ?? boards[0];
   const creating = view.kind === "create-board" || !board;
+  const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
   const openBoard = (boardId: string) => {
     setView({ kind: "board", boardId });
-    setPanel(null);
+    setEditing(null);
+  };
+  const openSettings = (boardId: string, tab: SettingsTab) => {
+    setView({ kind: "settings", boardId, tab });
+    setEditing(null);
   };
 
   return (
@@ -57,18 +66,30 @@ export function App() {
         onSelect={openBoard}
         onNewBoard={() => {
           setView({ kind: "create-board" });
-          setPanel(null);
+          setEditing(null);
         }}
       />
       <SidebarInset className="min-w-0">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <h1 className="truncate font-medium">{creating ? "New Board" : board.config.name}</h1>
-          {!creating && (
-            <Button size="sm" onClick={() => setPanel({ kind: "story", key: null })}>
-              New Story
+          <h1 className="truncate font-medium">
+            {creating ? "New Board" : settings ? `${board.config.name} · Board Settings` : board.config.name}
+          </h1>
+          {!creating && settings && (
+            <Button size="sm" variant="outline" onClick={() => openBoard(board.id)}>
+              <ArrowLeft /> Back to board
             </Button>
+          )}
+          {!creating && !settings && (
+            <>
+              <Button size="sm" onClick={() => setEditing({ key: null })}>
+                New Story
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => openSettings(board.id, "stages")}>
+                <Settings /> Board Settings
+              </Button>
+            </>
           )}
           <span className="flex-1" />
           {project && (
@@ -87,29 +108,27 @@ export function App() {
 
         {creating ? (
           <CreateBoard act={act} onCreated={openBoard} onCancel={board ? () => openBoard(board.id) : undefined} />
+        ) : settings ? (
+          <BoardSettings board={board} tab={settings.tab} onTab={(tab) => openSettings(board.id, tab)} act={act} />
         ) : (
           <BoardView
             board={board}
             runtime={project!.runtime}
             act={act}
-            onOpenStory={(key) => setPanel({ kind: "story", key })}
-            onOpenStage={(stageId) => setPanel({ kind: "stage", stageId })}
+            onOpenStory={(key) => setEditing({ key })}
+            onOpenStages={() => openSettings(board.id, "stages")}
           />
         )}
 
-        {!creating && panel?.kind === "story" && (
+        {!creating && editing && (
           <StoryEditor
-            key={panel.key ?? "new"}
+            key={editing.key ?? "new"}
             board={board}
-            story={board.stories.find((s) => s.key === panel.key) ?? null}
+            story={board.stories.find((s) => s.key === editing.key) ?? null}
             act={act}
-            onClose={() => setPanel(null)}
+            onClose={() => setEditing(null)}
           />
         )}
-        {!creating && panel?.kind === "stage" && (
-          <StageSettings key={panel.stageId} board={board} stageId={panel.stageId} act={act} onClose={() => setPanel(null)} />
-        )}
-        {!creating && panel?.kind === "schema" && <SchemaEditor board={board} act={act} onClose={() => setPanel(null)} />}
       </SidebarInset>
     </SidebarProvider>
   );

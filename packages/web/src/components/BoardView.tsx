@@ -9,11 +9,12 @@ type Props = {
   runtime: RuntimeState;
   act: Act;
   onOpenStory: (key: string) => void;
-  onOpenStage: (stageId: string) => void;
+  /** Opens Board Settings on the Stages tab. */
+  onOpenStages: () => void;
 };
 
 /** The kanban: one column per Stage. Drag a card onto a column, or use its "Move to…" menu. */
-export function BoardView({ board, runtime, act, onOpenStory, onOpenStage }: Props) {
+export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Props) {
   const { stages } = board.config;
   const [over, setOver] = useState<string | null>(null);
   const known = new Set(stages.map((s) => s.id));
@@ -40,7 +41,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStage }: Pro
         }}
       >
         <header>
-          <button type="button" className="column-title" onClick={() => onOpenStage(stage.id)} title="Stage settings">
+          <button type="button" className="column-title" onClick={onOpenStages} title="Stage settings">
             {stage.name} <span className="count">{stories.length}</span>
           </button>
           <span className={`prompt-flag${stage.promptEnabled && prompt ? " on" : ""}`}>
@@ -65,25 +66,6 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStage }: Pro
           ))}
         </section>
       )}
-      <AddStage board={board} act={act} />
     </div>
-  );
-}
-
-function AddStage({ board, act }: { board: BoardSnapshot; act: Act }) {
-  const [name, setName] = useState("");
-  return (
-    <form
-      className="column add-stage"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (await act(() => sfApi.addStage(board.id, name))) setName("");
-      }}
-    >
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New Stage" />
-      <button type="submit" disabled={!name.trim()}>
-        Add Stage
-      </button>
-    </form>
   );
 }
