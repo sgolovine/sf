@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts serve --dev --port 4317 --token dev --workspace ../..",
+    "dev": "tsx watch src/main.ts serve --dev --port 4317 --token dev --project ../..",
     "typecheck": "tsc -p ."
   },
   "dependencies": {

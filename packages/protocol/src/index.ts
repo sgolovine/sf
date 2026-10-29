@@ -1,96 +1,79 @@
-// Shared contract between the web interface, the Express server, and the host
-// thread (the agent running the sf-factory skill).
+// Shared contract between the web interface, the Express server, and the
+// Supervisor (the agent thread running the sf-factory skill).
 //
-// Flow: the UI enqueues a HostCommand → the host thread claims it with
-// `sf-factory next` → the host does the work and reports back with
-// `sf-factory done|fail`. The host can also push HostMessages to the UI with
-// `sf-factory say`.
+// Flow: the server enqueues a SupervisorCommand (a `worker.spawn` when a Story
+// Moves into a Stage with an enabled Stage Prompt, or a `supervisor.instruct`
+// from the UI) → the Supervisor claims it with `sf-factory next` → does the
+// work and reports back with `sf-factory done|fail`. The Supervisor can also
+// push SupervisorMessages to the UI with `sf-factory say`.
 
-// ---------- Commands (UI → host thread) ----------
+// ---------- Commands (server/UI → Supervisor) ----------
 
-export type SpawnThreadCommand = {
-  type: "thread.spawn";
-  /** Prompt for the new top-level thread. */
-  prompt: string;
-  title?: string;
-  /** Model id to run the thread on. Defaults to the host's choice. */
+/** Start a Worker for one Story in one Stage. Queued by the server, never by the UI. */
+export type WorkerSpawnCommand = {
+  type: "worker.spawn";
+  workerId: string;
+  storyKey: string;
+  /** Board id. */
+  board: string;
+  stageId: string;
+  /** A new top-level thread when the Supervisor can spawn threads, otherwise a subagent. */
+  mode: "thread" | "subagent";
+  agent?: string;
   model?: string;
-  /** Where the thread works: the main checkout or a new worktree. */
-  workspace?: "root" | "worktree";
-  /** Branch for a worktree thread. */
-  branch?: string;
+  /** The Story Worktree; it exists by the time the Supervisor claims the command. */
+  worktree: { path: string; branch: string };
+  /** The Worker Brief: the full prompt for the Worker. */
+  brief: string;
 };
 
-export type SpawnSubagentCommand = {
-  type: "subagent.spawn";
-  /** Task for a child agent owned by the host thread. */
-  prompt: string;
-  model?: string;
-};
-
-export type InstructCommand = {
-  type: "host.instruct";
-  /** Free-form instruction for the host thread itself. */
+export type SupervisorInstructCommand = {
+  type: "supervisor.instruct";
+  /** Free-form instruction for the Supervisor itself. */
   text: string;
 };
 
-export type HostCommand = SpawnThreadCommand | SpawnSubagentCommand | InstructCommand;
-export type HostCommandType = HostCommand["type"];
+export type SupervisorCommand = WorkerSpawnCommand | SupervisorInstructCommand;
+export type SupervisorCommandType = SupervisorCommand["type"];
 
-export type CommandStatus = "pending" | "claimed" | "done" | "failed";
+/** `cancelled`: a `worker.spawn` whose Claim ended before the Supervisor claimed it. */
+export type CommandStatus = "pending" | "claimed" | "done" | "failed" | "cancelled";
 
 export type CommandRecord = {
   id: string;
-  command: HostCommand;
+  command: SupervisorCommand;
   status: CommandStatus;
   createdAt: number;
   claimedAt?: number;
   finishedAt?: number;
-  /** Free-form result the host reported, e.g. the new thread id. */
+  /** Free-form result the Supervisor reported, e.g. the new thread id. */
   result?: string;
   error?: string;
 };
 
-/** Builders for the commands the UI can send to the host thread. */
+/** Builders for the commands the UI can send to the Supervisor. */
 export const commands = {
-  spawnThread: (prompt: string, opts: Omit<SpawnThreadCommand, "type" | "prompt"> = {}): SpawnThreadCommand => ({
-    type: "thread.spawn",
-    prompt,
-    ...opts,
-  }),
-  spawnSubagent: (prompt: string, opts: Omit<SpawnSubagentCommand, "type" | "prompt"> = {}): SpawnSubagentCommand => ({
-    type: "subagent.spawn",
-    prompt,
-    ...opts,
-  }),
-  instruct: (text: string): InstructCommand => ({ type: "host.instruct", text }),
+  instruct: (text: string): SupervisorInstructCommand => ({ type: "supervisor.instruct", text }),
 };
 
-const COMMAND_TYPES: readonly HostCommandType[] = ["thread.spawn", "subagent.spawn", "host.instruct"];
-
-/** Returns an error message, or null when `value` is a valid HostCommand. */
+/** Returns an error message, or null when `value` is a command the UI may send. */
 export function validateCommand(value: unknown): string | null {
   if (!value || typeof value !== "object") return "command must be an object";
   const c = value as Record<string, unknown>;
-  if (!COMMAND_TYPES.includes(c.type as HostCommandType))
-    return `command.type must be one of ${COMMAND_TYPES.join(", ")}`;
-  const textField = c.type === "host.instruct" ? "text" : "prompt";
-  if (typeof c[textField] !== "string" || !(c[textField] as string).trim())
-    return `command.${textField} must be a non-empty string`;
-  if (c.workspace !== undefined && c.workspace !== "root" && c.workspace !== "worktree")
-    return 'command.workspace must be "root" or "worktree"';
+  if (c.type !== "supervisor.instruct") return "command.type must be supervisor.instruct";
+  if (typeof c.text !== "string" || !c.text.trim()) return "command.text must be a non-empty string";
   return null;
 }
 
-// ---------- Host thread ----------
+// ---------- Supervisor ----------
 
 export type Capabilities = {
   /** Agent harness, e.g. "claude-code", "codex". */
   agent: string;
-  /** Model id the host thread runs on. */
+  /** Model id the Supervisor runs on. */
   model: string;
-  /** Host app wrapping the agent, e.g. "t3-code", "herdr", "terminal". */
-  host: string;
+  /** App wrapping the agent, e.g. "t3-code", "herdr", "terminal". */
+  app: string;
   /** Can start new top-level threads/conversations. */
   canSpawnThreads: boolean;
   /** Can start child agents owned by this thread. */
@@ -98,15 +81,15 @@ export type Capabilities = {
   notes?: string;
 };
 
-export type HostInfo = {
+export type SupervisorInfo = {
   capabilities: Capabilities | null;
-  /** Last time the host talked to the server. */
+  /** Last time the Supervisor talked to the server. */
   lastSeenAt: number | null;
-  /** True while the host is blocked in `sf-factory next`. */
+  /** True while the Supervisor is blocked in `sf-factory next`. */
   listening: boolean;
 };
 
-export type HostMessage = {
+export type SupervisorMessage = {
   id: string;
   text: string;
   level: "info" | "warn" | "error";
@@ -118,7 +101,7 @@ export type HostMessage = {
 // ---------- File watching ----------
 
 export type FileChange = {
-  /** Path relative to the workspace. */
+  /** Path relative to the Project root. */
   path: string;
   event: "rename" | "change";
   at: number;
@@ -127,12 +110,15 @@ export type FileChange = {
 // ---------- Server state ----------
 
 export type SessionState = {
-  workspace: string;
+  /** Project root (the directory holding `.sf`). */
+  root: string;
   startedAt: number;
-  host: HostInfo;
+  supervisor: SupervisorInfo;
   commands: CommandRecord[];
-  messages: HostMessage[];
+  messages: SupervisorMessage[];
   fileChanges: FileChange[];
+  /** Null until the Project is initialized. */
+  project: ProjectSnapshot | null;
 };
 
 /** Server-sent event payloads on GET /api/events. */
@@ -142,25 +128,71 @@ export type ServerEvent = { type: "state"; state: SessionState };
 
 export const TOKEN_HEADER = "authToken";
 
+const enc = encodeURIComponent;
+
 export const routes = {
   state: "/api/state",
   events: "/api/events",
   commands: "/api/commands",
   nextCommand: "/api/commands/next",
-  commandResult: (id: string) => `/api/commands/${encodeURIComponent(id)}/result`,
-  capabilities: "/api/host/capabilities",
-  messages: "/api/host/messages",
+  commandResult: (id: string) => `/api/commands/${enc(id)}/result`,
+  capabilities: "/api/supervisor/capabilities",
+  messages: "/api/supervisor/messages",
   fileChanges: "/api/files/changes",
   stop: "/api/stop",
+  project: "/api/project",
+  projectInit: "/api/project/init",
+  boards: "/api/boards",
+  board: (board: string) => `/api/boards/${enc(board)}`,
+  stages: (board: string) => `/api/boards/${enc(board)}/stages`,
+  stage: (board: string, stage: string) => `/api/boards/${enc(board)}/stages/${enc(stage)}`,
+  stageReorder: (board: string, stage: string) => `/api/boards/${enc(board)}/stages/${enc(stage)}/reorder`,
+  stories: "/api/stories",
+  story: (key: string) => `/api/stories/${enc(key)}`,
+  storyMove: (key: string) => `/api/stories/${enc(key)}/move`,
+  storyRelease: (key: string) => `/api/stories/${enc(key)}/release`,
+  storyForceRelease: (key: string) => `/api/stories/${enc(key)}/force-release`,
+  storyRetry: (key: string) => `/api/stories/${enc(key)}/retry`,
+  storyWorktree: (key: string) => `/api/stories/${enc(key)}/worktree`,
 } as const;
 
-export type EnqueueCommandRequest = { command: HostCommand };
+export type EnqueueCommandRequest = { command: SupervisorCommand };
 export type EnqueueCommandResponse = CommandRecord;
 /** GET /api/commands/next?wait=<seconds> → 200 with a claimed command, or 204 on timeout. */
 export type NextCommandResponse = CommandRecord;
 export type CommandResultRequest = { ok: true; result?: string } | { ok: false; error: string };
-export type PostMessageRequest = { text: string; level?: HostMessage["level"]; commandId?: string };
+export type PostMessageRequest = { text: string; level?: SupervisorMessage["level"]; commandId?: string };
 export type FileChangesResponse = { changes: FileChange[] };
+
+/** Every error response. `code` is set for sf rejections; 409 means `claim_gone` or `claimed`. */
+export type ErrorResponse = { error: string; code?: SfErrorCode };
+
+export type CreateBoardRequest = { name: string; key: string };
+export type UpdateBoardRequest = { name?: string; schema?: FieldDef[]; overrides?: BoardOverrides };
+export type BoardResponse = { id: string; config: BoardConfig; prompts?: Record<string, string> };
+export type AddStageRequest = { name: string; after?: string };
+export type UpdateStageRequest = {
+  name?: string;
+  promptEnabled?: boolean;
+  prompt?: string;
+  agent?: string | null;
+  model?: string | null;
+};
+export type ReorderStageRequest = { index: number };
+export type CreateStoryRequest = {
+  board: string;
+  title: string;
+  stage?: string;
+  fields?: Record<string, unknown>;
+  body?: string;
+  worker?: string;
+};
+/** A null field value clears the field. */
+export type UpdateStoryRequest = { title?: string; fields?: Record<string, unknown>; body?: string; worker?: string };
+export type MoveStoryRequest = { stage: string; worker?: string };
+export type ReleaseStoryRequest = { worker: string };
+export type WorktreeRequest = { action: "ensure" | "remove"; force?: boolean };
+export type WorktreeResponse = { path: string; branch: string; removed?: boolean; reason?: string };
 
 // ---------- Project (.sf) ----------
 

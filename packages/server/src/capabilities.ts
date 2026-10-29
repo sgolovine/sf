@@ -9,19 +9,19 @@ type Env = NodeJS.ProcessEnv;
  */
 export function detectCapabilities(env: Env = process.env): Capabilities {
   const agent = env.CLAUDECODE ? "claude-code" : Object.keys(env).some((k) => k.startsWith("CODEX_")) ? "codex" : "unknown";
-  const host = env.T3CODE_CLI_PATH || env.T3_ACP_MCP_NODE ? "t3-code" : env.HERDR_ENV ? "herdr" : "terminal";
+  const app = env.T3CODE_CLI_PATH || env.T3_ACP_MCP_NODE ? "t3-code" : env.HERDR_ENV ? "herdr" : "terminal";
   return {
     agent,
     model: env.ANTHROPIC_MODEL || env.CODEX_MODEL || "unknown",
-    host,
+    app,
     // T3 Code and Herdr can start new top-level threads; plain terminals cannot.
-    canSpawnThreads: host !== "terminal",
+    canSpawnThreads: app !== "terminal",
     // Both Claude Code and Codex can run subagents.
     canSpawnSubagents: agent !== "unknown",
   };
 }
 
-type CapabilityFlags = Record<string, string | boolean | undefined>;
+type CapabilityFlags = Record<string, string | boolean | string[] | undefined>;
 
 /** Merges explicit flags over detected values. */
 export function resolveCapabilities(flags: CapabilityFlags, env: Env = process.env): Capabilities {
@@ -36,7 +36,7 @@ export function resolveCapabilities(flags: CapabilityFlags, env: Env = process.e
   return {
     agent: str("agent", detected.agent),
     model: str("model", detected.model),
-    host: str("host", detected.host),
+    app: str("app", detected.app),
     canSpawnThreads: bool("can-spawn-threads", detected.canSpawnThreads),
     canSpawnSubagents: bool("can-spawn-subagents", detected.canSpawnSubagents),
     ...(typeof notes === "string" ? { notes } : {}),
