@@ -1,6 +1,7 @@
-// Supervisor-side CLI for the sf-factory skill. Runs the local server (Express
-// API + web interface), lets the Supervisor talk to it, and changes the Project
-// (.sf) for the UI, the Supervisor, and Workers. See HELP for commands.
+// The sf CLI. `sf setup` installs the sf-factory skill; `sf start` runs the local
+// server (Express API + web interface); the other commands let the Supervisor
+// talk to it and change the Project (.sf) for the UI, the Supervisor, and
+// Workers. See HELP for commands.
 
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
@@ -14,8 +15,8 @@ import {
   type SessionState,
   type SupervisorMessage,
 } from "#protocol";
+import pkg from "../../package.json" with { type: "json" };
 import { detectCapabilities, resolveCapabilities } from "../server/capabilities.ts";
-import { PROJECT_COMMANDS, PROJECT_HELP, runProjectCommand, type Flags } from "./story.ts";
 import { api, uiUrl, type ServerInfo } from "../server/client.ts";
 import { shellQuote } from "../server/project/brief.ts";
 import { isRejection } from "../server/project/errors.ts";
@@ -24,19 +25,23 @@ import { createService } from "../server/project/service.ts";
 import { createApp, createOnlineService, listen, refreshProject } from "../server/server.ts";
 import { Store } from "../server/store.ts";
 import { watchFiles } from "../server/watcher.ts";
+import { runSetup } from "./setup.ts";
+import { PROJECT_COMMANDS, PROJECT_HELP, runProjectCommand, type Flags } from "./story.ts";
 
-const HELP = `sf-factory: Supervisor-side CLI for the sf-factory skill. It runs the local
-server (Express API + web interface), lets the Supervisor talk to it, and
-changes the Project (.sf).
+const HELP = `sf: build and run a software factory. \`sf start\` runs the local server
+(Express API + web interface); the other commands talk to it and change the
+Project (.sf).
 
-  sf-factory capabilities                  print detected agent/app capabilities (JSON)
-  sf-factory start [capability flags]      init .sf if needed, start the server, register, open the UI
-  sf-factory next [--timeout <s>]          wait for and claim the next command (e.g. worker.spawn)
-  sf-factory done <id> [--result "..."]    report a command as finished (worker.spawn: the thread id)
-  sf-factory fail <id> --error "..."       report a command as failed
-  sf-factory say "<text>" [--level warn]   post a message to the UI
-  sf-factory changes [--since <ms>]        list file changes seen by the watcher
-  sf-factory status | url | stop
+  sf setup [options]                install the sf-factory skill for your agents (sf setup --help)
+  sf capabilities                   print detected agent/app capabilities (JSON)
+  sf start [capability flags]       init .sf if needed, start the server, register, open the UI
+  sf next [--timeout <s>]           wait for and claim the next command (e.g. worker.spawn)
+  sf done <id> [--result "..."]     report a command as finished (worker.spawn: the thread id)
+  sf fail <id> --error "..."        report a command as failed
+  sf say "<text>" [--level warn]    post a message to the UI
+  sf changes [--since <ms>]         list file changes seen by the watcher
+  sf status | url | stop
+  sf --version | --help
 
 Capability flags: --agent, --model, --app, --can-spawn-threads <bool>,
 --can-spawn-subagents <bool>, --notes. Other flags: --json, --no-open,
@@ -59,7 +64,8 @@ const REPEATABLE_FLAGS = new Set(["field"]);
 
 type DevServerInfo = ServerInfo & { uiBase?: string };
 
-const { cmd, positional, flags } = parseArgs(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const { cmd, positional, flags } = parseArgs(argv);
 const root = resolveProjectRoot(str(flags.project), process.env, process.cwd());
 const paths = sfPaths(root);
 // The command line that runs this script, for Worker Briefs.
@@ -68,11 +74,15 @@ const SF_COMMAND = [process.execPath, ...process.execArgv, SCRIPT].map(shellQuot
 try {
   await main();
 } catch (err) {
-  console.error(`sf-factory: ${(err as Error).message}`);
+  console.error(`sf: ${(err as Error).message}`);
   process.exit(isRejection(err) ? 3 : 1);
 }
 
 async function main() {
+  // setup has its own flags.
+  if (cmd === "setup") return runSetup(argv.slice(1));
+  if (argv[0] === "--version" || argv[0] === "-v") return console.log(`sf ${pkg.version}`);
+  if (!cmd || argv[0] === "--help" || argv[0] === "-h") return console.log(HELP);
   if (flags.worker !== undefined && !str(flags.project))
     throw new Error("--worker needs --project <abs path> (the Supervisor's checkout)");
   if (cmd && PROJECT_COMMANDS.has(cmd)) return runProjectCommand(cmd, positional, flags, root, await findServer());
@@ -86,7 +96,7 @@ async function main() {
       const server = await ensureServer();
       const supervisor = await api(server, "POST", routes.capabilities, resolveCapabilities(flags));
       if (!flags["no-open"] && !process.env.SF_FACTORY_NO_OPEN) openBrowser(url(server));
-      console.log(`sf-factory ready: ${url(server)}`);
+      console.log(`sf ready: ${url(server)}`);
       if (flags.json) console.log(JSON.stringify(supervisor, null, 2));
       return;
     }
@@ -95,7 +105,7 @@ async function main() {
     case "done":
     case "fail": {
       const id = positional[0];
-      if (!id) throw new Error(`usage: sf-factory ${cmd} <command-id>`);
+      if (!id) throw new Error(`usage: sf ${cmd} <command-id>`);
       const body =
         cmd === "done"
           ? { ok: true, ...(str(flags.result) ? { result: str(flags.result) } : {}) }
@@ -105,7 +115,7 @@ async function main() {
     }
     case "say": {
       const text = positional.join(" ") || str(flags.text);
-      if (!text) throw new Error('usage: sf-factory say "<text>"');
+      if (!text) throw new Error('usage: sf say "<text>"');
       const message = await api<SupervisorMessage>(await requireServer(), "POST", routes.messages, {
         text,
         level: str(flags.level) ?? "info",
@@ -146,8 +156,8 @@ async function main() {
       return console.log("stopped");
     }
     default:
-      console.error(HELP);
-      process.exit(cmd ? 1 : 0);
+      console.error(`sf: unknown command: ${cmd}\n\n${HELP}`);
+      process.exit(1);
   }
 }
 
@@ -160,7 +170,7 @@ async function next(server: ServerInfo) {
     const record = await api<CommandRecord | null>(server, "GET", `${routes.nextCommand}?wait=${wait}`);
     if (record) return console.log(flags.json ? JSON.stringify(record, null, 2) : formatCommand(record));
   }
-  console.log("No command yet. Run `sf-factory next` again to keep waiting.");
+  console.log("No command yet. Run `sf next` again to keep waiting.");
   process.exit(2);
 }
 
@@ -178,16 +188,16 @@ function formatCommand({ id, command }: CommandRecord) {
       command.brief.trimEnd(),
       "----- END WORKER BRIEF -----",
       "",
-      `Once the Worker is running: sf-factory done ${id} --result "<thread or agent id>"`,
-      `If it cannot be spawned: sf-factory fail ${id} --error "<reason>"`,
+      `Once the Worker is running: sf done ${id} --result "<thread or agent id>"`,
+      `If it cannot be spawned: sf fail ${id} --error "<reason>"`,
     );
     return lines.join("\n");
   }
   lines.push(
     command.text,
     "",
-    `When finished: sf-factory done ${id} --result "<short summary>"`,
-    `If it cannot be done: sf-factory fail ${id} --error "<reason>"`,
+    `When finished: sf done ${id} --result "<short summary>"`,
+    `If it cannot be done: sf fail ${id} --error "<reason>"`,
   );
   return lines.join("\n");
 }
@@ -198,7 +208,14 @@ async function serve() {
   fs.mkdirSync(paths.runtime, { recursive: true });
   const dev = Boolean(flags.dev);
   const token = str(flags.token) ?? crypto.randomBytes(16).toString("hex");
-  const uiDir = str(flags["ui-dir"]) ?? process.env.SF_UI_DIR ?? path.join(path.dirname(SCRIPT), "..", "assets", "ui");
+  // Bundled: dist/sf.mjs next to dist/ui. From source: src/cli → dist/ui.
+  const uiDir =
+    str(flags["ui-dir"]) ??
+    process.env.SF_UI_DIR ??
+    [path.join(path.dirname(SCRIPT), "ui"), path.join(path.dirname(SCRIPT), "../../dist/ui")].find((d) =>
+      fs.existsSync(path.join(d, "index.html")),
+    ) ??
+    null;
   const store = new Store(root, paths.sessionJson);
   const service = createOnlineService(store, { root, sf: SF_COMMAND });
   const stopWatching = watchFiles(root, (changes) => {
@@ -228,7 +245,7 @@ async function serve() {
   fs.writeFileSync(paths.serverJson, JSON.stringify(info));
   touch();
   const sweep = () => {
-    if (service.hasProject()) service.sweep().catch((err) => console.error(`sf-factory: sweep failed: ${err.message}`));
+    if (service.hasProject()) service.sweep().catch((err) => console.error(`sf: sweep failed: ${err.message}`));
   };
   setInterval(sweep, SWEEP_MS);
   // A restarted server with a known Supervisor runs the triggers queued while it was down.
@@ -248,7 +265,7 @@ async function serve() {
   }
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-  if (dev) console.log(`sf-factory API on http://127.0.0.1:${port} | UI: ${url(info)} | project: ${root}`);
+  if (dev) console.log(`sf API on http://127.0.0.1:${port} | UI: ${url(info)} | project: ${root}`);
 }
 
 function url(server: DevServerInfo) {
@@ -276,7 +293,7 @@ async function findServer(): Promise<DevServerInfo | null> {
 
 async function requireServer() {
   const s = await findServer();
-  if (!s) throw new Error("the sf-factory server is not running; run `sf-factory start` first");
+  if (!s) throw new Error("sf is not running for this Project; start it with `sf start`");
   return s;
 }
 
@@ -297,7 +314,7 @@ async function ensureServer() {
     if (s) return s;
   }
   throw new Error(
-    "could not start the sf-factory server (if a sandbox blocks localhost networking, rerun with escalated permissions)",
+    "could not start the sf server (if a sandbox blocks localhost networking, rerun with escalated permissions)",
   );
 }
 

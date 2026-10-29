@@ -8,6 +8,13 @@
   "engines": {
     "node": ">=20.12"
   },
+  "bin": {
+    "sf": "./dist/sf.mjs"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "imports": {
     "#protocol": "./src/protocol/index.ts"
   },
@@ -15,12 +22,11 @@
     "dev": "pnpm run \"/^dev:(server|web)$/\"",
     "dev:server": "tsx watch src/cli/main.ts serve --dev --port 4317 --token dev",
     "dev:web": "vite",
-    "build": "vite build && node scripts/build-skill.mjs && node scripts/build-cli.mjs",
+    "build": "vite build && node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "test": "node --import tsx --test test/*.test.ts",
-    "sf": "node dist/cli/sf.mjs",
-    "sf-factory": "node dist/skills/sf-factory/scripts/sf-factory.mjs",
-    "sf-dev": "node scripts/sf-dev.mjs"
+    "sf": "node dist/sf.mjs",
+    "sf:dev": "node scripts/sf-dev.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",

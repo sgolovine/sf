@@ -30,10 +30,10 @@ export function watchFiles(root: string, onChanges: (changes: FileChange[]) => v
       timer ??= setTimeout(flush, FLUSH_MS);
     });
   } catch (err) {
-    console.error(`sf-factory: file watching disabled: ${(err as Error).message}`);
+    console.error(`sf: file watching disabled: ${(err as Error).message}`);
     return () => {};
   }
-  watcher.on("error", (err) => console.error(`sf-factory: file watcher error: ${err.message}`));
+  watcher.on("error", (err) => console.error(`sf: file watcher error: ${err.message}`));
 
   return () => {
     clearTimeout(timer);

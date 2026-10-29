@@ -25,7 +25,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
 
 export function loadProjectConfig(root: string): ProjectConfig {
   const raw = readJson<Partial<ProjectConfig>>(sfPaths(root).config);
-  if (!raw) throw new SfError("no_project", `no sf Project at ${root} (run \`sf-factory init\`)`);
+  if (!raw) throw new SfError("no_project", `no sf Project at ${root} (run \`sf init\`)`);
   const d = DEFAULT_PROJECT_CONFIG;
   return {
     ...d,

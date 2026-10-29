@@ -21,22 +21,22 @@ export type Flags = Record<string, string | boolean | string[]>;
 export const PROJECT_COMMANDS = new Set(["init", "board", "stage", "story", "worktree"]);
 
 export const PROJECT_HELP = `Project commands (all accept --project <dir>, --json; Workers add --worker <id>):
-  sf-factory init
-  sf-factory board list | create <name> --key <KEY> | show <board>
-  sf-factory stage add <board> <name> [--after <stage-id>]
-  sf-factory stage set <board> <stage-id> [--name <n>] [--prompt-enabled true|false]
-                       [--prompt <text> | --prompt-file <path>] [--agent <a>] [--model <m>]
-  sf-factory stage reorder <board> <stage-id> --index <n>
-  sf-factory stage remove <board> <stage-id>
-  sf-factory story create <board> --title "<t>" [--stage <id>] [--field k=v]... [--body "<md>" | --body-file <p>]
-  sf-factory story list [<board>] [--stage <id>]
-  sf-factory story show <KEY>
-  sf-factory story move <KEY> <stage-id>
-  sf-factory story update <KEY> [--title "<t>"] [--field k=v]... [--body "<md>" | --body-file <p>]
-  sf-factory story release <KEY>
-  sf-factory story force-release <KEY>
-  sf-factory story retry <KEY>
-  sf-factory worktree ensure <KEY> | remove <KEY> [--force]
+  sf init
+  sf board list | create <name> --key <KEY> | show <board>
+  sf stage add <board> <name> [--after <stage-id>]
+  sf stage set <board> <stage-id> [--name <n>] [--prompt-enabled true|false]
+               [--prompt <text> | --prompt-file <path>] [--agent <a>] [--model <m>]
+  sf stage reorder <board> <stage-id> --index <n>
+  sf stage remove <board> <stage-id>
+  sf story create <board> --title "<t>" [--stage <id>] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story list [<board>] [--stage <id>]
+  sf story show <KEY>
+  sf story move <KEY> <stage-id>
+  sf story update <KEY> [--title "<t>"] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story release <KEY>
+  sf story force-release <KEY>
+  sf story retry <KEY>
+  sf worktree ensure <KEY> | remove <KEY> [--force]
 <board> is a Board id or key. Exit codes: 0 ok, 1 error, 3 rejected (claim is gone, or claimed).`;
 
 export async function runProjectCommand(cmd: string, args: string[], flags: Flags, root: string, server: ServerInfo | null) {
@@ -48,7 +48,7 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
     server ? api<T>(server, method, route, body) : Promise.resolve(offline());
   const out = (value: unknown, text: () => string) => console.log(flags.json ? JSON.stringify(value, null, 2) : text());
   const need = (value: string | undefined, usage: string) => {
-    if (!value) throw new SfError("invalid", `usage: sf-factory ${usage}`);
+    if (!value) throw new SfError("invalid", `usage: sf ${usage}`);
     return value;
   };
 
@@ -82,7 +82,7 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         const board = await call<BoardResponse>("GET", routes.board(ref), undefined, () => svc.showBoard(ref));
         return out(board, () => formatBoard(board));
       }
-      throw new SfError("invalid", "usage: sf-factory board list | create <name> --key <KEY> | show <board>");
+      throw new SfError("invalid", "usage: sf board list | create <name> --key <KEY> | show <board>");
     }
 
     case "stage": {
@@ -119,7 +119,7 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         const stages = await call<StageConfig[]>("DELETE", routes.stage(ref, stageId), undefined, () => svc.removeStage(ref, stageId));
         return out(stages, () => formatStages(stages));
       }
-      throw new SfError("invalid", `usage: sf-factory ${usage}`);
+      throw new SfError("invalid", `usage: sf ${usage}`);
     }
 
     case "story": {
@@ -182,7 +182,7 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         const story = await call<StoryDetails>("POST", routes.storyRetry(key), {}, () => svc.retry(key));
         return out(story, () => `Retrying ${key} in ${story.stage}.${statusText(story)}`);
       }
-      throw new SfError("invalid", "usage: sf-factory story list|create|show|move|update|release|force-release|retry");
+      throw new SfError("invalid", "usage: sf story list|create|show|move|update|release|force-release|retry");
     }
 
     case "worktree": {
@@ -202,7 +202,7 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
           wt.removed ? `Removed ${wt.path} (kept branch ${wt.branch}).` : wt.reason ? `Kept ${wt.path}: ${wt.reason}.` : `No worktree for ${key}.`,
         );
       }
-      throw new SfError("invalid", "usage: sf-factory worktree ensure|remove <KEY> [--force]");
+      throw new SfError("invalid", "usage: sf worktree ensure|remove <KEY> [--force]");
     }
   }
 }

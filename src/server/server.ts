@@ -60,7 +60,7 @@ export function refreshProject(store: Store, service: Service) {
     store.setProject(service.snapshot());
   } catch (err) {
     // A hand edit can leave a file unreadable; keep the last good snapshot.
-    console.error(`sf-factory: cannot read the Project: ${(err as Error).message}`);
+    console.error(`sf: cannot read the Project: ${(err as Error).message}`);
   }
 }
 
@@ -302,7 +302,7 @@ export function createApp({ store, service, token, uiDir, onRequest, onStop }: S
     });
   } else {
     app.get("/", (_req, res) => {
-      res.type("text").send("sf-factory API is running. No built UI found; start the web dev server with `pnpm dev:web`.");
+      res.type("text").send("sf API is running. No built UI found; run `pnpm build` (or `pnpm dev:web`).");
     });
   }
 

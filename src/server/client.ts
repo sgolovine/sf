@@ -7,7 +7,7 @@ export function uiUrl(server: ServerInfo, base = `http://127.0.0.1:${server.port
   return `${base}/#authToken=${server.token}`;
 }
 
-/** Calls the sf-factory API. Resolves to null on 204. sf rejections throw SfError. */
+/** Calls the sf API. Resolves to null on 204. sf rejections throw SfError. */
 export async function api<T>(server: ServerInfo, method: string, pathname: string, body?: unknown): Promise<T> {
   const res = await fetch(`http://127.0.0.1:${server.port}${pathname}`, {
     method,

@@ -69,7 +69,7 @@ export type ServiceOptions = {
   onSpawn?: (request: SpawnRequest) => string;
   /** How new Workers run, from the Supervisor's capabilities. */
   spawnMode?: () => "thread" | "subagent";
-  /** Shell-ready sf-factory command for Worker Briefs. */
+  /** Shell-ready sf command for Worker Briefs. */
   sf?: string;
   /** Called after every mutation. */
   onChange?: () => void;
@@ -276,7 +276,7 @@ export function createService(opts: ServiceOptions) {
       root,
       worktree,
       workerId,
-      sf: opts.sf ?? "sf-factory",
+      sf: opts.sf ?? "sf",
       preamble: settings.briefPreamble,
       prompt: promptText(boardId, stageId),
     });

@@ -38,7 +38,7 @@ export function App() {
     }
   };
 
-  if (error) return <Centered>Could not reach the sf-factory server: {error.message}</Centered>;
+  if (error) return <Centered>Could not reach the sf server: {error.message}</Centered>;
   if (!session) return <Centered>Connecting…</Centered>;
 
   const { capabilities, listening } = session.supervisor;

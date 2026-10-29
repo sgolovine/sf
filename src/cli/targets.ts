@@ -42,18 +42,20 @@ export const PRIMARY_SKILL: Skill = {
 /** Offered during setup. To be defined later. */
 export const OPTIONAL_SKILLS: Skill[] = [];
 
-/** Built skills ship next to the bundled CLI; from source, use the repo build. */
+/** Skills ship next to the bundled CLI (dist/sf.mjs → skills/); from source, src/cli → skills/. */
 export function skillsSourceDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const dir = [path.join(here, "skills"), path.resolve(here, "../../dist/skills")].find((d) => fs.existsSync(d));
-  if (!dir) throw new Error("built skills not found; run `pnpm build` first");
+  const dir = [path.join(here, "../skills"), path.join(here, "../../skills")].find((d) =>
+    fs.existsSync(path.join(d, PRIMARY_SKILL.name, "SKILL.md")),
+  );
+  if (!dir) throw new Error("sf-factory skill not found next to the sf CLI");
   return dir;
 }
 
-/** Copies a built skill into an agent's skills directory, replacing any previous copy. */
+/** Copies a skill into an agent's skills directory, replacing any previous copy. */
 export function installSkill(skill: Skill, targetSkillsDir: string): { path: string; updated: boolean } {
   const source = path.join(skillsSourceDir(), skill.name);
-  if (!fs.existsSync(path.join(source, "SKILL.md"))) throw new Error(`skill ${skill.name} is not built`);
+  if (!fs.existsSync(path.join(source, "SKILL.md"))) throw new Error(`skill ${skill.name} not found`);
   const target = path.join(targetSkillsDir, skill.name);
   const updated = fs.existsSync(target);
   fs.rmSync(target, { recursive: true, force: true });

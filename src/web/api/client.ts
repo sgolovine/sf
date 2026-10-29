@@ -50,7 +50,7 @@ async function request<T>(method: string, pathname: string, body?: unknown): Pro
   return json;
 }
 
-/** Typed client for the sf-factory server. */
+/** Typed client for the sf server. */
 export const sfApi = {
   getState: () => request<SessionState>("GET", routes.state),
 

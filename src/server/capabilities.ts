@@ -5,7 +5,7 @@ type Env = NodeJS.ProcessEnv;
 /**
  * Best-effort capability detection from the environment. Scripts cannot see
  * the model or the agent's tool list, so the agent fills in the rest with
- * flags to `sf-factory start`.
+ * flags to `sf start`.
  */
 export function detectCapabilities(env: Env = process.env): Capabilities {
   const agent = env.CLAUDECODE ? "claude-code" : Object.keys(env).some((k) => k.startsWith("CODEX_")) ? "codex" : "unknown";

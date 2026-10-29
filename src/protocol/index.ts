@@ -3,9 +3,9 @@
 //
 // Flow: the server enqueues a SupervisorCommand (a `worker.spawn` when a Story
 // Moves into a Stage with an enabled Stage Prompt, or a `supervisor.instruct`
-// from the UI) → the Supervisor claims it with `sf-factory next` → does the
-// work and reports back with `sf-factory done|fail`. The Supervisor can also
-// push SupervisorMessages to the UI with `sf-factory say`.
+// from the UI) → the Supervisor claims it with `sf next` → does the
+// work and reports back with `sf done|fail`. The Supervisor can also
+// push SupervisorMessages to the UI with `sf say`.
 
 // ---------- Commands (server/UI → Supervisor) ----------
 
@@ -85,7 +85,7 @@ export type SupervisorInfo = {
   capabilities: Capabilities | null;
   /** Last time the Supervisor talked to the server. */
   lastSeenAt: number | null;
-  /** True while the Supervisor is blocked in `sf-factory next`. */
+  /** True while the Supervisor is blocked in `sf next`. */
   listening: boolean;
 };
 

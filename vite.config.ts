@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 const web = path.resolve(import.meta.dirname, "src/web");
 
 // In development the Express server runs separately (`pnpm dev:server`, port 4317)
-// and Vite proxies /api to it. `pnpm build` writes the UI into the bundled skill.
+// and Vite proxies /api to it. `pnpm build` writes the UI to dist/ui, which `sf start` serves.
 export default defineConfig({
   root: web,
   plugins: [react(), tailwindcss()],
@@ -18,7 +18,7 @@ export default defineConfig({
     proxy: { "/api": "http://127.0.0.1:4317" },
   },
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/skills/sf-factory/assets/ui"),
+    outDir: path.resolve(import.meta.dirname, "dist/ui"),
     emptyOutDir: true,
   },
 });
