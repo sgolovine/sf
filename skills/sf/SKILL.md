@@ -1,11 +1,25 @@
 ---
-name: sf-factory
-description: Run the sf software factory from this thread with the `sf` CLI. This thread becomes the Supervisor - it checks which agent, model, and thread or subagent tools are available, starts the local sf web interface with `sf start` (a kanban of Boards, Stages, and Stories kept in .sf), and spawns a Worker with the Worker Brief whenever a Story Moves into a Stage with an enabled Stage Prompt. Use when the user asks to start sf, the factory, or the sf-factory skill.
+name: sf
+description: Run and drive the sf software factory through the `sf` CLI. This thread becomes the Supervisor - it checks which agent, model, and thread or subagent tools are available, starts the local sf web interface with `sf start` (a kanban of Boards, Stages, and Stories kept in .sf), and spawns a Worker with the Worker Brief whenever a Story Moves into a Stage with an enabled Stage Prompt. Use when the user asks to start sf or its UI (`sf start`), run the factory, or manage sf Boards, Stages, and Stories.
 ---
 
-# sf-factory
+# sf
 
-This thread is the **Supervisor**. The user moves Stories across Stages on a Board in the sf web interface. When a Story enters a Stage with an enabled Stage Prompt, sf queues a `worker.spawn` command, and you start a Worker for it. All communication goes through the `sf` CLI. Run every command from the repository root, which is the Project root (`.sf` lives there).
+This thread is the **Supervisor**. The user moves Stories across Stages on a Board in the sf web interface. When a Story enters a Stage with an enabled Stage Prompt, sf queues a `worker.spawn` command, and you start a Worker for it. Run every command from the repository root, which is the Project root (`.sf` lives there).
+
+## The CLI is the interface
+
+Everything goes through the `sf` CLI: starting the UI, receiving commands, and reading or changing Boards, Stages, and Stories. Never start the server another way (no `node dist/...`, `pnpm dev`, or `vite`), never call its HTTP API with `curl`, and never edit Board, Stage, or Story files in `.sf/` by hand (only `.sf/sf.config.json` is edited by hand); use the matching `sf` command instead, so the running UI updates live. When unsure of a command or flag, run `sf --help` (or `sf setup --help`).
+
+| Goal | Command |
+| --- | --- |
+| Start the UI and server | `sf start ...` (step 3) |
+| Is it running, and where | `sf status`, `sf url` |
+| Wait for the next command | `sf next` |
+| Report a command | `sf done <id> --result "..."`, `sf fail <id> --error "..."` |
+| Post to the UI | `sf say "<text>"` |
+| Boards, Stages, Stories | `sf board ...`, `sf stage ...`, `sf story ...` ([worker-commands.md](references/worker-commands.md)) |
+| Stop | `sf stop` |
 
 ## 1. Check the CLI
 

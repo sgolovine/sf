@@ -4,10 +4,10 @@ Build and run a software factory.
 
 sf is a CLI first. One package builds one `sf` command:
 
-- **CLI** (`src/cli`): `sf setup` installs the `sf-factory` skill for Claude Code, Codex, or OpenCode. `sf start` runs the server in the foreground. The other commands (`sf next`, `sf done`, `sf story ...`) let the Supervisor and Workers talk to the server and change the Project.
+- **CLI** (`src/cli`): `sf setup` installs the `sf` skill for Claude Code, Codex, or OpenCode. `sf start` runs the server in the foreground. The other commands (`sf next`, `sf done`, `sf story ...`) let the Supervisor and Workers talk to the server and change the Project.
 - **Server** (`src/server`): an Express server that `sf start` runs in-process. It serves the built web interface, the API, and server-sent events, and turns Moves into `worker.spawn` commands for the Supervisor. `src/server/project` is the Story service.
 - **Web interface** (`src/web`): a React + TanStack Query kanban (Tailwind CSS v4 and shadcn/ui). A sidebar lists the Boards, with New Board at the bottom. Users create Stories and Move them on the Board; each Board's Board Settings page has tabs for Stages, Custom Fields (the Story schema), and Stage Prompts (with agent and model overrides).
-- **Skill** (`skills/sf-factory`): instructions only. It turns an agent thread into the _Supervisor_: it checks capabilities, runs `sf start` as a background process of its own thread, and spawns a Worker whenever a Story Moves into a Stage with an enabled Stage Prompt.
+- **Skill** (`skills/sf`): instructions only. It turns an agent thread into the _Supervisor_: it checks capabilities, runs `sf start` as a background process of its own thread, and spawns a Worker whenever a Story Moves into a Stage with an enabled Stage Prompt.
 
 ## Layout
 
@@ -19,7 +19,7 @@ src/
   web/       React UI; api/ has the client and hooks, components/ui the shadcn/ui components
 test/        node --test suites
 skills/
-  sf-factory/  SKILL.md and references, installed by `sf setup`
+  sf/          SKILL.md and references, installed by `sf setup`
 scripts/
   build.mjs    bundles src/cli/main.ts into dist/sf.mjs
   sf-dev.mjs   runs the CLI from source (sf-dev skill)
@@ -75,7 +75,7 @@ sf story list
 sf start --no-open      # runs until Ctrl-C; prints `sf ready: <url>`
 ```
 
-See [worker-commands.md](skills/sf-factory/references/worker-commands.md) for every Project command.
+See [worker-commands.md](skills/sf/references/worker-commands.md) for every Project command.
 
 The server listens on `127.0.0.1` only. Each `/api` call needs the session token in the `authToken` header. The printed UI URL carries the token in its fragment so the browser can add the header without sending the token in the HTTP URL.
 
@@ -91,7 +91,7 @@ pnpm sf:dev <cmd>   # the sf CLI from source, e.g. pnpm sf:dev story list
 
 `pnpm dev:server` and `pnpm dev:web` run each part on its own. The dev server (`sf start --dev`) uses this repository as its Project and leaves the UI to Vite. While it runs, other `sf` commands for this repository connect to it.
 
-To test the `sf-factory` skill without building or installing, use the project-internal `sf-dev` skill (`.agents/skills/sf-dev`). It follows `skills/sf-factory/SKILL.md` from source with `node scripts/sf-dev.mjs` in place of `sf`. On `start`, `sf-dev.mjs` rebuilds the UI into `dist/ui`; it runs the CLI from TypeScript in its own process.
+To test the `sf` skill without building or installing, use the project-internal `sf-dev` skill (`.agents/skills/sf-dev`). It follows `skills/sf/SKILL.md` from source with `pnpm sf:dev` in place of `sf`. On `start`, `sf-dev.mjs` rebuilds the UI into `dist/ui`; it runs the CLI from TypeScript in its own process.
 
 ## Build and install
 

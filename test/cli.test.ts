@@ -30,7 +30,7 @@ test("setup installs only the skill's markdown", () => {
   const dir = tempDir();
   const r = sf("setup", "--agents", "claude-code", "--scope", "project", "--project-dir", dir, "--yes");
   assert.equal(r.status, 0, r.stderr);
-  const skill = path.join(dir, ".claude/skills/sf-factory");
+  const skill = path.join(dir, ".claude/skills/sf");
   assert.ok(fs.existsSync(path.join(skill, "SKILL.md")));
   assert.ok(fs.existsSync(path.join(skill, "references/commands.md")));
   assert.ok(!fs.existsSync(path.join(skill, "scripts")));

@@ -35,7 +35,7 @@ export type Skill = { name: string; description: string };
 
 /** Always installed. */
 export const PRIMARY_SKILL: Skill = {
-  name: "sf-factory",
+  name: "sf",
   description: "Runs the sf web interface and carries out its commands.",
 };
 
@@ -48,7 +48,7 @@ export function skillsSourceDir(): string {
   const dir = [path.join(here, "../skills"), path.join(here, "../../skills")].find((d) =>
     fs.existsSync(path.join(d, PRIMARY_SKILL.name, "SKILL.md")),
   );
-  if (!dir) throw new Error("sf-factory skill not found next to the sf CLI");
+  if (!dir) throw new Error("sf skill not found next to the sf CLI");
   return dir;
 }
 

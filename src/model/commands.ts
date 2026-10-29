@@ -1,5 +1,5 @@
 // Commands the server and the web interface queue for the Supervisor (the
-// agent thread running the sf-factory skill).
+// agent thread running the sf skill).
 //
 // Flow: the server enqueues a SupervisorCommand (a `worker.spawn` when a Story
 // Moves into a Stage with an enabled Stage Prompt, or a `supervisor.instruct`

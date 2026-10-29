@@ -5,7 +5,7 @@ import { AGENTS, installSkill, OPTIONAL_SKILLS, PRIMARY_SKILL, type Scope, type 
 
 const HELP = `Usage: sf setup [options]
 
-Installs the sf-factory skill (instructions for the \`sf\` CLI) for your coding agents.
+Installs the sf skill (instructions for the \`sf\` CLI) for your coding agents.
 Prompts for anything not given as a flag. Pass --yes to never prompt.
 
 Options:
@@ -16,7 +16,7 @@ Options:
   -y, --yes             non-interactive: use defaults for anything not given
   -h, --help            show this help`;
 
-/** `sf setup`: installs the sf-factory skill for coding agents. */
+/** `sf setup`: installs the sf skill for coding agents. */
 export async function runSetup(argv: string[]) {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -89,7 +89,7 @@ export async function runSetup(argv: string[]) {
     }
   }
 
-  if (interactive) outro("Done. Check `sf --version`, then ask your agent to run the sf-factory skill.");
+  if (interactive) outro("Done. Check `sf --version`, then ask your agent to run the sf skill.");
 }
 
 // ---------- helpers ----------

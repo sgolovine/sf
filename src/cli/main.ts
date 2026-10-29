@@ -1,4 +1,4 @@
-// The sf CLI. `sf setup` installs the sf-factory skill; `sf start` runs the local
+// The sf CLI. `sf setup` installs the sf skill; `sf start` runs the local
 // server (Express API + web interface); the other commands let the Supervisor
 // talk to it and change the Project (.sf) for the UI, the Supervisor, and
 // Workers. See HELP for commands.
@@ -23,7 +23,7 @@ const HELP = `sf: build and run a software factory. \`sf start\` runs the local 
 (Express API + web interface); the other commands talk to it and change the
 Project (.sf).
 
-  sf setup [options]                install the sf-factory skill for your agents (sf setup --help)
+  sf setup [options]                install the sf skill for your agents (sf setup --help)
   sf capabilities                   print detected agent/app capabilities (JSON)
   sf start [capability flags]       init .sf if needed, run the server in the foreground, open the UI
   sf next [--timeout <s>]           wait for and claim the next command (e.g. worker.spawn)

@@ -5,7 +5,7 @@ sf is a software factory: Stories move across Stages on a Board, and each move c
 ## Agents
 
 **Supervisor**:
-The agent thread running the `sf-factory` skill. It starts the web interface with `sf start` and spawns Workers when Stories move.
+The agent thread running the `sf` skill. It starts the web interface with `sf start` and spawns Workers when Stories move.
 _Avoid_: Host thread, host, orchestrator
 
 **Worker**:
