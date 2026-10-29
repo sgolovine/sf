@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { after, test } from "node:test";
 import { routes, TOKEN_HEADER } from "#protocol";
@@ -90,4 +92,23 @@ test("sf stop stops a running start; url fails without a server", async () => {
   const url = sf(repo, "url");
   assert.equal(url.status, 1);
   assert.match(url.stderr, /not running/);
+});
+
+test("sf stop never signals the pid of a stale server.json", async () => {
+  const repo = tempRepo();
+  const sleeper = spawn("sleep", ["300"], { stdio: "ignore" });
+  children.push(sleeper);
+  const free = net.createServer().listen(0, "127.0.0.1");
+  await once(free, "listening");
+  const port = (free.address() as net.AddressInfo).port;
+  await new Promise((r) => free.close(r));
+  const file = sfPaths(repo).serverJson;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ port, token: "t", pid: sleeper.pid }));
+
+  assert.equal(sf(repo, "stop").stdout.trim(), "not running (removed stale server.json)");
+  assert.ok(!fs.existsSync(file));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(sleeper.exitCode, null);
+  assert.equal(sleeper.signalCode, null);
 });

@@ -148,7 +148,7 @@ async function next(server: ServerInfo) {
     const record = await api<CommandRecord | null>(server, "GET", `${routes.nextCommand}?wait=${wait}`);
     if (record) return console.log(flags.json ? JSON.stringify(record, null, 2) : formatCommand(record));
   }
-  console.log("No command yet. Run `sf next` again to keep waiting.");
+  console.log(`No command yet. Run \`${SF_COMMAND} next\` again to keep waiting.`);
   process.exit(2);
 }
 
@@ -182,15 +182,15 @@ function formatCommand({ id, command }: CommandRecord) {
 
 // ---------- Server lifecycle ----------
 
-/** Asks the server to stop and waits up to 5s for it to exit; SIGTERMs it if its API is gone. */
+/** Asks the server to stop and waits up to 5s for it to exit. Never signals a pid: server.json may be stale. */
 async function stop() {
   const server = readServerInfo(paths.serverJson);
-  const asked = server ? await api(server, "POST", routes.stop).then(() => true, () => false) : false;
-  if (!server || (!asked && !isAlive(server.pid))) {
+  if (!server) return console.log("not running");
+  const asked = await api(server, "POST", routes.stop).then(() => true, () => false);
+  if (!asked) {
     fs.rmSync(paths.serverJson, { force: true });
-    return console.log("not running");
+    return console.log("not running (removed stale server.json)");
   }
-  if (!asked) process.kill(server.pid, "SIGTERM");
   for (let i = 0; i < 50 && isAlive(server.pid); i++) await sleep(100);
   fs.rmSync(paths.serverJson, { force: true });
   console.log("stopped");
