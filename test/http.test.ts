@@ -9,8 +9,8 @@ import { tempRepo } from "./helpers.ts";
 
 const root = tempRepo();
 const store = new Store(root, null);
-const service = createOnlineService(store, { root, sf: "sf-factory" });
-const app = createApp({ store, service, token: "t", uiDir: null, onRequest: () => {}, onStop: () => {} });
+const service = createOnlineService(store, { root, sf: "sf" });
+const app = createApp({ store, service, token: "t", uiDir: null, onStop: () => {} });
 const http = await listen(app, 0);
 after(() => http.close());
 const address = http.address();

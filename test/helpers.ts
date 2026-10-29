@@ -56,7 +56,7 @@ export async function setupProject(options: Partial<ServiceOptions> & { config?:
         return `c${spawns.length}`;
       },
       spawnMode: () => "thread",
-      sf: "node /abs/sf-factory.mjs",
+      sf: "node /abs/sf.mjs",
       ...options,
     });
   const svc = make(options.online ?? true);

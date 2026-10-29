@@ -10,7 +10,7 @@ export type BriefInput = {
   root: string;
   worktree: { path: string; branch: string };
   workerId: string;
-  /** Shell-ready command that runs sf-factory, e.g. `node /abs/sf-factory.mjs`. */
+  /** Shell-ready command that runs sf, e.g. `sf` or `node /abs/sf.mjs`. */
   sf: string;
   preamble: string;
   prompt: string;

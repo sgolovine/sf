@@ -20,7 +20,7 @@
   },
   "scripts": {
     "dev": "pnpm run \"/^dev:(server|web)$/\"",
-    "dev:server": "tsx watch src/cli/main.ts serve --dev --port 4317 --token dev",
+    "dev:server": "tsx watch src/cli/main.ts start --dev --port 4317 --token dev --no-open",
     "dev:web": "vite",
     "build": "vite build && node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",

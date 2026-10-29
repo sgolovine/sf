@@ -35,7 +35,6 @@ export type ServerOptions = {
   token: string;
   /** Built UI directory. When missing (dev), run the Vite dev server instead. */
   uiDir: string | null;
-  onRequest: () => void;
   onStop: () => void;
 };
 
@@ -64,12 +63,8 @@ export function refreshProject(store: Store, service: Service) {
   }
 }
 
-export function createApp({ store, service, token, uiDir, onRequest, onStop }: ServerOptions) {
+export function createApp({ store, service, token, uiDir, onStop }: ServerOptions) {
   const app = express();
-  app.use((_req, _res, next) => {
-    onRequest();
-    next();
-  });
   app.use(express.json({ limit: "1mb" }));
 
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {

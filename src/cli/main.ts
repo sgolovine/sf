@@ -3,10 +3,7 @@
 // talk to it and change the Project (.sf) for the UI, the Supervisor, and
 // Workers. See HELP for commands.
 
-import { spawn } from "node:child_process";
-import crypto from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   routes,
@@ -17,15 +14,12 @@ import {
 } from "#protocol";
 import pkg from "../../package.json" with { type: "json" };
 import { detectCapabilities, resolveCapabilities } from "../server/capabilities.ts";
-import { api, uiUrl, type ServerInfo } from "../server/client.ts";
-import { shellQuote } from "../server/project/brief.ts";
+import { api, findServer, readServerInfo, uiUrl, type ServerInfo } from "../server/client.ts";
 import { isRejection } from "../server/project/errors.ts";
 import { resolveProjectRoot, sfPaths } from "../server/project/paths.ts";
-import { createService } from "../server/project/service.ts";
-import { createApp, createOnlineService, listen, refreshProject } from "../server/server.ts";
-import { Store } from "../server/store.ts";
-import { watchFiles } from "../server/watcher.ts";
+import { findOnPath, sfCommand } from "./sf-command.ts";
 import { runSetup } from "./setup.ts";
+import { isAlive, runStart } from "./start.ts";
 import { PROJECT_COMMANDS, PROJECT_HELP, runProjectCommand, type Flags } from "./story.ts";
 
 const HELP = `sf: build and run a software factory. \`sf start\` runs the local server
@@ -34,7 +28,7 @@ Project (.sf).
 
   sf setup [options]                install the sf-factory skill for your agents (sf setup --help)
   sf capabilities                   print detected agent/app capabilities (JSON)
-  sf start [capability flags]       init .sf if needed, start the server, register, open the UI
+  sf start [capability flags]       init .sf if needed, run the server in the foreground, open the UI
   sf next [--timeout <s>]           wait for and claim the next command (e.g. worker.spawn)
   sf done <id> [--result "..."]     report a command as finished (worker.spawn: the thread id)
   sf fail <id> --error "..."        report a command as failed
@@ -46,30 +40,27 @@ Project (.sf).
 Capability flags: --agent, --model, --app, --can-spawn-threads <bool>,
 --can-spawn-subagents <bool>, --notes. Other flags: --json, --no-open,
 --project <dir> (default: $SF_PROJECT, then the current directory).
+\`start\` also takes --port <n> (default: random) and --ui-dir <dir>. It runs
+until Ctrl-C, SIGTERM, \`sf stop\`, or the exit of the process that started it.
 \`next\` exits 0 with a command, 2 on timeout, 1 on error.
 
 ${PROJECT_HELP}`;
 
-const SCRIPT = fileURLToPath(import.meta.url);
-const IDLE_SHUTDOWN_MS = 6 * 60 * 60 * 1000;
-// The server exits when the Supervisor has not been heard from for this long. It
-// does not count while the Supervisor is long-polling, a command is claimed, or
-// a Worker holds a Claim.
-const SUPERVISOR_HEARTBEAT_MS = 120 * 1000;
-const HEARTBEAT_CHECK_MS = 10 * 1000;
-const SWEEP_MS = 60 * 1000;
 const POLL_SECONDS = 25;
 const BOOLEAN_FLAGS = new Set(["json", "no-open", "dev", "force"]);
 const REPEATABLE_FLAGS = new Set(["field"]);
-
-type DevServerInfo = ServerInfo & { uiBase?: string };
 
 const argv = process.argv.slice(2);
 const { cmd, positional, flags } = parseArgs(argv);
 const root = resolveProjectRoot(str(flags.project), process.env, process.cwd());
 const paths = sfPaths(root);
-// The command line that runs this script, for Worker Briefs.
-const SF_COMMAND = [process.execPath, ...process.execArgv, SCRIPT].map(shellQuote).join(" ");
+// The command line that runs this sf, for Worker Briefs and command hints.
+const SF_COMMAND = sfCommand({
+  script: fileURLToPath(import.meta.url),
+  execPath: process.execPath,
+  env: process.env,
+  which: (bin) => findOnPath(bin, process.env.PATH),
+});
 
 try {
   await main();
@@ -85,21 +76,12 @@ async function main() {
   if (!cmd || argv[0] === "--help" || argv[0] === "-h") return console.log(HELP);
   if (flags.worker !== undefined && !str(flags.project))
     throw new Error("--worker needs --project <abs path> (the Supervisor's checkout)");
-  if (cmd && PROJECT_COMMANDS.has(cmd)) return runProjectCommand(cmd, positional, flags, root, await findServer());
+  if (cmd && PROJECT_COMMANDS.has(cmd)) return runProjectCommand(cmd, positional, flags, root, await findServer(paths.serverJson));
   switch (cmd) {
-    case "serve":
-      return serve();
     case "capabilities":
       return console.log(JSON.stringify(detectCapabilities(), null, 2));
-    case "start": {
-      createService({ root, online: false }).init();
-      const server = await ensureServer();
-      const supervisor = await api(server, "POST", routes.capabilities, resolveCapabilities(flags));
-      if (!flags["no-open"] && !process.env.SF_FACTORY_NO_OPEN) openBrowser(url(server));
-      console.log(`sf ready: ${url(server)}`);
-      if (flags.json) console.log(JSON.stringify(supervisor, null, 2));
-      return;
-    }
+    case "start":
+      return runStart(flags, root, SF_COMMAND);
     case "next":
       return next(await requireServer());
     case "done":
@@ -136,25 +118,21 @@ async function main() {
       return console.log(`Cursor: --since ${changes.at(-1)?.at ?? since}`);
     }
     case "status": {
-      const server = await findServer();
+      const server = await findServer(paths.serverJson);
       if (!server) return console.log("not running");
       const state = await api<SessionState>(server, "GET", routes.state);
       const count = (s: string) => state.commands.filter((c) => c.status === s).length;
       const runtime = state.project?.runtime;
       return console.log(
-        `running at ${url(server)} | agent: ${state.supervisor.capabilities?.agent ?? "unregistered"} | ` +
+        `running at ${uiUrl(server)} | agent: ${state.supervisor.capabilities?.agent ?? "unregistered"} | ` +
           `pending: ${count("pending")} | claimed: ${count("claimed")} | done: ${count("done")} | failed: ${count("failed")} | ` +
           `Workers: ${Object.keys(runtime?.claims ?? {}).length} | waiting: ${runtime?.queue.length ?? 0}`,
       );
     }
     case "url":
-      return console.log(url(await ensureServer()));
-    case "stop": {
-      const server = await findServer();
-      if (server) await api(server, "POST", routes.stop).catch(() => {});
-      fs.rmSync(paths.serverJson, { force: true });
-      return console.log("stopped");
-    }
+      return console.log(uiUrl(await requireServer()));
+    case "stop":
+      return stop();
     default:
       console.error(`sf: unknown command: ${cmd}\n\n${HELP}`);
       process.exit(1);
@@ -188,148 +166,40 @@ function formatCommand({ id, command }: CommandRecord) {
       command.brief.trimEnd(),
       "----- END WORKER BRIEF -----",
       "",
-      `Once the Worker is running: sf done ${id} --result "<thread or agent id>"`,
-      `If it cannot be spawned: sf fail ${id} --error "<reason>"`,
+      `Once the Worker is running: ${SF_COMMAND} done ${id} --result "<thread or agent id>"`,
+      `If it cannot be spawned: ${SF_COMMAND} fail ${id} --error "<reason>"`,
     );
     return lines.join("\n");
   }
   lines.push(
     command.text,
     "",
-    `When finished: sf done ${id} --result "<short summary>"`,
-    `If it cannot be done: sf fail ${id} --error "<reason>"`,
+    `When finished: ${SF_COMMAND} done ${id} --result "<short summary>"`,
+    `If it cannot be done: ${SF_COMMAND} fail ${id} --error "<reason>"`,
   );
   return lines.join("\n");
 }
 
 // ---------- Server lifecycle ----------
 
-async function serve() {
-  fs.mkdirSync(paths.runtime, { recursive: true });
-  const dev = Boolean(flags.dev);
-  const token = str(flags.token) ?? crypto.randomBytes(16).toString("hex");
-  // Bundled: dist/sf.mjs next to dist/ui. From source: src/cli → dist/ui.
-  const uiDir =
-    str(flags["ui-dir"]) ??
-    process.env.SF_UI_DIR ??
-    [path.join(path.dirname(SCRIPT), "ui"), path.join(path.dirname(SCRIPT), "../../dist/ui")].find((d) =>
-      fs.existsSync(path.join(d, "index.html")),
-    ) ??
-    null;
-  const store = new Store(root, paths.sessionJson);
-  const service = createOnlineService(store, { root, sf: SF_COMMAND });
-  const stopWatching = watchFiles(root, (changes) => {
-    store.addFileChanges(changes);
-    // Hand edits (and offline CLI writes) show up live; they never trigger Workers.
-    if (changes.some((c) => c.path.startsWith(".sf/"))) refreshProject(store, service);
-  });
-
-  let idleTimer: NodeJS.Timeout | undefined;
-  const shutdown = () => {
-    stopWatching();
-    const current = readServerState();
-    if (current?.pid === process.pid) fs.rmSync(paths.serverJson, { force: true });
-    process.exit(0);
-  };
-  const touch = () => {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(shutdown, IDLE_SHUTDOWN_MS);
-  };
-
-  const app = createApp({ store, service, token, uiDir: dev ? null : uiDir, onRequest: touch, onStop: shutdown });
-  const server = await listen(app, Number(str(flags.port) ?? 0));
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-
-  const info: DevServerInfo = { port, token, pid: process.pid, ...(dev ? { uiBase: "http://localhost:5173" } : {}) };
-  fs.writeFileSync(paths.serverJson, JSON.stringify(info));
-  touch();
-  const sweep = () => {
-    if (service.hasProject()) service.sweep().catch((err) => console.error(`sf: sweep failed: ${err.message}`));
-  };
-  setInterval(sweep, SWEEP_MS);
-  // A restarted server with a known Supervisor runs the triggers queued while it was down.
-  if (store.state.supervisor.capabilities && service.hasProject()) await service.drainPending();
-  // In dev there may be no Supervisor, so only the idle timeout applies.
-  if (!dev) {
-    const startedAt = Date.now();
-    setInterval(() => {
-      const { supervisor, commands, project } = store.state;
-      const busy =
-        supervisor.listening ||
-        commands.some((c) => c.status === "claimed") ||
-        Object.keys(project?.runtime.claims ?? {}).length > 0;
-      const lastSeen = Math.max(supervisor.lastSeenAt ?? 0, startedAt);
-      if (!busy && Date.now() - lastSeen > SUPERVISOR_HEARTBEAT_MS) shutdown();
-    }, HEARTBEAT_CHECK_MS);
+/** Asks the server to stop and waits up to 5s for it to exit; SIGTERMs it if its API is gone. */
+async function stop() {
+  const server = readServerInfo(paths.serverJson);
+  const asked = server ? await api(server, "POST", routes.stop).then(() => true, () => false) : false;
+  if (!server || (!asked && !isAlive(server.pid))) {
+    fs.rmSync(paths.serverJson, { force: true });
+    return console.log("not running");
   }
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-  if (dev) console.log(`sf API on http://127.0.0.1:${port} | UI: ${url(info)} | project: ${root}`);
-}
-
-function url(server: DevServerInfo) {
-  return uiUrl(server, server.uiBase);
-}
-
-function readServerState(): DevServerInfo | null {
-  try {
-    return JSON.parse(fs.readFileSync(paths.serverJson, "utf8")) as DevServerInfo;
-  } catch {
-    return null;
-  }
-}
-
-async function findServer(): Promise<DevServerInfo | null> {
-  const s = readServerState();
-  if (!s) return null;
-  try {
-    await api(s, "GET", routes.state);
-    return s;
-  } catch {
-    return null;
-  }
+  if (!asked) process.kill(server.pid, "SIGTERM");
+  for (let i = 0; i < 50 && isAlive(server.pid); i++) await sleep(100);
+  fs.rmSync(paths.serverJson, { force: true });
+  console.log("stopped");
 }
 
 async function requireServer() {
-  const s = await findServer();
-  if (!s) throw new Error("sf is not running for this Project; start it with `sf start`");
+  const s = await findServer(paths.serverJson);
+  if (!s) throw new Error("not running for this Project; start it with `sf start` (it runs in the foreground)");
   return s;
-}
-
-async function ensureServer() {
-  const existing = await findServer();
-  if (existing) return existing;
-  fs.mkdirSync(paths.runtime, { recursive: true });
-  fs.rmSync(paths.serverJson, { force: true });
-  // execArgv keeps loaders such as tsx when running from source.
-  const child = spawn(process.execPath, [...process.execArgv, SCRIPT, "serve", "--project", root], {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-  for (let i = 0; i < 100; i++) {
-    await sleep(100);
-    const s = await findServer();
-    if (s) return s;
-  }
-  throw new Error(
-    "could not start the sf server (if a sandbox blocks localhost networking, rerun with escalated permissions)",
-  );
-}
-
-function openBrowser(target: string) {
-  const [bin, args] =
-    process.platform === "darwin"
-      ? ["open", [target]]
-      : process.platform === "win32"
-        ? ["cmd", ["/c", "start", "", target]]
-        : ["xdg-open", [target]];
-  try {
-    spawn(bin, args, { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
-  } catch {
-    // The URL is printed either way.
-  }
 }
 
 // ---------- Utilities ----------

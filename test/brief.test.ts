@@ -15,7 +15,7 @@ test("brief sections are sf preamble, configured preamble, Stage Prompt, Story",
     root: "/abs/my repo",
     worktree: { path: "/abs/my repo-sf-worktrees/DEV-3", branch: "sf/DEV-3" },
     workerId: "w-1a2b",
-    sf: "node /abs/sf-factory.mjs",
+    sf: "node /abs/sf.mjs",
     preamble: "Use pnpm.",
     prompt: "Plan it.",
   });
@@ -23,7 +23,7 @@ test("brief sections are sf preamble, configured preamble, Stage Prompt, Story",
   const positions = order.map((s) => brief.indexOf(s));
   assert.ok(positions.every((p) => p >= 0), String(positions));
   assert.deepEqual([...positions].sort((a, b) => a - b), positions);
-  assert.match(brief, /node \/abs\/sf-factory\.mjs story move DEV-3 <stage-id> --worker w-1a2b --project '\/abs\/my repo'/);
+  assert.match(brief, /node \/abs\/sf\.mjs story move DEV-3 <stage-id> --worker w-1a2b --project '\/abs\/my repo'/);
   assert.match(brief, /story release DEV-3 --worker w-1a2b/);
   assert.match(brief, /`todo`: TODO \(current\)/);
   assert.match(brief, /Never edit files under `\.sf`/);
