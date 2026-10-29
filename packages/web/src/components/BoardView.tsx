@@ -44,7 +44,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
           if (story && story.stage !== stage.id) void act(() => sfApi.moveStory(key, stage.id));
         }}
       >
-        <header className="flex items-center justify-between gap-2 px-1">
+        <header className="flex h-6 shrink-0 items-center justify-between gap-2 px-1">
           <button
             type="button"
             className="cursor-pointer truncate rounded-sm text-sm font-semibold hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -71,7 +71,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
       {stages.map(column)}
       {orphans.length > 0 && (
         <section className={cn(columnClass, "border border-dashed border-destructive/50")}>
-          <header className="px-1 text-sm font-semibold text-destructive">Unknown Stage</header>
+          <header className="flex h-6 shrink-0 items-center px-1 text-sm font-semibold text-destructive">Unknown Stage</header>
           {orphans.map((s) => (
             <StoryCard key={s.key} story={s} stages={stages} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
           ))}
