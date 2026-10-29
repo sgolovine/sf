@@ -1,6 +1,18 @@
+import { Trash2 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { activeHil, type FieldDef } from "#model/config";
 import type { BoardSnapshot, StoryView } from "#model/project";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -34,6 +46,8 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
   // Open existing descriptions rendered; start empty ones ready to type.
   const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");
   const [fields, setFields] = useState<Record<string, unknown>>(story?.fields ?? {});
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const schema = board.config.schema;
   const hil = story && activeHil(board.config, story);
 
@@ -47,7 +61,7 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !deleting && onClose()}>
       <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
         <form
           className="flex flex-col gap-4"
@@ -138,6 +152,53 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
             </TabsContent>
           </Tabs>
           <DialogFooter>
+            {story && (
+              <AlertDialog open={confirmDelete} onOpenChange={(open) => !deleting && setConfirmDelete(open)}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mr-auto"
+                    aria-label={`Delete ${story.key}`}
+                  >
+                    <Trash2 className="text-destructive" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete {story.key}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Permanently delete {story.key}: {story.title}? This cannot be undone. Any Story Worktree and
+                      branch are retained. A live Claim must be released first.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel type="button" disabled={deleting}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      type="button"
+                      variant="destructive"
+                      disabled={deleting}
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        if (deleting) return;
+                        setDeleting(true);
+                        try {
+                          if (await act(() => sfApi.deleteStory(story.key))) onClose();
+                          else setConfirmDelete(false);
+                        } finally {
+                          setDeleting(false);
+                        }
+                      }}
+                    >
+                      {deleting ? "Deleting…" : "Delete Story"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
