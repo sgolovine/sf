@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "worker": {
+    "agent": null,
+    "model": null
+  },
+  "worktree": {
+    "baseBranch": null
+  },
+  "claimTimeoutMinutes": 120,
+  "briefPreamble": "",
+  "maxConcurrentWorkers": 3
+}
