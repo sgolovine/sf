@@ -15,22 +15,38 @@
     {
       "id": "in_refinement",
       "name": "In Refinement",
-      "promptEnabled": true
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_refinement_hil",
+        "comment": "refinement_hil_comment"
+      }
     },
     {
       "id": "in_progress",
       "name": "In Development",
-      "promptEnabled": true
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_dev_hil",
+        "comment": "dev_hil_comment"
+      }
     },
     {
       "id": "in_validation",
       "name": "In Validation",
-      "promptEnabled": true
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_validation_hil",
+        "comment": "validation_hil_comment"
+      }
     },
     {
       "id": "in_review",
       "name": "In Review",
-      "promptEnabled": true
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_review_hil",
+        "comment": "review_hil_comment"
+      }
     },
     {
       "id": "done",
