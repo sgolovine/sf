@@ -10,6 +10,7 @@ import { ArrowLeft, Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /** What the main area shows. Navigation is plain state: the URL hash carries the auth token. */
@@ -64,6 +65,7 @@ export function App() {
     <SidebarProvider>
       <AppSidebar
         boards={boards}
+        title={board?.config.name}
         activeId={board?.id}
         creating={creating}
         onSelect={openBoard}
@@ -72,13 +74,17 @@ export function App() {
           setEditing(null);
         }}
       />
-      <SidebarInset className="min-w-0">
+      {/* Fixed height: only the content region scrolls, so the header and footer stay in place. */}
+      <SidebarInset className="h-svh min-w-0">
         {/* Container queries hide secondary text when the main area (not the window) is narrow. */}
         <header className="@container/header flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SidebarTrigger className="shrink-0" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <h1 className="min-w-0 truncate font-medium">
-            {creating ? "New Board" : settings ? `${board.config.name} · Board Settings` : board.config.name}
+          {/* The sidebar shows the Board name; the header names only the other views. */}
+          {(creating || settings) && (
+            <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+          )}
+          <h1 className={cn("min-w-0 truncate font-medium", !creating && !settings && "sr-only")}>
+            {creating ? "New Board" : settings ? "Board Settings" : board.config.name}
           </h1>
           {!creating && settings && (
             <Button
@@ -92,54 +98,61 @@ export function App() {
               <span className="hidden @md/header:inline">Back to board</span>
             </Button>
           )}
+          <span className="flex-1" />
           {!creating && !settings && (
             <>
               <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
                 <Plus />
                 <span className="hidden @md/header:inline">New Story</span>
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="shrink-0"
-                onClick={() => openSettings(board.id, "stages")}
-                aria-label="Board Settings"
-              >
-                <Settings />
-                <span className="hidden @md/header:inline">Board Settings</span>
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon-sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => openSettings(board.id, "stages")}
+                    aria-label="Board Settings"
+                  >
+                    <Settings />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Board Settings</TooltipContent>
+              </Tooltip>
             </>
           )}
-          <span className="flex-1" />
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+          {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
+
+          {creating ? (
+            <CreateBoard act={act} onCreated={openBoard} onCancel={board ? () => openBoard(board.id) : undefined} />
+          ) : settings ? (
+            <BoardSettings board={board} tab={settings.tab} onTab={(tab) => openSettings(board.id, tab)} act={act} />
+          ) : (
+            <BoardView
+              board={board}
+              runtime={project!.runtime}
+              act={act}
+              onOpenStory={(key) => setEditing({ key })}
+              onOpenStages={() => openSettings(board.id, "stages")}
+            />
+          )}
+        </div>
+
+        <footer className="flex h-8 shrink-0 items-center gap-3 border-t px-3 text-xs whitespace-nowrap text-muted-foreground">
           {project && (
-            <span className="hidden shrink-0 text-sm whitespace-nowrap text-muted-foreground @2xl/header:inline">
+            <span className="shrink-0">
               Workers {Object.keys(project.runtime.claims).length}/{project.config.maxConcurrentWorkers}
               {project.runtime.queue.length > 0 && ` · ${project.runtime.queue.length} waiting`}
             </span>
           )}
-          <span
-            className="flex shrink-0 items-center gap-1.5 text-sm whitespace-nowrap text-muted-foreground"
-            title={supervisorText}
-          >
-            <span className={cn("size-2 rounded-full", listening ? "bg-emerald-500" : "bg-muted-foreground/40")} />
-            <span className="sr-only @4xl/header:not-sr-only">{supervisorText}</span>
+          <span className="flex min-w-0 items-center gap-1.5" title={supervisorText}>
+            <span className={cn("size-2 shrink-0 rounded-full", listening ? "bg-emerald-500" : "bg-muted-foreground/40")} />
+            <span className="truncate">{supervisorText}</span>
           </span>
-        </header>
-        {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
-
-        {creating ? (
-          <CreateBoard act={act} onCreated={openBoard} onCancel={board ? () => openBoard(board.id) : undefined} />
-        ) : settings ? (
-          <BoardSettings board={board} tab={settings.tab} onTab={(tab) => openSettings(board.id, tab)} act={act} />
-        ) : (
-          <BoardView
-            board={board}
-            runtime={project!.runtime}
-            act={act}
-            onOpenStory={(key) => setEditing({ key })}
-            onOpenStages={() => openSettings(board.id, "stages")}
-          />
-        )}
+        </footer>
 
         {!creating && editing && (
           <StoryEditor

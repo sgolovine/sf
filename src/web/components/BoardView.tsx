@@ -67,7 +67,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
   };
 
   return (
-    <div className="flex flex-1 items-start gap-3 overflow-x-auto p-4">
+    <div className="flex min-h-0 flex-1 items-start gap-3 overflow-auto p-4">
       {stages.map(column)}
       {orphans.length > 0 && (
         <section className={cn(columnClass, "border border-dashed border-destructive/50")}>
