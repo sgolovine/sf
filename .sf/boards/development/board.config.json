@@ -18,6 +18,11 @@
       "promptEnabled": false
     },
     {
+      "id": "ready_for_review",
+      "name": "Ready for Review",
+      "promptEnabled": false
+    },
+    {
       "id": "in_review",
       "name": "In Review",
       "promptEnabled": false
@@ -28,6 +33,12 @@
       "promptEnabled": false
     }
   ],
-  "schema": [],
+  "schema": [
+    {
+      "id": "desc",
+      "name": "Description",
+      "type": "text"
+    }
+  ],
   "overrides": {}
 }

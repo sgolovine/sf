@@ -9,7 +9,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Markdown } from "./Markdown.tsx";
 
 type Props = { board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
 
@@ -22,6 +24,8 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
   const [title, setTitle] = useState(story?.title ?? "");
   const [stage, setStage] = useState("backlog");
   const [body, setBody] = useState(story?.body ?? "");
+  // Open existing descriptions rendered; start empty ones ready to type.
+  const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");
   const [fields, setFields] = useState<Record<string, unknown>>(story?.fields ?? {});
   const schema = board.config.schema;
 
@@ -82,10 +86,34 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
               onChange={(v) => setFields({ ...fields, [f.id]: v })}
             />
           ))}
-          <div className="grid gap-2">
-            <Label htmlFor={`${id}-body`}>Description</Label>
-            <Textarea id={`${id}-body`} value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
-          </div>
+          <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor={`${id}-body`}>Description</Label>
+              <TabsList>
+                <TabsTrigger value="write">Write</TabsTrigger>
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="write">
+              <Textarea
+                id={`${id}-body`}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                rows={8}
+                className="min-h-40 font-mono"
+                placeholder="Markdown supported"
+              />
+            </TabsContent>
+            <TabsContent value="preview">
+              <div
+                className="min-h-40 cursor-text rounded-md border px-3 py-2"
+                onDoubleClick={() => setBodyTab("write")}
+                title="Double-click to edit"
+              >
+                {body.trim() ? <Markdown>{body}</Markdown> : <p className="text-sm text-muted-foreground">Nothing to preview.</p>}
+              </div>
+            </TabsContent>
+          </Tabs>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
