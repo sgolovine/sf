@@ -40,6 +40,8 @@ export type BoardOverrides = {
 
 /** `.sf/boards/<id>/board.config.json`. */
 export type BoardConfig = {
+  /** Highest allocated Story number; committed so deleted Keys are never reused. */
+  storyNumber?: number;
   key: string;
   name: string;
   stages: StageConfig[];
