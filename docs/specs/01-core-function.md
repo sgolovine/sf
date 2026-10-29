@@ -112,7 +112,14 @@ When a Story Moves into a Stage with an enabled Stage Prompt:
 3. Otherwise, the Supervisor spawns a Worker with the Worker Brief, and the Worker claims the Story.
 4. If the spawn fails, the Story stays in the new Stage, flagged as failed. The UI shows the error and a "retry" action.
 
-When a Story Moves to Done, sf removes the Story Worktree and keeps the branch. If the worktree has uncommitted or unpushed changes, sf keeps it, and the UI shows a warning with a "remove worktree" action.
+When a Story Moves to Done, sf runs `git fetch --prune`, removes the Story Worktree, and then deletes the branch with `git branch -d`, which refuses a branch git does not see as merged; a kept branch is reported in the cleanup result. If the worktree has uncommitted or unpushed changes, sf keeps it (and the branch), and the UI shows a warning with a "remove worktree" action. With no remote, or when the fetch fails, cleanup uses the refs it already has.
+
+### HIL
+
+A Stage other than Backlog and Done can name a HIL flag field (a boolean field in the Board schema) and a HIL comment field (a text field), in its `hil` setting: `{ "flag": "requires_dev_hil", "comment": "dev_hil_comment" }`. A Worker that needs a human sets the flag and comment for its Stage and releases the Story.
+
+- **Hold.** While a Story's HIL flag for the Stage it is in is true, no Worker spawns for it in that Stage, even on a Move into the Stage. The UI marks the Story and shows the HIL comment.
+- **Wake.** When an update flips that flag from true to false or unset, and the Story is not claimed and the Stage has an enabled, non-empty Stage Prompt, sf spawns a Worker exactly as for a Move into the Stage (claim, Story Worktree, queueing at max concurrent Workers). With no server running, the spawn is queued as a trigger, like a Move.
 
 ## Practical Example
 

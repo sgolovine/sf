@@ -56,7 +56,7 @@ Never detach it: no `nohup`, `setsid`, `disown`, trailing `&`, `screen`, `tmux`,
 - If a sandbox blocks localhost networking, rerun with escalated permissions.
 - If you cannot run background processes, give the user the exact `sf start ...` command to run in their own terminal, and wait for them to confirm.
 
-If the Project has no Board yet, the user can create one in the interface, or ask you to: `sf board create Development --key DEV`. Set Stage Prompts with `sf stage set DEV <stage-id> --prompt-file <path> --prompt-enabled true`. See [worker-commands.md](references/worker-commands.md) for all Project commands.
+If the Project has no Board yet, the user can create one in the interface, or ask you to: `sf board create Development --key DEV`. Set Stage Prompts with `sf stage set DEV <stage-id> --prompt-file <path> --prompt-enabled true`, and a Stage's HIL fields (Stories held for a human) with `--hil-flag <field-id> --hil-comment <field-id>`. See [worker-commands.md](references/worker-commands.md) for all Project commands.
 
 ## 4. Serve commands
 
