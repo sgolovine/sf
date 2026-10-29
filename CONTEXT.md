@@ -43,13 +43,17 @@ A unit of work on a Board, stored as one Markdown file whose frontmatter records
 _Avoid_: Ticket, card, issue, task
 
 **Story Worktree**:
-The git worktree and branch that belong to one Story, created from the configured base branch by its first Worker and reused by every later Worker on that Story. When the Story Moves to Done, sf removes the worktree and keeps the branch, unless the worktree has uncommitted or unpushed changes.
+The git worktree and branch that belong to one Story, created from the configured base branch by its first Worker and reused by every later Worker on that Story. When the Story Moves to Done, sf removes the worktree and deletes the branch once it is merged, unless the worktree has uncommitted or unpushed changes.
 _Avoid_: Workspace, sandbox
+
+**HIL**:
+Human in the loop: a Story that a Worker left in its Stage because it needs a human, recorded in that Stage's HIL flag and comment. While the flag is set, no Worker runs on the Story in that Stage, even after a Move; when a human clears it, a Worker starts.
+_Avoid_: Blocked, escalated, needs human
 
 **Story Key**:
 A Story's identifier: the Board's key plus a number, such as `DEV-12`. Also the Story's file name.
 _Avoid_: Story id, slug
 
 **Move**:
-Changing a Story's Stage to any other Stage through the UI or an sf command, by the user, a Worker, or the Supervisor. Creating a Story in a Stage counts as a Move into it. Only a Move triggers a Worker; editing the Stage in the file by hand does not.
+Changing a Story's Stage to any other Stage through the UI or an sf command, by the user, a Worker, or the Supervisor. Creating a Story in a Stage counts as a Move into it. A Move triggers a Worker, and so does a human clearing a Story's HIL; editing the Stage in the file by hand does not.
 _Avoid_: Transition, drag
