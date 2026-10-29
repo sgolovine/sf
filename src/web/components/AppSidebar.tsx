@@ -1,5 +1,5 @@
-import type { BoardSnapshot } from "#model/project";
 import { KanbanSquare, Plus } from "lucide-react";
+import type { BoardSnapshot } from "#model/project";
 import {
   Sidebar,
   SidebarContent,

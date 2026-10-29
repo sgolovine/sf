@@ -8,7 +8,10 @@ import { tempDir } from "./helpers.ts";
 const none = () => null;
 
 test("SF_COMMAND overrides everything", () => {
-  assert.equal(sfCommand({ script: "/x/dist/sf.mjs", execPath: "/n/node", env: { SF_COMMAND: "my sf" }, which: none }), "my sf");
+  assert.equal(
+    sfCommand({ script: "/x/dist/sf.mjs", execPath: "/n/node", env: { SF_COMMAND: "my sf" }, which: none }),
+    "my sf",
+  );
 });
 
 test("from source, Workers run the sf-dev launcher", () => {

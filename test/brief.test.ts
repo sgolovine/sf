@@ -19,10 +19,25 @@ test("brief sections are sf preamble, configured preamble, Stage Prompt, Story",
     preamble: "Use pnpm.",
     prompt: "Plan it.",
   });
-  const order = ["# sf Worker Brief: DEV-3", "Use pnpm.", "## Stage Prompt", "Plan it.", "## Story", "### DEV-3: Add dark mode", "- Priority: high", "Make it dark."];
+  const order = [
+    "# sf Worker Brief: DEV-3",
+    "Use pnpm.",
+    "## Stage Prompt",
+    "Plan it.",
+    "## Story",
+    "### DEV-3: Add dark mode",
+    "- Priority: high",
+    "Make it dark.",
+  ];
   const positions = order.map((s) => brief.indexOf(s));
-  assert.ok(positions.every((p) => p >= 0), String(positions));
-  assert.deepEqual([...positions].sort((a, b) => a - b), positions);
+  assert.ok(
+    positions.every((p) => p >= 0),
+    String(positions),
+  );
+  assert.deepEqual(
+    [...positions].sort((a, b) => a - b),
+    positions,
+  );
   assert.match(brief, /node \/abs\/sf\.mjs story move DEV-3 <stage-id> --worker w-1a2b --project '\/abs\/my repo'/);
   assert.match(brief, /story release DEV-3 --worker w-1a2b/);
   assert.match(brief, /`todo`: TODO \(current\)/);

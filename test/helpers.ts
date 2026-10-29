@@ -33,8 +33,8 @@ export function tempRepo(): string {
 }
 
 import type { ProjectConfig } from "#model/config";
-import { createService, type ServiceOptions, type SpawnRequest } from "../src/server/project/service.ts";
 import { sfPaths } from "../src/server/project/paths.ts";
+import { createService, type ServiceOptions, type SpawnRequest } from "../src/server/project/service.ts";
 
 /**
  * A Project with Board "Development" (DEV) whose `todo` and `in_progress`
@@ -44,7 +44,12 @@ export async function setupProject(options: Partial<ServiceOptions> & { config?:
   const root = options.root ?? tempDir();
   const spawns: SpawnRequest[] = [];
   let t = 1_000_000;
-  const clock = { now: () => t, advance: (ms: number) => void (t += ms) };
+  const clock = {
+    now: () => t,
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
   const make = (online: boolean) =>
     createService({
       root,

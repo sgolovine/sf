@@ -18,7 +18,8 @@ export type SfCommandInput = {
  */
 export function sfCommand({ script, execPath, env, which }: SfCommandInput): string {
   if (env.SF_COMMAND) return env.SF_COMMAND;
-  if (script.endsWith(".ts")) return [execPath, path.join(path.dirname(script), "../../scripts/sf-dev.mjs")].map(shellQuote).join(" ");
+  if (script.endsWith(".ts"))
+    return [execPath, path.join(path.dirname(script), "../../scripts/sf-dev.mjs")].map(shellQuote).join(" ");
   const onPath = which("sf");
   if (onPath && realpath(onPath) === realpath(script)) return "sf";
   return [execPath, script].map(shellQuote).join(" ");

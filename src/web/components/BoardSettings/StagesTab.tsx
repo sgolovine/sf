@@ -1,10 +1,7 @@
+import { ArrowDown, ArrowUp, Lock, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { StageConfig } from "#model/config";
 import type { BoardSnapshot } from "#model/project";
-import { ArrowDown, ArrowUp, Lock, Trash2 } from "lucide-react";
-import { sfApi } from "../../api/client.ts";
-import type { Act } from "../ErrorBanner.tsx";
-import { FIXED_STAGES } from "./fixed.ts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +17,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { sfApi } from "../../api/client.ts";
+import type { Act } from "../ErrorBanner.tsx";
+import { FIXED_STAGES } from "./fixed.ts";
 
 /** Rename, reorder, remove, and add Stages. Backlog and Done stay first and last. */
 export function StagesTab({ board, act }: { board: BoardSnapshot; act: Act }) {
@@ -72,7 +72,12 @@ function StageRow({ board, stage, index, count, stories, act }: RowProps) {
         if (changed) void act(() => sfApi.updateStage(board.id, stage.id, { name }));
       }}
     >
-      <Input value={name} onChange={(e) => setName(e.target.value)} aria-label={`Name of ${stage.name}`} className="h-8 max-w-xs" />
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        aria-label={`Name of ${stage.name}`}
+        className="h-8 max-w-xs"
+      />
       {changed && (
         <Button type="submit" size="sm">
           Rename
@@ -115,10 +120,7 @@ function StageRow({ board, stage, index, count, stories, act }: RowProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => act(() => sfApi.removeStage(board.id, stage.id))}
-            >
+            <AlertDialogAction variant="destructive" onClick={() => act(() => sfApi.removeStage(board.id, stage.id))}>
               Remove
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -138,7 +140,13 @@ function AddStage({ board, act }: { board: BoardSnapshot; act: Act }) {
         if (await act(() => sfApi.addStage(board.id, name))) setName("");
       }}
     >
-      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="New Stage" className="max-w-xs" aria-label="New Stage name" />
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="New Stage"
+        className="max-w-xs"
+        aria-label="New Stage name"
+      />
       <Button type="submit" variant="outline" disabled={!name.trim()}>
         Add Stage
       </Button>

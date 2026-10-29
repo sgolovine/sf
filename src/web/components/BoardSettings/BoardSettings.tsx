@@ -1,9 +1,9 @@
 import type { BoardSnapshot } from "#model/project";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Act } from "../ErrorBanner.tsx";
 import { CustomFieldsTab } from "./CustomFieldsTab.tsx";
 import { StagePromptsTab } from "./StagePromptsTab.tsx";
 import { StagesTab } from "./StagesTab.tsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export type SettingsTab = "stages" | "fields" | "prompts";
 

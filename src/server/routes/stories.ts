@@ -1,16 +1,25 @@
 import { Router } from "express";
-import type { CreateStoryRequest, MoveStoryRequest, ReleaseStoryRequest, UpdateStoryRequest, WorktreeRequest } from "#model/api";
+import type {
+  CreateStoryRequest,
+  MoveStoryRequest,
+  ReleaseStoryRequest,
+  UpdateStoryRequest,
+  WorktreeRequest,
+} from "#model/api";
 import { SfError } from "../project/errors.ts";
 import type { Actor, Service } from "../project/service.ts";
 
-const actor = (worker: unknown): Actor => (typeof worker === "string" && worker ? { kind: "worker", id: worker } : { kind: "user" });
+const actor = (worker: unknown): Actor =>
+  typeof worker === "string" && worker ? { kind: "worker", id: worker } : { kind: "user" };
 
 export function storiesRouter(service: Service) {
   const router = Router();
 
   router.get("/", (req, res) => {
     const { board, stage } = req.query;
-    res.json(service.listStories(typeof board === "string" ? board : undefined, typeof stage === "string" ? stage : undefined));
+    res.json(
+      service.listStories(typeof board === "string" ? board : undefined, typeof stage === "string" ? stage : undefined),
+    );
   });
 
   router.post("/", async (req, res) => {

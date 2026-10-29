@@ -8,7 +8,11 @@ type Env = NodeJS.ProcessEnv;
  * flags to `sf start`.
  */
 function detect(env: Env = process.env): Capabilities {
-  const agent = env.CLAUDECODE ? "claude-code" : Object.keys(env).some((k) => k.startsWith("CODEX_")) ? "codex" : "unknown";
+  const agent = env.CLAUDECODE
+    ? "claude-code"
+    : Object.keys(env).some((k) => k.startsWith("CODEX_"))
+      ? "codex"
+      : "unknown";
   const app = env.T3CODE_CLI_PATH || env.T3_ACP_MCP_NODE ? "t3-code" : env.HERDR_ENV ? "herdr" : "terminal";
   return {
     agent,

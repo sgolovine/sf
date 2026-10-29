@@ -5,19 +5,19 @@
 
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { routes, type FileChangesResponse } from "#model/api";
+import { type FileChangesResponse, routes } from "#model/api";
 import type { CommandRecord } from "#model/commands";
 import type { SessionState } from "#model/session";
 import type { SupervisorMessage } from "#model/supervisor";
 import pkg from "../../package.json" with { type: "json" };
-import { CapabilitiesService } from "../server/services/CapabilitiesService.ts";
-import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
 import { isRejection } from "../server/project/errors.ts";
 import { resolveProjectRoot, sfPaths } from "../server/project/paths.ts";
-import { findOnPath, sfCommand } from "./sf-command.ts";
+import { CapabilitiesService } from "../server/services/CapabilitiesService.ts";
+import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
 import { runSetup } from "./setup.ts";
+import { findOnPath, sfCommand } from "./sf-command.ts";
 import { isAlive, runStart } from "./start.ts";
-import { PROJECT_COMMANDS, PROJECT_HELP, runProjectCommand, type Flags } from "./story.ts";
+import { type Flags, PROJECT_COMMANDS, PROJECT_HELP, runProjectCommand } from "./story.ts";
 
 const HELP = `sf: build and run a software factory. \`sf start\` runs the local server
 (Express API + web interface); the other commands talk to it and change the
@@ -73,7 +73,8 @@ async function main() {
   if (!cmd || argv[0] === "--help" || argv[0] === "-h") return console.log(HELP);
   if (flags.worker !== undefined && !str(flags.project))
     throw new Error("--worker needs --project <abs path> (the Supervisor's checkout)");
-  if (cmd && PROJECT_COMMANDS.has(cmd)) return runProjectCommand(cmd, positional, flags, root, await ClientService.findServer(paths.serverJson));
+  if (cmd && PROJECT_COMMANDS.has(cmd))
+    return runProjectCommand(cmd, positional, flags, root, await ClientService.findServer(paths.serverJson));
   switch (cmd) {
     case "capabilities":
       return console.log(JSON.stringify(CapabilitiesService.detect(), null, 2));
@@ -89,7 +90,12 @@ async function main() {
         cmd === "done"
           ? { ok: true, ...(str(flags.result) ? { result: str(flags.result) } : {}) }
           : { ok: false, error: str(flags.error) ?? "failed" };
-      const record = await ClientService.api<CommandRecord>(await requireServer(), "POST", routes.commandResult(id), body);
+      const record = await ClientService.api<CommandRecord>(
+        await requireServer(),
+        "POST",
+        routes.commandResult(id),
+        body,
+      );
       return console.log(`Command ${record.id} marked ${record.status}.`);
     }
     case "say": {
@@ -183,7 +189,10 @@ function formatCommand({ id, command }: CommandRecord) {
 async function stop() {
   const server = ClientService.readServerInfo(paths.serverJson);
   if (!server) return console.log("not running");
-  const asked = await ClientService.api(server, "POST", routes.stop).then(() => true, () => false);
+  const asked = await ClientService.api(server, "POST", routes.stop).then(
+    () => true,
+    () => false,
+  );
   if (!asked) {
     fs.rmSync(paths.serverJson, { force: true });
     return console.log("not running (removed stale server.json)");

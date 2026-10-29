@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { after, test } from "node:test";
 import { routes, TOKEN_HEADER } from "#model/api";
-import type { ServerInfo } from "../src/server/services/ClientService.ts";
 import { sfPaths } from "../src/server/project/paths.ts";
+import type { ServerInfo } from "../src/server/services/ClientService.ts";
 import { tempDir, tempRepo } from "./helpers.ts";
 
 const main = path.resolve(import.meta.dirname, "../src/cli/main.ts");
@@ -15,11 +15,14 @@ const env = { ...process.env, SF_NO_OPEN: "1" };
 const ui = tempDir();
 fs.writeFileSync(path.join(ui, "index.html"), "<p>fixture ui</p>");
 const children: ChildProcess[] = [];
-after(() => children.forEach((c) => c.kill("SIGKILL")));
+after(() => {
+  for (const c of children) c.kill("SIGKILL");
+});
 
 const sfArgs = (repo: string, ...args: string[]) => ["--import", "tsx", main, ...args, "--project", repo];
 const startArgs = (repo: string) => sfArgs(repo, "start", "--no-open", "--ui-dir", ui);
-const sf = (repo: string, ...args: string[]) => spawnSync(process.execPath, sfArgs(repo, ...args), { encoding: "utf8", env });
+const sf = (repo: string, ...args: string[]) =>
+  spawnSync(process.execPath, sfArgs(repo, ...args), { encoding: "utf8", env });
 
 /** Spawns a process and resolves once its stdout contains `sf ready:`. */
 function spawnReady(args: string[]) {
@@ -40,10 +43,15 @@ function spawnReady(args: string[]) {
 const serverInfo = (repo: string) => JSON.parse(fs.readFileSync(sfPaths(repo).serverJson, "utf8")) as ServerInfo;
 const get = (info: ServerInfo, pathname: string, token?: string) =>
   fetch(`http://127.0.0.1:${info.port}${pathname}`, { headers: token ? { [TOKEN_HEADER]: token } : {} });
-const refuses = (info: ServerInfo) => get(info, "/").then(() => false, () => true);
+const refuses = (info: ServerInfo) =>
+  get(info, "/").then(
+    () => false,
+    () => true,
+  );
 
 async function until(check: () => boolean | Promise<boolean>, ms = 5000) {
-  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) if (await check()) return;
+  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 100)))
+    if (await check()) return;
   assert.fail("timed out");
 }
 

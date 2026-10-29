@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { PostMessageRequest } from "#model/api";
 import type { Capabilities } from "#model/supervisor";
 import type { Service } from "../project/service.ts";
-import { StoreService, type Store } from "../services/StoreService.ts";
+import { type Store, StoreService } from "../services/StoreService.ts";
 
 /** What the Supervisor reports about itself: its capabilities and messages for the UI. */
 export function supervisorRouter(store: Store, service: Service) {

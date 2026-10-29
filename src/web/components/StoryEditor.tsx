@@ -1,16 +1,23 @@
-import { useId, useState, type ReactNode } from "react";
+import { type ReactNode, useId, useState } from "react";
 import type { FieldDef } from "#model/config";
 import type { BoardSnapshot, StoryView } from "#model/project";
-import { sfApi } from "../api/client.ts";
-import type { Act } from "./ErrorBanner.tsx";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { sfApi } from "../api/client.ts";
+import type { Act } from "./ErrorBanner.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 type Props = { board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
@@ -105,12 +112,17 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
               />
             </TabsContent>
             <TabsContent value="preview">
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
               <div
                 className="min-h-40 cursor-text rounded-md border px-3 py-2"
                 onDoubleClick={() => setBodyTab("write")}
                 title="Double-click to edit"
               >
-                {body.trim() ? <Markdown>{body}</Markdown> : <p className="text-sm text-muted-foreground">Nothing to preview.</p>}
+                {body.trim() ? (
+                  <Markdown>{body}</Markdown>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Nothing to preview.</p>
+                )}
               </div>
             </TabsContent>
           </Tabs>
@@ -156,11 +168,19 @@ function FieldInput({ id, field, value, onChange }: FieldProps) {
       );
     case "date":
       return labelled(
-        <Input id={id} type="date" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)} />,
+        <Input
+          id={id}
+          type="date"
+          value={typeof value === "string" ? value : ""}
+          onChange={(e) => onChange(e.target.value || null)}
+        />,
       );
     case "single-select":
       return labelled(
-        <Select value={typeof value === "string" && value ? value : NONE} onValueChange={(v) => onChange(v === NONE ? null : v)}>
+        <Select
+          value={typeof value === "string" && value ? value : NONE}
+          onValueChange={(v) => onChange(v === NONE ? null : v)}
+        >
           <SelectTrigger id={id} className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -198,6 +218,12 @@ function FieldInput({ id, field, value, onChange }: FieldProps) {
       );
     }
     default:
-      return labelled(<Input id={id} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)} />);
+      return labelled(
+        <Input
+          id={id}
+          value={typeof value === "string" ? value : ""}
+          onChange={(e) => onChange(e.target.value || null)}
+        />,
+      );
   }
 }

@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import type { CommandRecord } from "#model/commands";
 import { sfApi } from "./client.ts";
 
@@ -11,10 +11,7 @@ export const sessionKey = ["sf", "session"] as const;
  */
 export function useSession() {
   const queryClient = useQueryClient();
-  useEffect(
-    () => sfApi.subscribe((state) => queryClient.setQueryData(sessionKey, state)),
-    [queryClient],
-  );
+  useEffect(() => sfApi.subscribe((state) => queryClient.setQueryData(sessionKey, state)), [queryClient]);
   return useQuery({ queryKey: sessionKey, queryFn: sfApi.getState, staleTime: Infinity });
 }
 

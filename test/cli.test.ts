@@ -7,7 +7,10 @@ import { tempDir } from "./helpers.ts";
 
 const main = path.resolve(import.meta.dirname, "../src/cli/main.ts");
 const sf = (...args: string[]) =>
-  spawnSync(process.execPath, ["--import", "tsx", main, ...args], { encoding: "utf8", env: { ...process.env, SF_PROJECT: tempDir() } });
+  spawnSync(process.execPath, ["--import", "tsx", main, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, SF_PROJECT: tempDir() },
+  });
 
 test("--help lists setup and start", () => {
   const r = sf("--help");

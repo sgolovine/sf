@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import {
-  FIELD_TYPES,
   type BoardConfig,
   type BoardOverrides,
+  FIELD_TYPES,
   type FieldDef,
   type ProjectConfig,
   type StageConfig,
@@ -101,7 +101,8 @@ export function uniqueId(base: string, taken: Iterable<string>) {
 }
 
 export function validateBoard(board: BoardConfig) {
-  if (!/^[A-Z][A-Z0-9]*$/.test(board.key)) invalid(`Board key must be uppercase letters and digits, got "${board.key}"`);
+  if (!/^[A-Z][A-Z0-9]*$/.test(board.key))
+    invalid(`Board key must be uppercase letters and digits, got "${board.key}"`);
   if (!board.name.trim()) invalid("Board name must not be empty");
   const ids = board.stages.map((s) => s.id);
   if (ids[0] !== BACKLOG || ids.at(-1) !== DONE) invalid("Backlog must be the first Stage and Done the last");

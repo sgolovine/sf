@@ -8,13 +8,13 @@ import fs from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CapabilitiesService } from "../server/services/CapabilitiesService.ts";
-import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
 import { atomicWrite } from "../server/project/fsutil.ts";
 import { sfPaths } from "../server/project/paths.ts";
 import { createService } from "../server/project/service.ts";
-import { OnlineService } from "../server/services/OnlineService.ts";
 import { createApp, listen } from "../server/server.ts";
+import { CapabilitiesService } from "../server/services/CapabilitiesService.ts";
+import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
+import { OnlineService } from "../server/services/OnlineService.ts";
 import { StoreService } from "../server/services/StoreService.ts";
 import { WatcherService } from "../server/services/WatcherService.ts";
 import type { Flags } from "./story.ts";
@@ -28,13 +28,16 @@ export async function runStart(flags: Flags, root: string, sf: string) {
   createService({ root, online: false }).init();
   const running = await ClientService.findServer(paths.serverJson);
   if (running)
-    throw new Error(`already running for ${root} at ${ClientService.uiUrl(running)} (pid ${running.pid}). Stop it with \`sf stop\`.`);
+    throw new Error(
+      `already running for ${root} at ${ClientService.uiUrl(running)} (pid ${running.pid}). Stop it with \`sf stop\`.`,
+    );
   fs.rmSync(paths.serverJson, { force: true });
 
   const dev = Boolean(flags.dev);
   const token = str(flags.token) ?? crypto.randomBytes(16).toString("hex");
   const uiDir = dev ? null : findUiDir(str(flags["ui-dir"]) ?? process.env.SF_UI_DIR);
-  if (!dev && !(uiDir && fs.existsSync(path.join(uiDir, "index.html")))) console.error("sf: No built UI found; run `pnpm build` (or `pnpm dev:web`)");
+  if (!dev && !(uiDir && fs.existsSync(path.join(uiDir, "index.html"))))
+    console.error("sf: No built UI found; run `pnpm build` (or `pnpm dev:web`)");
 
   const store = StoreService.create(root, paths.sessionJson);
   const service = OnlineService.create(store, { root, sf });
@@ -93,7 +96,8 @@ export async function runStart(flags: Flags, root: string, sf: string) {
     clearInterval(sweep);
     clearInterval(parentCheck);
     stopWatching();
-    if (ClientService.readServerInfo(paths.serverJson)?.pid === process.pid) fs.rmSync(paths.serverJson, { force: true });
+    if (ClientService.readServerInfo(paths.serverJson)?.pid === process.pid)
+      fs.rmSync(paths.serverJson, { force: true });
     server.closeAllConnections();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
@@ -111,7 +115,8 @@ export async function runStart(flags: Flags, root: string, sf: string) {
   if (dev) console.log(`api: http://127.0.0.1:${info.port}`);
   console.log(`project: ${root}`);
   console.log("Press Ctrl-C to stop.");
-  if (flags.json) console.log(JSON.stringify({ url, port: info.port, pid: process.pid, supervisor: store.state.supervisor }));
+  if (flags.json)
+    console.log(JSON.stringify({ url, port: info.port, pid: process.pid, supervisor: store.state.supervisor }));
   if (!flags["no-open"] && !process.env.SF_NO_OPEN) openBrowser(url);
 }
 
@@ -133,7 +138,14 @@ export function ppidOf(pid: number): number | null {
       const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
       return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]) || null;
     }
-    return Number(execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()) || null;
+    return (
+      Number(
+        execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim(),
+      ) || null
+    );
   } catch {
     return null;
   }
@@ -143,7 +155,10 @@ export function ppidOf(pid: number): number | null {
 function findUiDir(given: string | undefined) {
   if (given) return given;
   const here = path.dirname(fileURLToPath(import.meta.url));
-  return [path.join(here, "ui"), path.join(here, "../../dist/ui")].find((d) => fs.existsSync(path.join(d, "index.html"))) ?? null;
+  return (
+    [path.join(here, "ui"), path.join(here, "../../dist/ui")].find((d) => fs.existsSync(path.join(d, "index.html"))) ??
+    null
+  );
 }
 
 function openBrowser(target: string) {
@@ -154,7 +169,9 @@ function openBrowser(target: string) {
         ? ["cmd", ["/c", "start", "", target]]
         : ["xdg-open", [target]];
   try {
-    spawn(bin, args, { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
+    spawn(bin, args, { detached: true, stdio: "ignore" })
+      .on("error", () => {})
+      .unref();
   } catch {
     // The URL is printed either way.
   }

@@ -4,7 +4,13 @@ import path from "node:path";
 import { test } from "node:test";
 import type { FieldDef } from "#model/config";
 import { SfError } from "../src/server/project/errors.ts";
-import { nextStoryNumber, parseFieldArg, parseStory, serializeStory, validateFields } from "../src/server/project/story.ts";
+import {
+  nextStoryNumber,
+  parseFieldArg,
+  parseStory,
+  serializeStory,
+  validateFields,
+} from "../src/server/project/story.ts";
 import { tempDir } from "./helpers.ts";
 
 const schema: FieldDef[] = [
@@ -17,7 +23,8 @@ const schema: FieldDef[] = [
 ];
 
 test("parse and serialize round-trip keeps unknown keys", () => {
-  const text = "---\ntitle: Add dark mode\nstage: in_progress\nbranch: sf/DEV-3\npriority: high\nextra: kept\n---\nBody line\n";
+  const text =
+    "---\ntitle: Add dark mode\nstage: in_progress\nbranch: sf/DEV-3\npriority: high\nextra: kept\n---\nBody line\n";
   const story = parseStory(text);
   assert.equal(story.title, "Add dark mode");
   assert.equal(story.stage, "in_progress");
@@ -45,9 +52,23 @@ test("all six field types validate", () => {
       parseFieldArg(schema, a),
     ),
   );
-  assert.deepEqual(fields, { notes: "hi", points: 3, priority: "high", tags: ["ui", "api"], urgent: true, due: "2026-03-04" });
+  assert.deepEqual(fields, {
+    notes: "hi",
+    points: 3,
+    priority: "high",
+    tags: ["ui", "api"],
+    urgent: true,
+    due: "2026-03-04",
+  });
   validateFields(schema, fields);
-  for (const bad of [{ points: "x" }, { priority: "mid" }, { tags: ["db"] }, { urgent: "yes" }, { due: "tomorrow" }, { notes: 1 }])
+  for (const bad of [
+    { points: "x" },
+    { priority: "mid" },
+    { tags: ["db"] },
+    { urgent: "yes" },
+    { due: "tomorrow" },
+    { notes: 1 },
+  ])
     assert.throws(() => validateFields(schema, bad), SfError);
 });
 

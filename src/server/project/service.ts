@@ -26,16 +26,16 @@ import { SfError } from "./errors.ts";
 import { atomicWrite, withLock, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";
 import { loadRuntime, saveRuntime } from "./runtime.ts";
-import { nextStoryNumber, parseStory, parseStoryKey, serializeStory, validateFields, type StoryData } from "./story.ts";
+import { nextStoryNumber, parseStory, parseStoryKey, type StoryData, serializeStory, validateFields } from "./story.ts";
 import {
+  type CleanupResult,
   cleanupWorktree,
   ensureWorktree,
+  type Git,
   resolveBaseBranch,
   runGit,
   storyBranch,
   worktreePath,
-  type CleanupResult,
-  type Git,
 } from "./worktree.ts";
 
 export type Actor = { kind: "user" } | { kind: "supervisor" } | { kind: "worker"; id: string };
@@ -70,7 +70,13 @@ export type ServiceOptions = {
 
 export type StoryInput = { title: string; stage?: string; fields?: Record<string, unknown>; body?: string };
 export type StoryPatch = { title?: string; fields?: Record<string, unknown>; body?: string };
-export type StagePatch = { name?: string; promptEnabled?: boolean; prompt?: string; agent?: string | null; model?: string | null };
+export type StagePatch = {
+  name?: string;
+  promptEnabled?: boolean;
+  prompt?: string;
+  agent?: string | null;
+  model?: string | null;
+};
 export type BoardPatch = { name?: string; schema?: FieldDef[]; overrides?: BoardOverrides };
 
 type Tx = { rt: RuntimeState; project: ProjectConfig; after: (() => Promise<unknown>)[] };
@@ -170,7 +176,12 @@ export function createService(opts: ServiceOptions) {
         try {
           return view(key, boardId, parseStory(fs.readFileSync(path.join(dir, f), "utf8")));
         } catch (err) {
-          return view(key, boardId, { title: `(unreadable: ${(err as Error).message})`, stage: "", fields: {}, body: "" });
+          return view(key, boardId, {
+            title: `(unreadable: ${(err as Error).message})`,
+            stage: "",
+            fields: {},
+            body: "",
+          });
         }
       })
       .sort((a, b) => parseStoryKey(a.key)!.number - parseStoryKey(b.key)!.number);
@@ -302,7 +313,8 @@ export function createService(opts: ServiceOptions) {
   function checkWorker(tx: Tx, workerId: string) {
     const worker = tx.rt.workers[workerId];
     const claim = worker && tx.rt.claims[worker.storyKey];
-    if (!worker || worker.endedAt || !claim || claim.workerId !== workerId) throw new SfError("claim_gone", "claim is gone");
+    if (!worker || worker.endedAt || !claim || claim.workerId !== workerId)
+      throw new SfError("claim_gone", "claim is gone");
     claim.lastSeenAt = now();
     return worker.storyKey;
   }
@@ -332,16 +344,23 @@ export function createService(opts: ServiceOptions) {
 
   async function removeWorktree(key: string, force: boolean, onlyIfDone = false): Promise<CleanupResult> {
     const { board, story } = locate(key);
-    if (onlyIfDone && story.stage !== DONE) return { removed: false, path: worktreePath(root, key), branch: storyBranch(key) };
+    if (onlyIfDone && story.stage !== DONE)
+      return { removed: false, path: worktreePath(root, key), branch: storyBranch(key) };
     const settings = resolveSettings(loadProjectConfig(root), board);
     let result: CleanupResult;
     try {
       result = await cleanupWorktree(git, root, key, await resolveBaseBranch(git, root, settings.baseBranch), force);
     } catch (err) {
-      result = { removed: false, path: worktreePath(root, key), branch: storyBranch(key), reason: (err as Error).message };
+      result = {
+        removed: false,
+        path: worktreePath(root, key),
+        branch: storyBranch(key),
+        reason: (err as Error).message,
+      };
     }
     await mutate(({ rt }) => {
-      if (result.reason) rt.worktreeWarnings[key] = { path: result.path, branch: result.branch, reason: result.reason, at: now() };
+      if (result.reason)
+        rt.worktreeWarnings[key] = { path: result.path, branch: result.branch, reason: result.reason, at: now() };
       else delete rt.worktreeWarnings[key];
     });
     return result;
@@ -370,7 +389,8 @@ export function createService(opts: ServiceOptions) {
         const id = slug(name) || key.toLowerCase();
         if (fs.existsSync(paths.board(id))) throw new SfError("invalid", `Board ${id} already exists`);
         for (const other of listBoardIds(root))
-          if (loadBoard(root, other).key === key) throw new SfError("invalid", `Board key ${key} is already used by ${other}`);
+          if (loadBoard(root, other).key === key)
+            throw new SfError("invalid", `Board key ${key} is already used by ${other}`);
         const config = defaultBoard(name.trim(), key);
         saveBoard(root, id, config);
         fs.mkdirSync(paths.stories(id), { recursive: true });
@@ -402,7 +422,14 @@ export function createService(opts: ServiceOptions) {
           if (after === DONE) throw new SfError("invalid", "Done must stay the last Stage");
           index = config.stages.findIndex((s) => s.id === after) + 1;
         }
-        const stage = { id: uniqueId(slug(name), config.stages.map((s) => s.id)), name: name.trim(), promptEnabled: false };
+        const stage = {
+          id: uniqueId(
+            slug(name),
+            config.stages.map((s) => s.id),
+          ),
+          name: name.trim(),
+          promptEnabled: false,
+        };
         config.stages.splice(index, 0, stage);
         saveBoard(root, id, config);
         return stage;
@@ -414,8 +441,10 @@ export function createService(opts: ServiceOptions) {
         const { id, config } = boardRef(ref);
         const stage = requireStage(config, stageId);
         if (isFixedStage(stageId)) {
-          if (patch.name !== undefined && patch.name !== stage.name) throw new SfError("invalid", `${stage.name} cannot be renamed`);
-          if (patch.promptEnabled || patch.prompt?.trim()) throw new SfError("invalid", `${stage.name} cannot have a Stage Prompt`);
+          if (patch.name !== undefined && patch.name !== stage.name)
+            throw new SfError("invalid", `${stage.name} cannot be renamed`);
+          if (patch.promptEnabled || patch.prompt?.trim())
+            throw new SfError("invalid", `${stage.name} cannot have a Stage Prompt`);
         }
         if (patch.name !== undefined) stage.name = patch.name.trim();
         if (patch.promptEnabled !== undefined) stage.promptEnabled = patch.promptEnabled;
@@ -452,7 +481,10 @@ export function createService(opts: ServiceOptions) {
         if (isFixedStage(stageId)) throw new SfError("invalid", `${stage.name} cannot be removed`);
         const held = storyViews(id).filter((s) => s.stage === stageId);
         if (held.length)
-          throw new SfError("invalid", `Stage ${stageId} still holds ${held.map((s) => s.key).join(", ")}; move them first`);
+          throw new SfError(
+            "invalid",
+            `Stage ${stageId} still holds ${held.map((s) => s.key).join(", ")}; move them first`,
+          );
         config.stages.splice(config.stages.indexOf(stage), 1);
         saveBoard(root, id, config);
         fs.rmSync(path.join(paths.stages(id), `${stageId}.md`), { force: true });
@@ -509,7 +541,8 @@ export function createService(opts: ServiceOptions) {
         requireStage(board, stageId);
         if (story.stage === stageId) throw new SfError("invalid", `${key} is already in ${stageId}`);
         const claim = rt.claims[key];
-        if (claim && claim.workerId !== workerId) throw new SfError("claimed", `${key} is claimed by Worker ${claim.workerId}`);
+        if (claim && claim.workerId !== workerId)
+          throw new SfError("claimed", `${key} is claimed by Worker ${claim.workerId}`);
 
         const next = { ...story, stage: stageId };
         writeStory(boardId, key, next);
@@ -523,7 +556,8 @@ export function createService(opts: ServiceOptions) {
     },
 
     async releaseStory(key: string, actor: Actor) {
-      if (actor.kind !== "worker") throw new SfError("invalid", "release needs --worker <id>; use force-release otherwise");
+      if (actor.kind !== "worker")
+        throw new SfError("invalid", "release needs --worker <id>; use force-release otherwise");
       return mutate((tx) => {
         if (checkWorker(tx, actor.id) !== key) throw new SfError("claim_gone", "claim is gone");
         endClaim(tx, key, "released");
@@ -600,7 +634,11 @@ export function createService(opts: ServiceOptions) {
           const found = tryLocate(t.storyKey);
           if (!found) continue;
           if (t.type === "cleanup") scheduleCleanup(tx, t.storyKey);
-          else if (found.story.stage === t.stageId && !tx.rt.claims[t.storyKey] && stageSpawns(found.boardId, found.board, t.stageId))
+          else if (
+            found.story.stage === t.stageId &&
+            !tx.rt.claims[t.storyKey] &&
+            stageSpawns(found.boardId, found.board, t.stageId)
+          )
             requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
         }
       });
@@ -672,4 +710,3 @@ export function createService(opts: ServiceOptions) {
     return view(key, boardId, story);
   }
 }
-

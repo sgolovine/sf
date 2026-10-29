@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { ServerEvent } from "#model/session";
-import { StoreService, type Store } from "../services/StoreService.ts";
+import { type Store, StoreService } from "../services/StoreService.ts";
 
 /** Session state for the UI, file changes, and stopping the server. */
 export function sessionRouter(store: Store, onStop: () => void) {

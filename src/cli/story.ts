@@ -2,13 +2,13 @@
 // server's HTTP routes when it is running and the Story service directly when
 // it is not, so every Story change goes through the same library.
 import fs from "node:fs";
-import { routes, type BoardResponse, type StoryDetails, type WorktreeResponse } from "#model/api";
+import { type BoardResponse, routes, type StoryDetails, type WorktreeResponse } from "#model/api";
 import type { ProjectConfig, StageConfig } from "#model/config";
 import type { ProjectSnapshot } from "#model/project";
-import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
 import { SfError } from "../server/project/errors.ts";
-import { createService, type Actor } from "../server/project/service.ts";
+import { type Actor, createService } from "../server/project/service.ts";
 import { parseFieldArg, parseStoryKey } from "../server/project/story.ts";
+import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
 
 export type Flags = Record<string, string | boolean | string[]>;
 
@@ -33,7 +33,13 @@ export const PROJECT_HELP = `Project commands (all accept --project <dir>, --jso
   sf worktree ensure <KEY> | remove <KEY> [--force]
 <board> is a Board id or key. Exit codes: 0 ok, 1 error, 3 rejected (claim is gone, or claimed).`;
 
-export async function runProjectCommand(cmd: string, args: string[], flags: Flags, root: string, server: ServerInfo | null) {
+export async function runProjectCommand(
+  cmd: string,
+  args: string[],
+  flags: Flags,
+  root: string,
+  server: ServerInfo | null,
+) {
   const svc = createService({ root, online: false });
   const workerId = str(flags.worker);
   const actor: Actor = workerId ? { kind: "worker", id: workerId } : { kind: "user" };
@@ -69,7 +75,10 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         const name = need(args.slice(1).join(" "), "board create <name> --key <KEY>");
         const key = need(str(flags.key), "board create <name> --key <KEY>");
         const board = await call<BoardResponse>("POST", routes.boards, { name, key }, () => svc.createBoard(name, key));
-        return out(board, () => `Created Board ${board.id} (${board.config.key}).\n${formatStages(board.config.stages)}`);
+        return out(
+          board,
+          () => `Created Board ${board.id} (${board.config.key}).\n${formatStages(board.config.stages)}`,
+        );
       }
       if (sub === "show") {
         const ref = need(args[1], "board show <board>");
@@ -85,7 +94,9 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
       if (sub === "add") {
         const name = need(args.slice(2).join(" "), "stage add <board> <name> [--after <stage-id>]");
         const after = str(flags.after);
-        const stage = await call<StageConfig>("POST", routes.stages(ref), { name, after }, () => svc.addStage(ref, name, after));
+        const stage = await call<StageConfig>("POST", routes.stages(ref), { name, after }, () =>
+          svc.addStage(ref, name, after),
+        );
         return out(stage, () => `Added Stage ${stage.id} (${stage.name}).`);
       }
       const stageId = need(args[2], usage);
@@ -99,8 +110,12 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         const stage = await call<StageConfig & { prompt: string }>("PATCH", routes.stage(ref, stageId), patch, () =>
           svc.updateStage(ref, stageId, patch),
         );
-        return out(stage, () => `Stage ${stage.id}: ${stage.name}, prompt ${stage.promptEnabled ? "enabled" : "disabled"}` +
-          `${stage.prompt.trim() ? "" : " (no prompt text)"}.`);
+        return out(
+          stage,
+          () =>
+            `Stage ${stage.id}: ${stage.name}, prompt ${stage.promptEnabled ? "enabled" : "disabled"}` +
+            `${stage.prompt.trim() ? "" : " (no prompt text)"}.`,
+        );
       }
       if (sub === "reorder") {
         const index = Number(need(str(flags.index), "stage reorder <board> <stage-id> --index <n>"));
@@ -110,7 +125,9 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         return out(stages, () => formatStages(stages));
       }
       if (sub === "remove") {
-        const stages = await call<StageConfig[]>("DELETE", routes.stage(ref, stageId), undefined, () => svc.removeStage(ref, stageId));
+        const stages = await call<StageConfig[]>("DELETE", routes.stage(ref, stageId), undefined, () =>
+          svc.removeStage(ref, stageId),
+        );
         return out(stages, () => formatStages(stages));
       }
       throw new SfError("invalid", `usage: sf ${usage}`);
@@ -121,7 +138,9 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         const ref = args[1];
         const stage = str(flags.stage);
         const query = new URLSearchParams({ ...(ref ? { board: ref } : {}), ...(stage ? { stage } : {}) });
-        const stories = await call<StoryDetails[]>("GET", `${routes.stories}?${query}`, undefined, () => svc.listStories(ref, stage));
+        const stories = await call<StoryDetails[]>("GET", `${routes.stories}?${query}`, undefined, () =>
+          svc.listStories(ref, stage),
+        );
         return out(stories, () => (stories.length ? stories.map(formatStoryLine).join("\n") : "No Stories."));
       }
       if (sub === "create") {
@@ -165,7 +184,9 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
         return out(story, () => `Updated ${key}.`);
       }
       if (sub === "release") {
-        const story = await call<StoryDetails>("POST", routes.storyRelease(key), worker, () => svc.releaseStory(key, actor));
+        const story = await call<StoryDetails>("POST", routes.storyRelease(key), worker, () =>
+          svc.releaseStory(key, actor),
+        );
         return out(story, () => `Released ${key}.`);
       }
       if (sub === "force-release") {
@@ -193,7 +214,11 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
           svc.removeWorktree(key, force),
         );
         return out(wt, () =>
-          wt.removed ? `Removed ${wt.path} (kept branch ${wt.branch}).` : wt.reason ? `Kept ${wt.path}: ${wt.reason}.` : `No worktree for ${key}.`,
+          wt.removed
+            ? `Removed ${wt.path} (kept branch ${wt.branch}).`
+            : wt.reason
+              ? `Kept ${wt.path}: ${wt.reason}.`
+              : `No worktree for ${key}.`,
         );
       }
       throw new SfError("invalid", "usage: sf worktree ensure|remove <KEY> [--force]");
@@ -205,7 +230,10 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
 
 function formatStages(stages: StageConfig[]) {
   return stages
-    .map((s, i) => `  ${i}. ${s.id.padEnd(16)} ${s.name}${s.promptEnabled ? "  [prompt enabled]" : ""}${s.agent ? `  agent=${s.agent}` : ""}${s.model ? `  model=${s.model}` : ""}`)
+    .map(
+      (s, i) =>
+        `  ${i}. ${s.id.padEnd(16)} ${s.name}${s.promptEnabled ? "  [prompt enabled]" : ""}${s.agent ? `  agent=${s.agent}` : ""}${s.model ? `  model=${s.model}` : ""}`,
+    )
     .join("\n");
 }
 
@@ -213,9 +241,11 @@ function formatBoard({ id, config, prompts }: BoardResponse) {
   const lines = [`${config.name} (key ${config.key}, id ${id})`, "Stages:", formatStages(config.stages)];
   if (config.schema.length) {
     lines.push("Fields:");
-    for (const f of config.schema) lines.push(`  ${f.id} (${f.type}${f.options ? `: ${f.options.join(", ")}` : ""}) ${f.name}`);
+    for (const f of config.schema)
+      lines.push(`  ${f.id} (${f.type}${f.options ? `: ${f.options.join(", ")}` : ""}) ${f.name}`);
   }
-  for (const [stage, text] of Object.entries(prompts ?? {})) if (text.trim()) lines.push(`Prompt for ${stage}:`, indent(text.trim()));
+  for (const [stage, text] of Object.entries(prompts ?? {}))
+    if (text.trim()) lines.push(`Prompt for ${stage}:`, indent(text.trim()));
   return lines.join("\n");
 }
 

@@ -15,10 +15,13 @@ await build({
   format: "esm",
   target: "node20",
   // Express is CommonJS and calls require() for Node built-ins.
-  banner: { js: "#!/usr/bin/env node\nimport { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
+  banner: {
+    js: "#!/usr/bin/env node\nimport { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+  },
   logLevel: "warning",
 });
 fs.chmodSync(out, 0o755);
 
-if (!fs.existsSync(path.join(root, "dist/ui/index.html"))) console.warn("warning: dist/ui is missing; run `vite build` first");
+if (!fs.existsSync(path.join(root, "dist/ui/index.html")))
+  console.warn("warning: dist/ui is missing; run `vite build` first");
 console.log("built dist/sf.mjs");

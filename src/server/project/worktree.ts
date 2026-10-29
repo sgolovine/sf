@@ -52,12 +52,19 @@ export type CleanupResult = { removed: boolean; path: string; branch: string; re
  * Removes the Story Worktree when it is clean and pushed (or when `force` is
  * set), keeping the branch. Otherwise returns the reason it was kept.
  */
-export async function cleanupWorktree(git: Git, root: string, key: string, base: string, force = false): Promise<CleanupResult> {
+export async function cleanupWorktree(
+  git: Git,
+  root: string,
+  key: string,
+  base: string,
+  force = false,
+): Promise<CleanupResult> {
   const wtPath = worktreePath(root, key);
   const result = { path: wtPath, branch: storyBranch(key) };
   if (!(await hasWorktree(git, root, wtPath))) return { ...result, removed: false };
   if (!force) {
-    if (await git(["status", "--porcelain"], wtPath)) return { ...result, removed: false, reason: "uncommitted changes" };
+    if (await git(["status", "--porcelain"], wtPath))
+      return { ...result, removed: false, reason: "uncommitted changes" };
     if (await git(["rev-list", "HEAD", "--not", "--remotes", base], wtPath))
       return { ...result, removed: false, reason: "unpushed commits" };
   }

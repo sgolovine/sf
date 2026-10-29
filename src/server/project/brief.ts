@@ -20,7 +20,10 @@ export type BriefInput = {
 export function composeBrief(b: BriefInput): string {
   const tail = `--worker ${b.workerId} --project ${shellQuote(b.root)}`;
   const stages = b.board.stages
-    .map((s) => `- \`${s.id}\`: ${s.name}${s.id === b.stageId ? " (current)" : ""}${s.promptEnabled ? " [has a Worker]" : ""}`)
+    .map(
+      (s) =>
+        `- \`${s.id}\`: ${s.name}${s.id === b.stageId ? " (current)" : ""}${s.promptEnabled ? " [has a Worker]" : ""}`,
+    )
     .join("\n");
   const sections = [
     `# sf Worker Brief: ${b.storyKey}

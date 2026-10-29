@@ -1,4 +1,4 @@
-import { Router, type NextFunction, type Request, type Response } from "express";
+import { type NextFunction, type Request, type Response, Router } from "express";
 import { TOKEN_HEADER } from "#model/api";
 import { HTTP_STATUS, SfError } from "../project/errors.ts";
 import type { Service } from "../project/service.ts";
@@ -33,7 +33,8 @@ export function apiRouter({ store, service, token, onStop }: ApiOptions) {
   });
 
   router.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof SfError) return void res.status(HTTP_STATUS[err.code]).json({ error: err.message, code: err.code });
+    if (err instanceof SfError)
+      return void res.status(HTTP_STATUS[err.code]).json({ error: err.message, code: err.code });
     res.status(err.status ?? 500).json({ error: err.message });
   });
 

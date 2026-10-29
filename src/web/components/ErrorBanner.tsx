@@ -9,7 +9,13 @@ export function ErrorBanner({ message, onDismiss }: { message: string; onDismiss
       <Alert variant="destructive" className="pr-12">
         <CircleAlert />
         <AlertDescription>{message}</AlertDescription>
-        <Button variant="ghost" size="icon-xs" className="absolute top-2.5 right-2.5" onClick={onDismiss} aria-label="Dismiss">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="absolute top-2.5 right-2.5"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+        >
           <X />
         </Button>
       </Alert>

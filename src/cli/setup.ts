@@ -69,7 +69,9 @@ export async function runSetup(argv: string[]) {
   const optional = values.optional
     ? values.optional === "none"
       ? []
-      : list(values.optional).map((n) => OPTIONAL_SKILLS.find((s) => s.name === n) ?? fail(`unknown optional skill: ${n}`))
+      : list(values.optional).map(
+          (n) => OPTIONAL_SKILLS.find((s) => s.name === n) ?? fail(`unknown optional skill: ${n}`),
+        )
     : interactive && OPTIONAL_SKILLS.length
       ? await ask(
           multiselect({

@@ -17,7 +17,8 @@ const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 export function parseStory(text: string): StoryData {
   const match = FRONTMATTER.exec(text);
   const data = match ? (parse(match[1]!) ?? {}) : {};
-  if (typeof data !== "object" || Array.isArray(data)) throw new SfError("invalid", "Story frontmatter must be a mapping");
+  if (typeof data !== "object" || Array.isArray(data))
+    throw new SfError("invalid", "Story frontmatter must be a mapping");
   const { title, stage, branch, ...fields } = data as Record<string, unknown>;
   return {
     title: title == null ? "" : String(title),
@@ -72,7 +73,8 @@ export function validateFields(schema: FieldDef[], fields: Record<string, unknow
         if (typeof v !== "boolean") bad("true or false");
         break;
       case "date":
-        if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v))) bad("a YYYY-MM-DD date");
+        if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v)))
+          bad("a YYYY-MM-DD date");
         break;
       case "single-select":
         if (typeof v !== "string" || !f.options?.includes(v)) bad(`one of ${f.options?.join(", ")}`);
@@ -95,7 +97,8 @@ export function parseFieldArg(schema: FieldDef[], arg: string): [string, unknown
   const id = arg.slice(0, eq);
   const raw = arg.slice(eq + 1);
   const field = schema.find((f) => f.id === id);
-  if (!field) throw new SfError("invalid", `unknown field "${id}" (schema: ${schema.map((f) => f.id).join(", ") || "none"})`);
+  if (!field)
+    throw new SfError("invalid", `unknown field "${id}" (schema: ${schema.map((f) => f.id).join(", ") || "none"})`);
   if (raw === "") return [id, null];
   switch (field.type) {
     case "number":

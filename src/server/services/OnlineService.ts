@@ -1,5 +1,5 @@
 import { createService, type Service, type ServiceOptions } from "../project/service.ts";
-import { StoreService, type Store } from "./StoreService.ts";
+import { type Store, StoreService } from "./StoreService.ts";
 
 /**
  * The online Story service: spawns become `worker.spawn` commands in the Store,

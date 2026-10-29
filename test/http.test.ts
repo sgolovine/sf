@@ -3,9 +3,9 @@ import fs from "node:fs";
 import { after, test } from "node:test";
 import { routes, type StoryDetails } from "#model/api";
 import type { CommandRecord } from "#model/commands";
+import { createApp, listen } from "../src/server/server.ts";
 import { ClientService, type ServerInfo } from "../src/server/services/ClientService.ts";
 import { OnlineService } from "../src/server/services/OnlineService.ts";
-import { createApp, listen } from "../src/server/server.ts";
 import { StoreService } from "../src/server/services/StoreService.ts";
 import { tempRepo } from "./helpers.ts";
 
@@ -20,7 +20,13 @@ const server: ServerInfo = { port: typeof address === "object" && address ? addr
 const call = <T>(method: string, path: string, body?: unknown) => ClientService.api<T>(server, method, path, body);
 
 test("a Move over HTTP spawns; next hands out worker.spawn with its worktree; done activates", async () => {
-  await call("POST", routes.capabilities, { agent: "a", model: "m", app: "t3-code", canSpawnThreads: true, canSpawnSubagents: true });
+  await call("POST", routes.capabilities, {
+    agent: "a",
+    model: "m",
+    app: "t3-code",
+    canSpawnThreads: true,
+    canSpawnSubagents: true,
+  });
   await call("POST", routes.boards, { name: "Development", key: "DEV" });
   await call("PATCH", routes.stage("DEV", "todo"), { promptEnabled: true, prompt: "Plan it." });
   await call("POST", routes.stories, { board: "DEV", title: "One" });

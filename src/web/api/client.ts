@@ -1,16 +1,16 @@
 import {
-  routes,
-  TOKEN_HEADER,
   type BoardResponse,
   type CreateStoryRequest,
   type ErrorResponse,
+  routes,
   type StoryDetails,
+  TOKEN_HEADER,
   type UpdateBoardRequest,
   type UpdateStageRequest,
   type UpdateStoryRequest,
   type WorktreeResponse,
 } from "#model/api";
-import { commands, type CommandRecord, type SupervisorCommand } from "#model/commands";
+import { type CommandRecord, commands, type SupervisorCommand } from "#model/commands";
 import type { ProjectConfig, StageConfig } from "#model/config";
 import type { ServerEvent, SessionState } from "#model/session";
 
@@ -58,7 +58,8 @@ export const sfApi = {
 
   initProject: () => request<ProjectConfig>("POST", routes.projectInit, {}),
   createBoard: (name: string, key: string) => request<BoardResponse>("POST", routes.boards, { name, key }),
-  updateBoard: (board: string, patch: UpdateBoardRequest) => request<BoardResponse>("PATCH", routes.board(board), patch),
+  updateBoard: (board: string, patch: UpdateBoardRequest) =>
+    request<BoardResponse>("PATCH", routes.board(board), patch),
   addStage: (board: string, name: string, after?: string) =>
     request<StageConfig>("POST", routes.stages(board), { name, after }),
   updateStage: (board: string, stage: string, patch: UpdateStageRequest) =>
@@ -96,7 +97,10 @@ export const sfApi = {
             const blocks = buffer.split("\n\n");
             buffer = blocks.pop() ?? "";
             for (const block of blocks) {
-              const data = block.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+              const data = block
+                .split("\n")
+                .find((line) => line.startsWith("data: "))
+                ?.slice(6);
               if (!data) continue;
               const event = JSON.parse(data) as ServerEvent;
               if (event.type === "state") onState(event.state);

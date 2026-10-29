@@ -16,12 +16,14 @@ export const AGENTS: Agent[] = [
   {
     id: "claude-code",
     label: "Claude Code",
-    skillsDir: (scope, dir) => (scope === "global" ? path.join(os.homedir(), ".claude/skills") : path.join(dir, ".claude/skills")),
+    skillsDir: (scope, dir) =>
+      scope === "global" ? path.join(os.homedir(), ".claude/skills") : path.join(dir, ".claude/skills"),
   },
   {
     id: "codex",
     label: "Codex",
-    skillsDir: (scope, dir) => (scope === "global" ? path.join(os.homedir(), ".agents/skills") : path.join(dir, ".agents/skills")),
+    skillsDir: (scope, dir) =>
+      scope === "global" ? path.join(os.homedir(), ".agents/skills") : path.join(dir, ".agents/skills"),
   },
   {
     id: "opencode",

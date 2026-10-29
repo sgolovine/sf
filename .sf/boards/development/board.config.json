@@ -13,13 +13,13 @@
       "promptEnabled": false
     },
     {
-      "id": "in_progress",
-      "name": "In Progress",
+      "id": "in_refinement",
+      "name": "In Refinement",
       "promptEnabled": false
     },
     {
-      "id": "ready_for_review",
-      "name": "Ready for Review",
+      "id": "in_progress",
+      "name": "In Progress",
       "promptEnabled": false
     },
     {
@@ -37,6 +37,36 @@
     {
       "id": "desc",
       "name": "Description",
+      "type": "text"
+    },
+    {
+      "id": "requires_refinement_hil",
+      "name": "Requires Refinement HIL",
+      "type": "boolean"
+    },
+    {
+      "id": "requires_dev_hil",
+      "name": "Requires Development HIL",
+      "type": "boolean"
+    },
+    {
+      "id": "requires_qa_hil",
+      "name": "Requires QA HIL",
+      "type": "boolean"
+    },
+    {
+      "id": "refinement_hil_comment",
+      "name": "Refinement HIL Comment",
+      "type": "text"
+    },
+    {
+      "id": "dev_hil_comment",
+      "name": "Development HIL Comment",
+      "type": "text"
+    },
+    {
+      "id": "qa_hil_comment",
+      "name": "QA HIL Comment",
       "type": "text"
     }
   ],

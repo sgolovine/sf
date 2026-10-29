@@ -2,11 +2,11 @@ import { useState } from "react";
 import type { StageConfig } from "#model/config";
 import type { BoardSnapshot } from "#model/project";
 import type { RuntimeState } from "#model/runtime";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { StoryCard } from "./StoryCard.tsx";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 
 type Props = {
   board: BoardSnapshot;
@@ -30,6 +30,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
     const stories = board.stories.filter((s) => s.stage === stage.id);
     const prompt = (board.prompts[stage.id] ?? "").trim();
     return (
+      // biome-ignore lint/a11y/noStaticElementInteractions: drop target for pointer drag-and-drop
       <section
         key={stage.id}
         className={cn(columnClass, over === stage.id && "outline-2 outline-ring outline-dashed")}
@@ -73,7 +74,9 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
       {stages.map(column)}
       {orphans.length > 0 && (
         <section className={cn(columnClass, "border border-dashed border-destructive/50")}>
-          <header className="flex h-6 shrink-0 items-center px-1 text-sm font-semibold text-destructive">Unknown Stage</header>
+          <header className="flex h-6 shrink-0 items-center px-1 text-sm font-semibold text-destructive">
+            Unknown Stage
+          </header>
           {orphans.map((s) => (
             <StoryCard key={s.key} story={s} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
           ))}

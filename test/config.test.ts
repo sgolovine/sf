@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BoardConfig } from "#model/config";
-import { DEFAULT_PROJECT_CONFIG, defaultBoard, resolveSettings, slug, uniqueId, validateBoard } from "../src/server/project/config.ts";
+import {
+  DEFAULT_PROJECT_CONFIG,
+  defaultBoard,
+  resolveSettings,
+  slug,
+  uniqueId,
+  validateBoard,
+} from "../src/server/project/config.ts";
 
 test("default Board has the five Stages", () => {
   const board = defaultBoard("Development", "DEV");
@@ -27,7 +34,12 @@ test("resolveSettings: Stage over Board over Project", () => {
   const project = { ...DEFAULT_PROJECT_CONFIG, worker: { agent: "codex", model: "p-model" } };
   const board: BoardConfig = {
     ...defaultBoard("Dev", "DEV"),
-    overrides: { worker: { model: "b-model" }, worktree: { baseBranch: "develop" }, claimTimeoutMinutes: 60, briefPreamble: "B" },
+    overrides: {
+      worker: { model: "b-model" },
+      worktree: { baseBranch: "develop" },
+      claimTimeoutMinutes: 60,
+      briefPreamble: "B",
+    },
   };
   const stage = { id: "todo", name: "TODO", promptEnabled: true, model: "s-model" };
   assert.deepEqual(resolveSettings(project, board, stage), {

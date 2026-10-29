@@ -45,12 +45,18 @@ test("Claims block other Moves; the claiming Worker's Move ends it and triggers 
   const { svc, spawns } = await setupProject();
   await svc.createStory("DEV", { title: "One", stage: "todo" }, user);
   const w1 = spawns[0]!.workerId;
-  await assert.rejects(svc.moveStory("DEV-1", "in_review", user), { code: "claimed", message: `DEV-1 is claimed by Worker ${w1}` });
+  await assert.rejects(svc.moveStory("DEV-1", "in_review", user), {
+    code: "claimed",
+    message: `DEV-1 is claimed by Worker ${w1}`,
+  });
   const moved = await svc.moveStory("DEV-1", "in_progress", worker(w1));
   assert.equal(spawns.length, 2);
   assert.notEqual(moved.claim?.workerId, w1);
   assert.equal(moved.claim?.stageId, "in_progress");
-  await assert.rejects(svc.moveStory("DEV-1", "in_review", worker(w1)), { code: "claim_gone", message: "claim is gone" });
+  await assert.rejects(svc.moveStory("DEV-1", "in_review", worker(w1)), {
+    code: "claim_gone",
+    message: "claim is gone",
+  });
 });
 
 test("at the cap spawns queue FIFO, a new Move replaces the entry, freed slots go oldest first", async () => {
@@ -134,7 +140,9 @@ test("force-release while spawning cancels the spawn", async () => {
 
 test("custom fields are validated on create and update", async () => {
   const { svc } = await setupProject();
-  await svc.updateBoard("DEV", { schema: [{ id: "priority", name: "Priority", type: "single-select", options: ["low", "high"] }] });
+  await svc.updateBoard("DEV", {
+    schema: [{ id: "priority", name: "Priority", type: "single-select", options: ["low", "high"] }],
+  });
   await assert.rejects(svc.createStory("DEV", { title: "x", fields: { priority: "mid" } }, user), { code: "invalid" });
   await svc.createStory("DEV", { title: "x", fields: { priority: "low" } }, user);
   const s = await svc.updateStory("DEV-1", { fields: { priority: "high" }, body: "Body" }, user);

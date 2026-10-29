@@ -1,8 +1,8 @@
 import { Router } from "express";
 import type { CommandResultRequest, EnqueueCommandRequest } from "#model/api";
-import { validateCommand, type CommandRecord } from "#model/commands";
+import { type CommandRecord, validateCommand } from "#model/commands";
 import type { Service } from "../project/service.ts";
-import { StoreService, type Store } from "../services/StoreService.ts";
+import { type Store, StoreService } from "../services/StoreService.ts";
 
 const MAX_WAIT_SECONDS = 60;
 
@@ -17,7 +17,7 @@ export function commandsRouter(store: Store, service: Service) {
   async function claimNext(): Promise<CommandRecord | null> {
     for (;;) {
       const record = StoreService.claim(store);
-      if (!record || record.command.type !== "worker.spawn") return record;
+      if (record?.command.type !== "worker.spawn") return record;
       const { workerId } = record.command;
       const prepared = await service.prepareSpawn(workerId);
       if ("ok" in prepared) return record;

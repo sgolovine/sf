@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import type { StoryView } from "#model/project";
 import type { RuntimeState } from "#model/runtime";
-import { sfApi } from "../api/client.ts";
-import type { Act } from "./ErrorBanner.tsx";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { sfApi } from "../api/client.ts";
+import type { Act } from "./ErrorBanner.tsx";
 
 type Props = { story: StoryView; runtime: RuntimeState; act: Act; onOpen: () => void };
 
@@ -56,7 +56,11 @@ export function StoryCard({ story, runtime, act, onOpen }: Props) {
 }
 
 function Status({ className, children }: { className: string; children: ReactNode }) {
-  return <div className={cn("flex flex-wrap items-center gap-1.5 rounded-sm px-1.5 py-1 text-xs break-all", className)}>{children}</div>;
+  return (
+    <div className={cn("flex flex-wrap items-center gap-1.5 rounded-sm px-1.5 py-1 text-xs break-all", className)}>
+      {children}
+    </div>
+  );
 }
 
 function age(since: number) {

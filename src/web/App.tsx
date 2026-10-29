@@ -1,17 +1,17 @@
-import { useState, type ReactNode } from "react";
-import { useSession } from "./api/hooks.ts";
-import { AppSidebar } from "./components/AppSidebar.tsx";
-import { BoardSettings, type SettingsTab } from "./components/BoardSettings/BoardSettings.tsx";
-import { BoardView } from "./components/BoardView.tsx";
-import { CreateBoard } from "./components/CreateBoard.tsx";
-import { ErrorBanner, type Act } from "./components/ErrorBanner.tsx";
-import { StoryEditor } from "./components/StoryEditor.tsx";
 import { ArrowLeft, Plus, Settings } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useSession } from "./api/hooks.ts";
+import { AppSidebar } from "./components/AppSidebar.tsx";
+import { BoardSettings, type SettingsTab } from "./components/BoardSettings/BoardSettings.tsx";
+import { BoardView } from "./components/BoardView.tsx";
+import { CreateBoard } from "./components/CreateBoard.tsx";
+import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
+import { StoryEditor } from "./components/StoryEditor.tsx";
 
 /** What the main area shows. Navigation is plain state: the URL hash carries the auth token. */
 type View =
@@ -149,7 +149,9 @@ export function App() {
             </span>
           )}
           <span className="flex min-w-0 items-center gap-1.5" title={supervisorText}>
-            <span className={cn("size-2 shrink-0 rounded-full", listening ? "bg-emerald-500" : "bg-muted-foreground/40")} />
+            <span
+              className={cn("size-2 shrink-0 rounded-full", listening ? "bg-emerald-500" : "bg-muted-foreground/40")}
+            />
             <span className="truncate">{supervisorText}</span>
           </span>
         </footer>

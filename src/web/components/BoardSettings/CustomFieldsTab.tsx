@@ -1,14 +1,14 @@
+import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { FIELD_TYPES, type FieldDef, type FieldType } from "#model/config";
 import type { BoardSnapshot } from "#model/project";
-import { Plus, X } from "lucide-react";
-import { sfApi } from "../../api/client.ts";
-import type { Act } from "../ErrorBanner.tsx";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { sfApi } from "../../api/client.ts";
+import type { Act } from "../ErrorBanner.tsx";
 
 type Row = { id: string; name: string; type: FieldType; options: string };
 
@@ -41,7 +41,9 @@ export function CustomFieldsTab({ board, act }: { board: BoardSnapshot; act: Act
     <Card>
       <CardHeader>
         <CardTitle>Custom Fields</CardTitle>
-        <CardDescription>Fields every Story on {board.config.name} can carry. Options apply to the select types.</CardDescription>
+        <CardDescription>
+          Fields every Story on {board.config.name} can carry. Options apply to the select types.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -59,12 +61,23 @@ export function CustomFieldsTab({ board, act }: { board: BoardSnapshot; act: Act
             </TableHeader>
             <TableBody>
               {rows.map((r, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place and have no stable id
                 <TableRow key={i}>
                   <TableCell>
-                    <Input value={r.id} onChange={(e) => set(i, { id: e.target.value })} placeholder="priority" aria-label="Field id" />
+                    <Input
+                      value={r.id}
+                      onChange={(e) => set(i, { id: e.target.value })}
+                      placeholder="priority"
+                      aria-label="Field id"
+                    />
                   </TableCell>
                   <TableCell>
-                    <Input value={r.name} onChange={(e) => set(i, { name: e.target.value })} placeholder="Priority" aria-label="Field name" />
+                    <Input
+                      value={r.name}
+                      onChange={(e) => set(i, { name: e.target.value })}
+                      placeholder="Priority"
+                      aria-label="Field name"
+                    />
                   </TableCell>
                   <TableCell>
                     <Select value={r.type} onValueChange={(v) => set(i, { type: v as FieldType })}>
@@ -90,7 +103,12 @@ export function CustomFieldsTab({ board, act }: { board: BoardSnapshot; act: Act
                     />
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon-sm" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="Remove field">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                      aria-label="Remove field"
+                    >
                       <X />
                     </Button>
                   </TableCell>
