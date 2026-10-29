@@ -3,17 +3,22 @@ import type { BoardSnapshot, RuntimeState, StageConfig } from "@sf/protocol";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { StoryCard } from "./StoryCard.tsx";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 type Props = {
   board: BoardSnapshot;
   runtime: RuntimeState;
   act: Act;
   onOpenStory: (key: string) => void;
-  onOpenStage: (stageId: string) => void;
+  /** Opens Board Settings on the Stages tab. */
+  onOpenStages: () => void;
 };
 
+const columnClass = "flex min-h-32 w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
+
 /** The kanban: one column per Stage. Drag a card onto a column, or use its "Move to…" menu. */
-export function BoardView({ board, runtime, act, onOpenStory, onOpenStage }: Props) {
+export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Props) {
   const { stages } = board.config;
   const [over, setOver] = useState<string | null>(null);
   const known = new Set(stages.map((s) => s.id));
@@ -25,7 +30,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStage }: Pro
     return (
       <section
         key={stage.id}
-        className={`column${over === stage.id ? " drop" : ""}`}
+        className={cn(columnClass, over === stage.id && "outline-2 outline-ring outline-dashed")}
         onDragOver={(e) => {
           e.preventDefault();
           setOver(stage.id);
@@ -39,13 +44,20 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStage }: Pro
           if (story && story.stage !== stage.id) void act(() => sfApi.moveStory(key, stage.id));
         }}
       >
-        <header>
-          <button type="button" className="column-title" onClick={() => onOpenStage(stage.id)} title="Stage settings">
-            {stage.name} <span className="count">{stories.length}</span>
+        <header className="flex h-6 shrink-0 items-center justify-between gap-2 px-1">
+          <button
+            type="button"
+            className="cursor-pointer truncate rounded-sm text-sm font-semibold hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={onOpenStages}
+            title="Board Settings: Stages"
+          >
+            {stage.name} <span className="font-normal text-muted-foreground">{stories.length}</span>
           </button>
-          <span className={`prompt-flag${stage.promptEnabled && prompt ? " on" : ""}`}>
-            {stage.promptEnabled && prompt ? "Worker" : stage.promptEnabled ? "no prompt" : ""}
-          </span>
+          {stage.promptEnabled && (
+            <Badge variant={prompt ? "default" : "outline"} className={cn(!prompt && "text-muted-foreground")}>
+              {prompt ? "Worker" : "no prompt"}
+            </Badge>
+          )}
         </header>
         {stories.map((s) => (
           <StoryCard key={s.key} story={s} stages={stages} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
@@ -55,35 +67,16 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStage }: Pro
   };
 
   return (
-    <div className="board">
+    <div className="flex flex-1 items-start gap-3 overflow-x-auto p-4">
       {stages.map(column)}
       {orphans.length > 0 && (
-        <section className="column orphans">
-          <header>Unknown Stage</header>
+        <section className={cn(columnClass, "border border-dashed border-destructive/50")}>
+          <header className="flex h-6 shrink-0 items-center px-1 text-sm font-semibold text-destructive">Unknown Stage</header>
           {orphans.map((s) => (
             <StoryCard key={s.key} story={s} stages={stages} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
           ))}
         </section>
       )}
-      <AddStage board={board} act={act} />
     </div>
-  );
-}
-
-function AddStage({ board, act }: { board: BoardSnapshot; act: Act }) {
-  const [name, setName] = useState("");
-  return (
-    <form
-      className="column add-stage"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (await act(() => sfApi.addStage(board.id, name))) setName("");
-      }}
-    >
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New Stage" />
-      <button type="submit" disabled={!name.trim()}>
-        Add Stage
-      </button>
-    </form>
   );
 }
