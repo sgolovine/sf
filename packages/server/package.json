@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "@sf/protocol": "workspace:*",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.0"

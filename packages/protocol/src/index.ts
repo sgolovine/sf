@@ -161,3 +161,115 @@ export type NextCommandResponse = CommandRecord;
 export type CommandResultRequest = { ok: true; result?: string } | { ok: false; error: string };
 export type PostMessageRequest = { text: string; level?: HostMessage["level"]; commandId?: string };
 export type FileChangesResponse = { changes: FileChange[] };
+
+// ---------- Project (.sf) ----------
+
+export type FieldType = "text" | "number" | "single-select" | "multi-select" | "boolean" | "date";
+export const FIELD_TYPES: readonly FieldType[] = ["text", "number", "single-select", "multi-select", "boolean", "date"];
+
+/** A custom field in a Board's Story schema. `options` is for the select types. */
+export type FieldDef = { id: string; name: string; type: FieldType; options?: string[] };
+
+export type StageConfig = {
+  /** Stable slug id; never changes on rename. */
+  id: string;
+  name: string;
+  promptEnabled: boolean;
+  agent?: string | null;
+  model?: string | null;
+};
+
+export type WorkerSettings = { agent: string | null; model: string | null };
+
+/** `.sf/sf.config.json`. */
+export type ProjectConfig = {
+  version: 1;
+  worker: WorkerSettings;
+  worktree: { baseBranch: string | null };
+  claimTimeoutMinutes: number;
+  briefPreamble: string;
+  /** Project-wide; cannot be overridden per Board. */
+  maxConcurrentWorkers: number;
+};
+
+export type BoardOverrides = {
+  worker?: Partial<WorkerSettings>;
+  worktree?: { baseBranch?: string | null };
+  claimTimeoutMinutes?: number;
+  briefPreamble?: string;
+};
+
+/** `.sf/boards/<id>/board.config.json`. */
+export type BoardConfig = {
+  key: string;
+  name: string;
+  stages: StageConfig[];
+  schema: FieldDef[];
+  overrides: BoardOverrides;
+};
+
+export type StoryView = {
+  key: string;
+  /** Board id. */
+  board: string;
+  title: string;
+  stage: string;
+  branch?: string;
+  /** Custom field values by field id, plus any frontmatter keys the schema does not know. */
+  fields: Record<string, unknown>;
+  body: string;
+};
+
+export type ClaimStatus = "spawning" | "active";
+
+export type Claim = {
+  workerId: string;
+  board: string;
+  stageId: string;
+  status: ClaimStatus;
+  claimedAt: number;
+  lastSeenAt: number;
+  commandId?: string;
+};
+
+export type WorkerEndReason = "moved" | "released" | "force-released" | "timeout" | "spawn-failed";
+
+export type WorkerRecord = {
+  storyKey: string;
+  stageId: string;
+  mode: "thread" | "subagent";
+  threadId?: string;
+  startedAt: number;
+  endedAt?: number;
+  endReason?: WorkerEndReason;
+};
+
+/** `.sf/runtime/state.json` (gitignored). */
+export type RuntimeState = {
+  version: 1;
+  claims: Record<string, Claim>;
+  /** Spawns waiting for a free Worker slot, oldest first. */
+  queue: { storyKey: string; board: string; stageId: string; queuedAt: number }[];
+  failures: Record<string, { stageId: string; error: string; at: number }>;
+  worktreeWarnings: Record<string, { path: string; branch: string; reason: string; at: number }>;
+  workers: Record<string, WorkerRecord>;
+  /** Triggers written while no server was running; run on the next start. */
+  pendingTriggers: { type: "spawn" | "cleanup"; storyKey: string; stageId?: string; at: number }[];
+};
+
+export type BoardSnapshot = {
+  id: string;
+  config: BoardConfig;
+  /** Stage Prompt text by Stage id. */
+  prompts: Record<string, string>;
+  stories: StoryView[];
+};
+
+export type ProjectSnapshot = {
+  root: string;
+  config: ProjectConfig;
+  boards: BoardSnapshot[];
+  runtime: RuntimeState;
+};
+
+export type SfErrorCode = "claim_gone" | "claimed" | "invalid" | "not_found" | "no_project";
