@@ -5,8 +5,8 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { after, test } from "node:test";
-import { routes, TOKEN_HEADER } from "#protocol";
-import type { ServerInfo } from "../src/server/client.ts";
+import { routes, TOKEN_HEADER } from "#model/api";
+import type { ServerInfo } from "../src/server/services/ClientService.ts";
 import { sfPaths } from "../src/server/project/paths.ts";
 import { tempDir, tempRepo } from "./helpers.ts";
 

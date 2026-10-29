@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import type { FieldDef } from "#protocol";
+import type { FieldDef } from "#model/config";
 import { SfError } from "../src/server/project/errors.ts";
 import { nextStoryNumber, parseFieldArg, parseStory, serializeStory, validateFields } from "../src/server/project/story.ts";
 import { tempDir } from "./helpers.ts";

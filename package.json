@@ -16,7 +16,7 @@
     "skills"
   ],
   "imports": {
-    "#protocol": "./src/protocol/index.ts"
+    "#model/*": "./src/model/*.ts"
   },
   "scripts": {
     "dev": "pnpm run \"/^dev:(server|web)$/\"",

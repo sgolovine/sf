@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { parse, stringify } from "yaml";
-import type { FieldDef } from "#protocol";
+import type { FieldDef } from "#model/config";
 import { SfError } from "./errors.ts";
 
 /** A Story file's content. `fields` holds custom values and any keys the schema does not know. */

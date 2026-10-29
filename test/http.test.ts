@@ -1,21 +1,23 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { after, test } from "node:test";
-import { routes, type CommandRecord, type StoryDetails } from "#protocol";
-import { api, type ServerInfo } from "../src/server/client.ts";
-import { createApp, createOnlineService, listen } from "../src/server/server.ts";
-import { Store } from "../src/server/store.ts";
+import { routes, type StoryDetails } from "#model/api";
+import type { CommandRecord } from "#model/commands";
+import { ClientService, type ServerInfo } from "../src/server/services/ClientService.ts";
+import { OnlineService } from "../src/server/services/OnlineService.ts";
+import { createApp, listen } from "../src/server/server.ts";
+import { StoreService } from "../src/server/services/StoreService.ts";
 import { tempRepo } from "./helpers.ts";
 
 const root = tempRepo();
-const store = new Store(root, null);
-const service = createOnlineService(store, { root, sf: "sf" });
+const store = StoreService.create(root, null);
+const service = OnlineService.create(store, { root, sf: "sf" });
 const app = createApp({ store, service, token: "t", uiDir: null, onStop: () => {} });
 const http = await listen(app, 0);
 after(() => http.close());
 const address = http.address();
 const server: ServerInfo = { port: typeof address === "object" && address ? address.port : 0, token: "t", pid: 0 };
-const call = <T>(method: string, path: string, body?: unknown) => api<T>(server, method, path, body);
+const call = <T>(method: string, path: string, body?: unknown) => ClientService.api<T>(server, method, path, body);
 
 test("a Move over HTTP spawns; next hands out worker.spawn with its worktree; done activates", async () => {
   await call("POST", routes.capabilities, { agent: "a", model: "m", app: "t3-code", canSpawnThreads: true, canSpawnSubagents: true });

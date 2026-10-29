@@ -32,7 +32,7 @@ export function tempRepo(): string {
   return repo;
 }
 
-import type { ProjectConfig } from "#protocol";
+import type { ProjectConfig } from "#model/config";
 import { createService, type ServiceOptions, type SpawnRequest } from "../src/server/project/service.ts";
 import { sfPaths } from "../src/server/project/paths.ts";
 

@@ -2,16 +2,10 @@
 // server's HTTP routes when it is running and the Story service directly when
 // it is not, so every Story change goes through the same library.
 import fs from "node:fs";
-import {
-  routes,
-  type BoardResponse,
-  type ProjectConfig,
-  type ProjectSnapshot,
-  type StageConfig,
-  type StoryDetails,
-  type WorktreeResponse,
-} from "#protocol";
-import { api, type ServerInfo } from "../server/client.ts";
+import { routes, type BoardResponse, type StoryDetails, type WorktreeResponse } from "#model/api";
+import type { ProjectConfig, StageConfig } from "#model/config";
+import type { ProjectSnapshot } from "#model/project";
+import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
 import { SfError } from "../server/project/errors.ts";
 import { createService, type Actor } from "../server/project/service.ts";
 import { parseFieldArg, parseStoryKey } from "../server/project/story.ts";
@@ -45,7 +39,7 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
   const actor: Actor = workerId ? { kind: "worker", id: workerId } : { kind: "user" };
   const sub = args[0];
   const call = <T>(method: string, route: string, body: unknown, offline: () => T | Promise<T>): Promise<T> =>
-    server ? api<T>(server, method, route, body) : Promise.resolve(offline());
+    server ? ClientService.api<T>(server, method, route, body) : Promise.resolve(offline());
   const out = (value: unknown, text: () => string) => console.log(flags.json ? JSON.stringify(value, null, 2) : text());
   const need = (value: string | undefined, usage: string) => {
     if (!value) throw new SfError("invalid", `usage: sf ${usage}`);
@@ -61,7 +55,7 @@ export async function runProjectCommand(cmd: string, args: string[], flags: Flag
     case "board": {
       if (sub === "list") {
         const boards = server
-          ? ((await api<ProjectSnapshot | null>(server, "GET", routes.project))?.boards ?? [])
+          ? ((await ClientService.api<ProjectSnapshot | null>(server, "GET", routes.project))?.boards ?? [])
           : svc.hasProject()
             ? svc.listBoards()
             : [];

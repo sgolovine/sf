@@ -3,17 +3,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type {
-  BoardConfig,
-  BoardOverrides,
-  FieldDef,
-  ProjectConfig,
-  ProjectSnapshot,
-  RuntimeState,
-  StoryDetails,
-  StoryView,
-  WorkerEndReason,
-} from "#protocol";
+import type { StoryDetails } from "#model/api";
+import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig } from "#model/config";
+import type { ProjectSnapshot, StoryView } from "#model/project";
+import type { RuntimeState, WorkerEndReason } from "#model/runtime";
 import { composeBrief } from "./brief.ts";
 import {
   BACKLOG,

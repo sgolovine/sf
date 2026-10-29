@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { BoardSnapshot, StageConfig } from "#protocol";
+import type { StageConfig } from "#model/config";
+import type { BoardSnapshot } from "#model/project";
 import { ArrowDown, ArrowUp, Lock, Trash2 } from "lucide-react";
 import { sfApi } from "../../api/client.ts";
 import type { Act } from "../ErrorBanner.tsx";

@@ -1,4 +1,4 @@
-import type { Capabilities } from "#protocol";
+import type { Capabilities } from "#model/supervisor";
 
 type Env = NodeJS.ProcessEnv;
 
@@ -7,7 +7,7 @@ type Env = NodeJS.ProcessEnv;
  * the model or the agent's tool list, so the agent fills in the rest with
  * flags to `sf start`.
  */
-export function detectCapabilities(env: Env = process.env): Capabilities {
+function detect(env: Env = process.env): Capabilities {
   const agent = env.CLAUDECODE ? "claude-code" : Object.keys(env).some((k) => k.startsWith("CODEX_")) ? "codex" : "unknown";
   const app = env.T3CODE_CLI_PATH || env.T3_ACP_MCP_NODE ? "t3-code" : env.HERDR_ENV ? "herdr" : "terminal";
   return {
@@ -24,8 +24,8 @@ export function detectCapabilities(env: Env = process.env): Capabilities {
 type CapabilityFlags = Record<string, string | boolean | string[] | undefined>;
 
 /** Merges explicit flags over detected values. */
-export function resolveCapabilities(flags: CapabilityFlags, env: Env = process.env): Capabilities {
-  const detected = detectCapabilities(env);
+function resolve(flags: CapabilityFlags, env: Env = process.env): Capabilities {
+  const detected = detect(env);
   const str = (key: string, fallback: string) => (typeof flags[key] === "string" ? (flags[key] as string) : fallback);
   const bool = (key: string, fallback: boolean) => {
     const v = flags[key];
@@ -42,3 +42,8 @@ export function resolveCapabilities(flags: CapabilityFlags, env: Env = process.e
     ...(typeof notes === "string" ? { notes } : {}),
   };
 }
+
+export const CapabilitiesService = {
+  detect,
+  resolve,
+};

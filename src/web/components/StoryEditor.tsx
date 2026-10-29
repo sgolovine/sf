@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
-import type { BoardSnapshot, FieldDef, StoryView } from "#protocol";
+import type { FieldDef } from "#model/config";
+import type { BoardSnapshot, StoryView } from "#model/project";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { Button } from "@/components/ui/button";

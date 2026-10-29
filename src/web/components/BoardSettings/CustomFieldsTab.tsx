@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { FIELD_TYPES, type BoardSnapshot, type FieldDef, type FieldType } from "#protocol";
+import { FIELD_TYPES, type FieldDef, type FieldType } from "#model/config";
+import type { BoardSnapshot } from "#model/project";
 import { Plus, X } from "lucide-react";
 import { sfApi } from "../../api/client.ts";
 import type { Act } from "../ErrorBanner.tsx";

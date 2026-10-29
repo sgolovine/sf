@@ -1,5 +1,7 @@
 import { useState } from "react";
-import type { BoardSnapshot, RuntimeState, StageConfig } from "#protocol";
+import type { StageConfig } from "#model/config";
+import type { BoardSnapshot } from "#model/project";
+import type { RuntimeState } from "#model/runtime";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { StoryCard } from "./StoryCard.tsx";

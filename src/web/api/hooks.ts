@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CommandRecord } from "#protocol";
+import type { CommandRecord } from "#model/commands";
 import { sfApi } from "./client.ts";
 
 export const sessionKey = ["sf", "session"] as const;

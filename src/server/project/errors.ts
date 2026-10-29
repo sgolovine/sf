@@ -1,4 +1,4 @@
-import type { SfErrorCode } from "#protocol";
+import type { SfErrorCode } from "#model/api";
 
 /** An expected failure with a stable code. `claim_gone` and `claimed` are rejections (exit 3, HTTP 409). */
 export class SfError extends Error {

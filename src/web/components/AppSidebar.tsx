@@ -1,4 +1,4 @@
-import type { BoardSnapshot } from "#protocol";
+import type { BoardSnapshot } from "#model/project";
 import { KanbanSquare, Plus } from "lucide-react";
 import {
   Sidebar,

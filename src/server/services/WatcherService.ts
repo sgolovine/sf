@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { FileChange } from "#protocol";
+import type { FileChange } from "#model/session";
 
 const IGNORED = new Set([".git", "node_modules", "dist", ".turbo", ".next", ".vite"]);
 // Server churn under .sf/runtime that is not Project state.
@@ -8,7 +8,7 @@ const IGNORED_FILES = new Set([".sf/runtime/session.json", ".sf/runtime/server.j
 const FLUSH_MS = 200;
 
 /** Watches `root` recursively and reports batched changes. Returns a stop function. */
-export function watchFiles(root: string, onChanges: (changes: FileChange[]) => void): () => void {
+function watch(root: string, onChanges: (changes: FileChange[]) => void): () => void {
   let pending = new Map<string, FileChange>();
   let timer: NodeJS.Timeout | undefined;
 
@@ -40,3 +40,7 @@ export function watchFiles(root: string, onChanges: (changes: FileChange[]) => v
     watcher.close();
   };
 }
+
+export const WatcherService = {
+  watch,
+};

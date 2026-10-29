@@ -1,22 +1,18 @@
 import {
-  commands,
   routes,
   TOKEN_HEADER,
   type BoardResponse,
-  type CommandRecord,
   type CreateStoryRequest,
   type ErrorResponse,
-  type ProjectConfig,
-  type ServerEvent,
-  type SessionState,
-  type StageConfig,
   type StoryDetails,
-  type SupervisorCommand,
   type UpdateBoardRequest,
   type UpdateStageRequest,
   type UpdateStoryRequest,
   type WorktreeResponse,
-} from "#protocol";
+} from "#model/api";
+import { commands, type CommandRecord, type SupervisorCommand } from "#model/commands";
+import type { ProjectConfig, StageConfig } from "#model/config";
+import type { ServerEvent, SessionState } from "#model/session";
 
 // The server prints the UI URL with the token in the fragment. Fragments are
 // not sent in HTTP requests; the client sends the token in the authToken header.

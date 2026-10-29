@@ -6,7 +6,7 @@ import {
   type FieldDef,
   type ProjectConfig,
   type StageConfig,
-} from "#protocol";
+} from "#model/config";
 import { SfError } from "./errors.ts";
 import { readJson, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";

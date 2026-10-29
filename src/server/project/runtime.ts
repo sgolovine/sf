@@ -1,4 +1,4 @@
-import type { RuntimeState } from "#protocol";
+import type { RuntimeState } from "#model/runtime";
 import { readJson, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";
 

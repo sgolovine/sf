@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import type { RuntimeState, StoryView } from "#protocol";
+import type { StoryView } from "#model/project";
+import type { RuntimeState } from "#model/runtime";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { Button } from "@/components/ui/button";

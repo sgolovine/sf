@@ -1,4 +1,4 @@
-import type { BoardConfig, FieldDef } from "#protocol";
+import type { BoardConfig, FieldDef } from "#model/config";
 import type { StoryData } from "./story.ts";
 
 export type BriefInput = {

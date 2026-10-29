@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardConfig } from "#protocol";
+import type { BoardConfig } from "#model/config";
 import { DEFAULT_PROJECT_CONFIG, defaultBoard, resolveSettings, slug, uniqueId, validateBoard } from "../src/server/project/config.ts";
 
 test("default Board has the five Stages", () => {

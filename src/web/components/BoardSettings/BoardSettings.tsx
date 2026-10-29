@@ -1,4 +1,4 @@
-import type { BoardSnapshot } from "#protocol";
+import type { BoardSnapshot } from "#model/project";
 import type { Act } from "../ErrorBanner.tsx";
 import { CustomFieldsTab } from "./CustomFieldsTab.tsx";
 import { StagePromptsTab } from "./StagePromptsTab.tsx";

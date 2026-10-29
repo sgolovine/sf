@@ -15,7 +15,7 @@ sf is a CLI first. One package builds one `sf` command:
 src/
   cli/       `sf` entry point (main.ts), `sf start` (start.ts), `sf setup`, Project commands
   server/    Express API and UI hosting; project/ is the Story service
-  protocol/  shared types, routes, and command builders (UI ⇄ server ⇄ Supervisor), imported as #protocol
+  model/     shared types, routes, and command builders (UI ⇄ server ⇄ Supervisor), imported as #model/<file>
   web/       React UI; api/ has the client and hooks, components/ui the shadcn/ui components
 test/        node --test suites
 skills/

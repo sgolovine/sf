@@ -8,14 +8,15 @@ import fs from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveCapabilities } from "../server/capabilities.ts";
-import { findServer, readServerInfo, uiUrl, type ServerInfo } from "../server/client.ts";
+import { CapabilitiesService } from "../server/services/CapabilitiesService.ts";
+import { ClientService, type ServerInfo } from "../server/services/ClientService.ts";
 import { atomicWrite } from "../server/project/fsutil.ts";
 import { sfPaths } from "../server/project/paths.ts";
 import { createService } from "../server/project/service.ts";
-import { createApp, createOnlineService, listen, refreshProject } from "../server/server.ts";
-import { Store } from "../server/store.ts";
-import { watchFiles } from "../server/watcher.ts";
+import { OnlineService } from "../server/services/OnlineService.ts";
+import { createApp, listen } from "../server/server.ts";
+import { StoreService } from "../server/services/StoreService.ts";
+import { WatcherService } from "../server/services/WatcherService.ts";
 import type { Flags } from "./story.ts";
 
 const SWEEP_MS = 60 * 1000;
@@ -25,9 +26,9 @@ const PARENT_CHECK_MS = process.platform === "linux" ? 1000 : 3000;
 export async function runStart(flags: Flags, root: string, sf: string) {
   const paths = sfPaths(root);
   createService({ root, online: false }).init();
-  const running = await findServer(paths.serverJson);
+  const running = await ClientService.findServer(paths.serverJson);
   if (running)
-    throw new Error(`already running for ${root} at ${uiUrl(running)} (pid ${running.pid}). Stop it with \`sf stop\`.`);
+    throw new Error(`already running for ${root} at ${ClientService.uiUrl(running)} (pid ${running.pid}). Stop it with \`sf stop\`.`);
   fs.rmSync(paths.serverJson, { force: true });
 
   const dev = Boolean(flags.dev);
@@ -35,12 +36,12 @@ export async function runStart(flags: Flags, root: string, sf: string) {
   const uiDir = dev ? null : findUiDir(str(flags["ui-dir"]) ?? process.env.SF_UI_DIR);
   if (!dev && !(uiDir && fs.existsSync(path.join(uiDir, "index.html")))) console.error("sf: No built UI found; run `pnpm build` (or `pnpm dev:web`)");
 
-  const store = new Store(root, paths.sessionJson);
-  const service = createOnlineService(store, { root, sf });
-  const stopWatching = watchFiles(root, (changes) => {
-    store.addFileChanges(changes);
+  const store = StoreService.create(root, paths.sessionJson);
+  const service = OnlineService.create(store, { root, sf });
+  const stopWatching = WatcherService.watch(root, (changes) => {
+    StoreService.addFileChanges(store, changes);
     // Hand edits (and offline CLI writes) show up live; they never trigger Workers.
-    if (changes.some((c) => c.path.startsWith(".sf/"))) refreshProject(store, service);
+    if (changes.some((c) => c.path.startsWith(".sf/"))) OnlineService.refreshProject(store, service);
   });
 
   const app = createApp({ store, service, token, uiDir, onStop: () => shutdown("sf stop") });
@@ -67,7 +68,7 @@ export async function runStart(flags: Flags, root: string, sf: string) {
     if (service.hasProject()) service.sweep().catch((err) => console.error(`sf: sweep failed: ${err.message}`));
   }, SWEEP_MS);
   // The agent that ran `sf start` is the Supervisor. In dev there may be none.
-  if (!dev) store.setCapabilities(resolveCapabilities(flags));
+  if (!dev) StoreService.setCapabilities(store, CapabilitiesService.resolve(flags));
   // Run the triggers that Workers queued while no server was running.
   if (store.state.supervisor.capabilities && service.hasProject()) await service.drainPending();
 
@@ -92,7 +93,7 @@ export async function runStart(flags: Flags, root: string, sf: string) {
     clearInterval(sweep);
     clearInterval(parentCheck);
     stopWatching();
-    if (readServerInfo(paths.serverJson)?.pid === process.pid) fs.rmSync(paths.serverJson, { force: true });
+    if (ClientService.readServerInfo(paths.serverJson)?.pid === process.pid) fs.rmSync(paths.serverJson, { force: true });
     server.closeAllConnections();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
@@ -105,7 +106,7 @@ export async function runStart(flags: Flags, root: string, sf: string) {
     }
   }
 
-  const url = uiUrl(info);
+  const url = ClientService.uiUrl(info);
   console.log(`sf ready: ${url}`);
   if (dev) console.log(`api: http://127.0.0.1:${info.port}`);
   console.log(`project: ${root}`);

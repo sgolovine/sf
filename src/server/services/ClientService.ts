@@ -1,11 +1,11 @@
 import fs from "node:fs";
-import { routes, TOKEN_HEADER, type ErrorResponse } from "#protocol";
-import { SfError } from "./project/errors.ts";
+import { routes, TOKEN_HEADER, type ErrorResponse } from "#model/api";
+import { SfError } from "../project/errors.ts";
 
 /** `.sf/runtime/server.json`, written by `sf start`. `uiBase` is the Vite dev server. */
 export type ServerInfo = { port: number; token: string; pid: number; uiBase?: string };
 
-export function readServerInfo(file: string): ServerInfo | null {
+function readServerInfo(file: string): ServerInfo | null {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8")) as ServerInfo;
   } catch {
@@ -14,7 +14,7 @@ export function readServerInfo(file: string): ServerInfo | null {
 }
 
 /** The server described by `file`, if it answers. */
-export async function findServer(file: string): Promise<ServerInfo | null> {
+async function findServer(file: string): Promise<ServerInfo | null> {
   const s = readServerInfo(file);
   if (!s) return null;
   try {
@@ -25,12 +25,12 @@ export async function findServer(file: string): Promise<ServerInfo | null> {
   }
 }
 
-export function uiUrl(server: ServerInfo) {
+function uiUrl(server: ServerInfo) {
   return `${server.uiBase ?? `http://127.0.0.1:${server.port}`}/#authToken=${server.token}`;
 }
 
 /** Calls the sf API. Resolves to null on 204. sf rejections throw SfError. */
-export async function api<T>(server: ServerInfo, method: string, pathname: string, body?: unknown): Promise<T> {
+async function api<T>(server: ServerInfo, method: string, pathname: string, body?: unknown): Promise<T> {
   const res = await fetch(`http://127.0.0.1:${server.port}${pathname}`, {
     method,
     headers: { [TOKEN_HEADER]: server.token, "content-type": "application/json" },
@@ -44,3 +44,10 @@ export async function api<T>(server: ServerInfo, method: string, pathname: strin
   }
   return json;
 }
+
+export const ClientService = {
+  readServerInfo,
+  findServer,
+  uiUrl,
+  api,
+};
