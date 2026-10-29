@@ -46,6 +46,33 @@ sfApi.instruct("Pause after the current task");
 const { data: session } = useSession(); // live state: Supervisor, commands, Project snapshot
 ```
 
+## Project (`.sf`)
+
+sf keeps its data in `.sf/` at the repository root, committed with the repository:
+
+```
+.sf/
+  sf.config.json            Project defaults: Worker agent/model, base branch, claim timeout, brief preamble, maxConcurrentWorkers
+  .gitignore                ignores runtime/
+  runtime/                  Claims, queued spawns, failures, pending triggers, server.json (gitignored)
+  boards/development/
+    board.config.json       key, ordered Stages, Story schema, overrides
+    stages/<stage-id>.md    Stage Prompt text
+    stories/DEV-1.md        YAML frontmatter (title, stage, branch, custom fields) + description
+```
+
+Every Story change goes through `sf-factory` (UI, Supervisor, or Worker). With no server running, CLI commands write `.sf/` directly and queue spawns until the next `sf-factory start`. Hand edits show up in the UI live, but changing `stage:` by hand is not a Move and starts no Worker. Story Worktrees live next to the repository in `<repo>-sf-worktrees/<KEY>` on branch `sf/<KEY>`.
+
+```sh
+SF=dist/skills/sf-factory/scripts/sf-factory.mjs
+node $SF board create Development --key DEV
+node $SF stage set DEV todo --prompt-file prompts/plan.md --prompt-enabled true
+node $SF story create DEV --title "Add dark mode" --stage todo   # spawns a Worker
+node $SF story list
+```
+
+See [worker-commands.md](skills/sf-factory/references/worker-commands.md) for every Project command.
+
 The server listens on `127.0.0.1` only. Each `/api` call needs the session token in the `authToken` header. The printed UI URL carries the token in its fragment so the browser can add the header without sending the token in the HTTP URL.
 
 ## Development
