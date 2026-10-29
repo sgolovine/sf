@@ -12,9 +12,11 @@ export function sfPaths(root: string) {
   return {
     sf,
     config: path.join(sf, "sf.config.json"),
+    instructions: path.join(sf, "SF.md"),
     gitignore: path.join(sf, ".gitignore"),
     boards,
     board: (id: string) => path.join(boards, id, "board.config.json"),
+    boardInstructions: (id: string) => path.join(boards, id, "BOARD.md"),
     stories: (id: string) => path.join(boards, id, "stories"),
     stages: (id: string) => path.join(boards, id, "stages"),
     runtime,

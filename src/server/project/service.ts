@@ -150,6 +150,15 @@ export function createService(opts: ServiceOptions) {
     }
   }
 
+  function instructionText(file: string) {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw new SfError("invalid", `cannot read Worker instructions at ${file}: ${String(err)}`);
+    }
+  }
+
   /** True when entering this Stage spawns a Worker: enabled, not fixed, and a non-blank prompt. */
   function stageSpawns(boardId: string, board: BoardConfig, stageId: string) {
     const stage = board.stages.find((s) => s.id === stageId);
@@ -302,6 +311,8 @@ export function createService(opts: ServiceOptions) {
       workerId,
       sf: opts.sf ?? "sf",
       preamble: settings.briefPreamble,
+      projectInstructions: instructionText(paths.instructions),
+      boardInstructions: instructionText(paths.boardInstructions(boardId)),
       prompt: promptText(boardId, stageId),
     });
     const commandId = opts.onSpawn?.({
