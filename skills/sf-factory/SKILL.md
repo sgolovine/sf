@@ -38,7 +38,7 @@ Never detach it: no `nohup`, `setsid`, `disown`, trailing `&`, `screen`, `tmux`,
 
 `sf start` creates `.sf/` if it is missing, starts the server, registers the capabilities, runs any triggers Workers queued while no server was running, opens the browser, and prints `sf ready: <url>`. Wait for that line (or for `sf status` to print `running at <url>`), then tell the user the URL once.
 
-- `already running`: run `sf status`. If it is not running, run `sf stop`, then start again.
+- `already running`: a live sf server already answers for this Project (`sf start` removes a stale one itself), possibly another thread's. Run `sf url` and `sf status`. Reuse it only if this thread started it. Otherwise ask the user before running `sf stop`, because that stops another session's server.
 - If a sandbox blocks localhost networking, rerun with escalated permissions.
 - If you cannot run background processes, give the user the exact `sf start ...` command to run in their own terminal, and wait for them to confirm.
 
