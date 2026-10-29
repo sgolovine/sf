@@ -217,12 +217,17 @@ export async function runProjectCommand(
         const wt = await call<WorktreeResponse>("POST", routes.storyWorktree(key), { action: "remove", force }, () =>
           svc.removeWorktree(key, force),
         );
+        const branch = wt.branchDeleted
+          ? ` Deleted branch ${wt.branch}.`
+          : wt.branchReason
+            ? ` Kept branch ${wt.branch}: ${wt.branchReason}`
+            : "";
         return out(wt, () =>
           wt.removed
-            ? `Removed ${wt.path} (kept branch ${wt.branch}).`
+            ? `Removed ${wt.path}.${branch || ` Kept branch ${wt.branch}.`}`
             : wt.reason
               ? `Kept ${wt.path}: ${wt.reason}.`
-              : `No worktree for ${key}.`,
+              : `No worktree for ${key}.${branch}`,
         );
       }
       throw new SfError("invalid", "usage: sf worktree ensure|remove <KEY> [--force]");

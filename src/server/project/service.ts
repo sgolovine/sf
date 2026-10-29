@@ -369,6 +369,7 @@ export function createService(opts: ServiceOptions) {
     return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== null && v !== undefined));
   }
 
+  /** Removes the Story Worktree; for a Story in Done, also deletes its branch once merged. */
   async function removeWorktree(key: string, force: boolean, onlyIfDone = false): Promise<CleanupResult> {
     const { board, story } = locate(key);
     if (onlyIfDone && story.stage !== DONE)
@@ -376,7 +377,8 @@ export function createService(opts: ServiceOptions) {
     const settings = resolveSettings(loadProjectConfig(root), board);
     let result: CleanupResult;
     try {
-      result = await cleanupWorktree(git, root, key, await resolveBaseBranch(git, root, settings.baseBranch), force);
+      const base = await resolveBaseBranch(git, root, settings.baseBranch);
+      result = await cleanupWorktree(git, root, key, base, { force, deleteBranch: story.stage === DONE });
     } catch (err) {
       result = {
         removed: false,

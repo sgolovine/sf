@@ -73,7 +73,14 @@ export type UpdateStoryRequest = { title?: string; fields?: Record<string, unkno
 export type MoveStoryRequest = { stage: string; worker?: string };
 export type ReleaseStoryRequest = { worker: string };
 export type WorktreeRequest = { action: "ensure" | "remove"; force?: boolean };
-export type WorktreeResponse = { path: string; branch: string; removed?: boolean; reason?: string };
+export type WorktreeResponse = {
+  path: string;
+  branch: string;
+  removed?: boolean;
+  reason?: string;
+  branchDeleted?: boolean;
+  branchReason?: string;
+};
 
 export type SfErrorCode = "claim_gone" | "claimed" | "invalid" | "not_found" | "no_project";
 
