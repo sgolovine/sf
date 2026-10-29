@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { activeHil, type BoardConfig } from "#model/config";
 import type { StoryView } from "#model/project";
 import type { RuntimeState } from "#model/runtime";
 import { Button } from "@/components/ui/button";
@@ -6,18 +7,20 @@ import { cn } from "@/lib/utils";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 
-type Props = { story: StoryView; runtime: RuntimeState; act: Act; onOpen: () => void };
+type Props = { story: StoryView; board: BoardConfig; runtime: RuntimeState; act: Act; onOpen: () => void };
 
-export function StoryCard({ story, runtime, act, onOpen }: Props) {
+export function StoryCard({ story, board, runtime, act, onOpen }: Props) {
   const claim = runtime.claims[story.key];
   const queued = runtime.queue.some((q) => q.storyKey === story.key);
   const failure = runtime.failures[story.key];
   const warning = runtime.worktreeWarnings[story.key];
+  const hil = activeHil(board, story);
   return (
     <article
       className={cn(
         "flex cursor-grab flex-col gap-1.5 rounded-md border bg-card p-2 text-card-foreground shadow-xs",
         claim && "border-l-4 border-l-blue-500",
+        hil && "border-l-4 border-l-amber-500",
         failure && "border-l-4 border-l-destructive",
       )}
       draggable
@@ -26,6 +29,12 @@ export function StoryCard({ story, runtime, act, onOpen }: Props) {
       <button type="button" className="cursor-pointer text-left text-sm hover:underline" onClick={onOpen}>
         <span className="text-xs text-muted-foreground">{story.key}</span> {story.title}
       </button>
+      {hil && (
+        <Status className="bg-amber-50 text-amber-900">
+          <span className="font-semibold">Needs a human</span>
+          {hil.comment && <span className="break-normal whitespace-pre-wrap">{hil.comment}</span>}
+        </Status>
+      )}
       {claim && (
         <Status className="bg-blue-50 text-blue-900">
           Worker {claim.workerId} · {claim.status} · {age(claim.claimedAt)}
