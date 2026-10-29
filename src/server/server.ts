@@ -16,7 +16,6 @@ export type ServerOptions = {
 
 export function createApp({ store, service, token, uiDir, onStop }: ServerOptions) {
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
   app.use("/api", apiRouter({ store, service, token, onStop }));
   app.use(uiRouter(uiDir));
   return app;

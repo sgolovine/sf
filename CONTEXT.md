@@ -57,3 +57,6 @@ _Avoid_: Story id, slug
 **Move**:
 Changing a Story's Stage to any other Stage through the UI or an sf command, by the user, a Worker, or the Supervisor. Creating a Story in a Stage counts as a Move into it. A Move triggers a Worker, and so does a human clearing a Story's HIL; editing the Stage in the file by hand does not.
 _Avoid_: Transition, drag
+
+**Attachment**:
+A file belonging to a Story, stored with display metadata under the Supervisor’s Project. Users stage files in the Story editor until Save/Create; Workers upload, list, and retrieve them with `sf story attachment ...`. Attachments persist across Moves and Story Worktree cleanup.

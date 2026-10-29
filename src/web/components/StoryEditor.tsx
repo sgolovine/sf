@@ -1,4 +1,5 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import type { Attachment } from "#model/attachment";
 import { activeHil, type FieldDef } from "#model/config";
 import type { BoardSnapshot, StoryView } from "#model/project";
 import { Button } from "@/components/ui/button";
@@ -16,9 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { sfApi } from "../api/client.ts";
+import { ApiError, sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { encodeAttachments, StoryAttachments } from "./StoryAttachments.tsx";
 
 type Props = { board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
 
@@ -34,20 +36,58 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
   // Open existing descriptions rendered; start empty ones ready to type.
   const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");
   const [fields, setFields] = useState<Record<string, unknown>>(story?.fields ?? {});
+  const [pending, setPending] = useState<File[]>([]);
+  const [persisted, setPersisted] = useState<Attachment[]>([]);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [retryOnly, setRetryOnly] = useState(false);
+  const storyKey = story?.key;
+  const submissionId = useRef(crypto.randomUUID());
+  const submission = useRef<Parameters<typeof sfApi.createStory>[0] | null>(null);
+  useEffect(() => {
+    if (storyKey)
+      void sfApi
+        .listAttachments(storyKey)
+        .then(setPersisted)
+        .catch((err: Error) => setError(err.message));
+  }, [storyKey]);
   const schema = board.config.schema;
   const hil = story && activeHil(board.config, story);
 
   const save = async () => {
-    // Send every schema field; null clears it on the server.
-    const values = Object.fromEntries(schema.map((f) => [f.id, fields[f.id] ?? null]));
-    const ok = story
-      ? await act(() => sfApi.updateStory(story.key, { title, body, fields: values }))
-      : await act(() => sfApi.createStory({ board: board.id, title, stage, body, fields: values }));
-    if (ok) onClose();
+    if (submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const values = Object.fromEntries(schema.map((f) => [f.id, fields[f.id] ?? null]));
+      // Keep the exact request across uncertain transport failures.
+      submission.current ??= {
+        board: board.id,
+        title,
+        stage,
+        body,
+        fields: values,
+        attachments: await encodeAttachments(pending),
+        submissionId: submissionId.current,
+      };
+      if (story) await sfApi.updateStory(story.key, submission.current);
+      else await sfApi.createStory(submission.current);
+      await act(async () => {});
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+      // Definitive rejections can be edited; transport errors retry the same submission.
+      const uncertain = err instanceof TypeError || (err instanceof ApiError && !err.code);
+      setRetryOnly(uncertain);
+      if (uncertain) setError(`${(err as Error).message}. Retry to confirm this submission before editing it.`);
+      else submission.current = null;
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
       <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
         <form
           className="flex flex-col gap-4"
@@ -56,93 +96,104 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
             void save();
           }}
         >
-          <DialogHeader>
-            <DialogTitle>{story ? story.key : `New Story on ${board.config.name}`}</DialogTitle>
-            <DialogDescription>
-              {story
-                ? `Stage: ${board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}${story.branch ? ` · branch ${story.branch}` : ""}`
-                : "Describe the work; custom fields follow the Board's settings."}
-            </DialogDescription>
-          </DialogHeader>
-          {hil && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              <p className="font-semibold">Needs a human</p>
-              {hil.comment && <p className="whitespace-pre-wrap">{hil.comment}</p>}
-              <p className="mt-1 text-xs">
-                No Worker runs while {schema.find((f) => f.id === hil.flag)?.name ?? hil.flag} is checked. Uncheck it
-                and save to start one.
-              </p>
-            </div>
-          )}
-          <div className="grid gap-2">
-            <Label htmlFor={`${id}-title`}>Title</Label>
-            <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-          </div>
-          {!story && (
-            <div className="grid gap-2">
-              <Label htmlFor={`${id}-stage`}>Stage</Label>
-              <Select value={stage} onValueChange={setStage}>
-                <SelectTrigger id={`${id}-stage`} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {board.config.stages.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          {schema.map((f) => (
-            <FieldInput
-              key={f.id}
-              id={`${id}-field-${f.id}`}
-              field={f}
-              value={fields[f.id]}
-              onChange={(v) => setFields({ ...fields, [f.id]: v })}
-            />
-          ))}
-          <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor={`${id}-body`}>Description</Label>
-              <TabsList>
-                <TabsTrigger value="write">Write</TabsTrigger>
-                <TabsTrigger value="preview">Preview</TabsTrigger>
-              </TabsList>
-            </div>
-            <TabsContent value="write">
-              <Textarea
-                id={`${id}-body`}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={8}
-                className="min-h-40 font-mono"
-                placeholder="Markdown supported"
-              />
-            </TabsContent>
-            <TabsContent value="preview">
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
-              <div
-                className="min-h-40 cursor-text rounded-md border px-3 py-2"
-                onDoubleClick={() => setBodyTab("write")}
-                title="Double-click to edit"
-              >
-                {body.trim() ? (
-                  <Markdown>{body}</Markdown>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Nothing to preview.</p>
-                )}
+          <fieldset disabled={submitting || retryOnly} className="contents">
+            <DialogHeader>
+              <DialogTitle>{story ? story.key : `New Story on ${board.config.name}`}</DialogTitle>
+              <DialogDescription>
+                {story
+                  ? `Stage: ${board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}${story.branch ? ` · branch ${story.branch}` : ""}`
+                  : "Describe the work; custom fields follow the Board's settings."}
+              </DialogDescription>
+            </DialogHeader>
+            {hil && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <p className="font-semibold">Needs a human</p>
+                {hil.comment && <p className="whitespace-pre-wrap">{hil.comment}</p>}
+                <p className="mt-1 text-xs">
+                  No Worker runs while {schema.find((f) => f.id === hil.flag)?.name ?? hil.flag} is checked. Uncheck it
+                  and save to start one.
+                </p>
               </div>
-            </TabsContent>
-          </Tabs>
+            )}
+            <div className="grid gap-2">
+              <Label htmlFor={`${id}-title`}>Title</Label>
+              <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+            </div>
+            {!story && (
+              <div className="grid gap-2">
+                <Label htmlFor={`${id}-stage`}>Stage</Label>
+                <Select value={stage} onValueChange={setStage}>
+                  <SelectTrigger id={`${id}-stage`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {board.config.stages.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {schema.map((f) => (
+              <FieldInput
+                key={f.id}
+                id={`${id}-field-${f.id}`}
+                field={f}
+                value={fields[f.id]}
+                onChange={(v) => setFields({ ...fields, [f.id]: v })}
+              />
+            ))}
+            <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor={`${id}-body`}>Description</Label>
+                <TabsList>
+                  <TabsTrigger value="write">Write</TabsTrigger>
+                  <TabsTrigger value="preview">Preview</TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="write">
+                <Textarea
+                  id={`${id}-body`}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  rows={8}
+                  className="min-h-40 font-mono"
+                  placeholder="Markdown supported"
+                />
+              </TabsContent>
+              <TabsContent value="preview">
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
+                <div
+                  className="min-h-40 cursor-text rounded-md border px-3 py-2"
+                  onDoubleClick={() => setBodyTab("write")}
+                  title="Double-click to edit"
+                >
+                  {body.trim() ? (
+                    <Markdown>{body}</Markdown>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Nothing to preview.</p>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
+            <StoryAttachments
+              storyKey={story?.key}
+              persisted={persisted}
+              pending={pending}
+              setPending={setPending}
+              error={error}
+              setError={setError}
+              disabled={submitting || retryOnly}
+            />
+          </fieldset>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!title.trim()}>
-              {story ? "Save" : "Create Story"}
+            <Button type="submit" disabled={submitting || !title.trim()}>
+              {retryOnly ? "Retry submission" : story ? "Save" : "Create Story"}
             </Button>
           </DialogFooter>
         </form>
