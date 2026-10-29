@@ -3,12 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts serve --dev --port 4317 --token dev --workspace ../..",
+    "dev": "tsx watch src/main.ts serve --dev --port 4317 --token dev --project ../..",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
     "@sf/protocol": "workspace:*",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.0"

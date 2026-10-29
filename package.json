@@ -13,6 +13,7 @@
     "dev:web": "pnpm --filter @sf/web dev",
     "build": "pnpm --filter @sf/web build && node scripts/build-skill.mjs && pnpm --filter @sf/cli build",
     "typecheck": "pnpm -r typecheck",
+    "test": "node --import tsx --test packages/server/test/*.test.ts",
     "sf": "node packages/cli/dist/sf.mjs",
     "sf-factory": "node dist/skills/sf-factory/scripts/sf-factory.mjs"
   },
