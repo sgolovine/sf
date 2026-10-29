@@ -1,0 +1,64 @@
+import type { BoardSnapshot } from "#protocol";
+import { KanbanSquare, Plus } from "lucide-react";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
+
+type Props = {
+  boards: BoardSnapshot[];
+  /** The Board shown in the main area, if any. */
+  activeId: string | undefined;
+  creating: boolean;
+  onSelect: (id: string) => void;
+  onNewBoard: () => void;
+};
+
+/** Lists the Project's Boards; "New Board" sits at the bottom. */
+export function AppSidebar({ boards, activeId, creating, onSelect, onNewBoard }: Props) {
+  return (
+    <Sidebar>
+      <SidebarHeader>
+        <span className="px-2 py-1 text-lg font-semibold tracking-tight">sf</span>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Boards</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {boards.map((b) => (
+                <SidebarMenuItem key={b.id}>
+                  <SidebarMenuButton isActive={!creating && b.id === activeId} onClick={() => onSelect(b.id)}>
+                    <KanbanSquare />
+                    <span>{b.config.name}</span>
+                  </SidebarMenuButton>
+                  <SidebarMenuBadge>{b.config.key}</SidebarMenuBadge>
+                </SidebarMenuItem>
+              ))}
+              {boards.length === 0 && <p className="px-2 text-sm text-muted-foreground">No Boards yet.</p>}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton isActive={creating} onClick={onNewBoard}>
+              <Plus />
+              <span>New Board</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+    </Sidebar>
+  );
+}

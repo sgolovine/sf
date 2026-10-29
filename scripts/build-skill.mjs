@@ -12,7 +12,7 @@ for (const entry of fs.readdirSync(path.join(root, "skills/sf-factory"))) {
 }
 
 await build({
-  entryPoints: [path.join(root, "packages/server/src/main.ts")],
+  entryPoints: [path.join(root, "src/cli/main.ts")],
   outfile: path.join(out, "scripts/sf-factory.mjs"),
   bundle: true,
   platform: "node",
@@ -24,5 +24,5 @@ await build({
 });
 
 if (!fs.existsSync(path.join(out, "assets/ui/index.html")))
-  console.warn("warning: no UI build found; run `pnpm --filter @sf/web build` first");
+  console.warn("warning: no UI build found; run `vite build` first");
 console.log(`built ${path.relative(root, out)}`);

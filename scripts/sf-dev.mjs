@@ -11,7 +11,7 @@ const args = process.argv.slice(2);
 
 if (args[0] === "start") {
   // Vite output goes to stderr so `start` prints only the URL on stdout.
-  const ui = spawnSync("pnpm", ["--filter", "@sf/web", "exec", "vite", "build", "--outDir", uiDir, "--logLevel", "warn"], {
+  const ui = spawnSync("pnpm", ["exec", "vite", "build", "--outDir", uiDir, "--logLevel", "warn"], {
     cwd: root,
     stdio: ["ignore", process.stderr, "inherit"],
   });
@@ -22,7 +22,7 @@ if (args[0] === "start") {
 // in Worker Briefs, whose commands run from Story Worktrees without node_modules.
 const result = spawnSync(
   process.execPath,
-  ["--import", import.meta.resolve("tsx"), path.join(root, "packages/server/src/main.ts"), ...args],
+  ["--import", import.meta.resolve("tsx"), path.join(root, "src/cli/main.ts"), ...args],
   { stdio: "inherit", env: { ...process.env, SF_UI_DIR: process.env.SF_UI_DIR ?? uiDir } },
 );
 process.exit(result.status ?? 1);

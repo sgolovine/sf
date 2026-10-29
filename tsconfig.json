@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "paths": { "@/*": ["./src/web/*"] }
+  },
+  "include": ["src", "test", "vite.config.ts"],
+  "exclude": ["src/web"]
+}
