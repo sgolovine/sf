@@ -6,7 +6,7 @@ import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { ErrorBanner, type Act } from "./components/ErrorBanner.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
-import { ArrowLeft, Settings } from "lucide-react";
+import { ArrowLeft, Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -48,6 +48,9 @@ export function App() {
   const board = boards.find((b) => b.id === selectedId) ?? boards[0];
   const creating = view.kind === "create-board" || !board;
   const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
+  const supervisorText =
+    `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
+    ` · ${listening ? "listening" : "busy or away"}`;
   const openBoard = (boardId: string) => {
     setView({ kind: "board", boardId });
     setEditing(null);
@@ -70,38 +73,56 @@ export function App() {
         }}
       />
       <SidebarInset className="min-w-0">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-          <SidebarTrigger />
+        {/* Container queries hide secondary text when the main area (not the window) is narrow. */}
+        <header className="@container/header flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          <SidebarTrigger className="shrink-0" />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <h1 className="truncate font-medium">
+          <h1 className="min-w-0 truncate font-medium">
             {creating ? "New Board" : settings ? `${board.config.name} · Board Settings` : board.config.name}
           </h1>
           {!creating && settings && (
-            <Button size="sm" variant="outline" onClick={() => openBoard(board.id)}>
-              <ArrowLeft /> Back to board
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => openBoard(board.id)}
+              aria-label="Back to board"
+            >
+              <ArrowLeft />
+              <span className="hidden @md/header:inline">Back to board</span>
             </Button>
           )}
           {!creating && !settings && (
             <>
-              <Button size="sm" onClick={() => setEditing({ key: null })}>
-                New Story
+              <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
+                <Plus />
+                <span className="hidden @md/header:inline">New Story</span>
               </Button>
-              <Button size="sm" variant="outline" onClick={() => openSettings(board.id, "stages")}>
-                <Settings /> Board Settings
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => openSettings(board.id, "stages")}
+                aria-label="Board Settings"
+              >
+                <Settings />
+                <span className="hidden @md/header:inline">Board Settings</span>
               </Button>
             </>
           )}
           <span className="flex-1" />
           {project && (
-            <span className="text-sm text-muted-foreground">
+            <span className="hidden shrink-0 text-sm whitespace-nowrap text-muted-foreground @2xl/header:inline">
               Workers {Object.keys(project.runtime.claims).length}/{project.config.maxConcurrentWorkers}
               {project.runtime.queue.length > 0 && ` · ${project.runtime.queue.length} waiting`}
             </span>
           )}
-          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <span
+            className="flex shrink-0 items-center gap-1.5 text-sm whitespace-nowrap text-muted-foreground"
+            title={supervisorText}
+          >
             <span className={cn("size-2 rounded-full", listening ? "bg-emerald-500" : "bg-muted-foreground/40")} />
-            Supervisor: {capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"} ·{" "}
-            {listening ? "listening" : "busy or away"}
+            <span className="sr-only @4xl/header:not-sr-only">{supervisorText}</span>
           </span>
         </header>
         {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
