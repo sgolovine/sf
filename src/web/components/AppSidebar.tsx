@@ -16,6 +16,8 @@ import {
 
 type Props = {
   boards: BoardSnapshot[];
+  /** Name of the Board shown in the main area, if any. */
+  title: string | undefined;
   /** The Board shown in the main area, if any. */
   activeId: string | undefined;
   creating: boolean;
@@ -23,12 +25,12 @@ type Props = {
   onNewBoard: () => void;
 };
 
-/** Lists the Project's Boards; "New Board" sits at the bottom. */
-export function AppSidebar({ boards, activeId, creating, onSelect, onNewBoard }: Props) {
+/** Names the current Board and lists the Project's Boards; "New Board" sits at the bottom. */
+export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewBoard }: Props) {
   return (
     <Sidebar>
       <SidebarHeader>
-        <span className="px-2 py-1 text-lg font-semibold tracking-tight">sf</span>
+        <span className="truncate px-2 py-1 text-lg font-semibold tracking-tight">{title}</span>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

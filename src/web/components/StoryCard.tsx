@@ -1,14 +1,13 @@
 import type { ReactNode } from "react";
-import type { RuntimeState, StageConfig, StoryView } from "#protocol";
+import type { RuntimeState, StoryView } from "#protocol";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-type Props = { story: StoryView; stages: StageConfig[]; runtime: RuntimeState; act: Act; onOpen: () => void };
+type Props = { story: StoryView; runtime: RuntimeState; act: Act; onOpen: () => void };
 
-export function StoryCard({ story, stages, runtime, act, onOpen }: Props) {
+export function StoryCard({ story, runtime, act, onOpen }: Props) {
   const claim = runtime.claims[story.key];
   const queued = runtime.queue.some((q) => q.storyKey === story.key);
   const failure = runtime.failures[story.key];
@@ -51,21 +50,6 @@ export function StoryCard({ story, stages, runtime, act, onOpen }: Props) {
           </Button>
         </Status>
       )}
-      {/* Always empty, so the trigger keeps showing the placeholder. */}
-      <Select value="" onValueChange={(stage) => act(() => sfApi.moveStory(story.key, stage))}>
-        <SelectTrigger size="sm" className="w-full text-xs" aria-label={`Move ${story.key}`}>
-          <SelectValue placeholder="Move to…" />
-        </SelectTrigger>
-        <SelectContent>
-          {stages
-            .filter((s) => s.id !== story.stage)
-            .map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.name}
-              </SelectItem>
-            ))}
-        </SelectContent>
-      </Select>
     </article>
   );
 }

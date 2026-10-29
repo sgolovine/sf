@@ -17,7 +17,7 @@ type Props = {
 
 const columnClass = "flex min-h-32 w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
 
-/** The kanban: one column per Stage. Drag a card onto a column, or use its "Move to…" menu. */
+/** The kanban: one column per Stage. Drag a card onto a column to Move its Story. */
 export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Props) {
   const { stages } = board.config;
   const [over, setOver] = useState<string | null>(null);
@@ -60,20 +60,20 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
           )}
         </header>
         {stories.map((s) => (
-          <StoryCard key={s.key} story={s} stages={stages} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
+          <StoryCard key={s.key} story={s} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
         ))}
       </section>
     );
   };
 
   return (
-    <div className="flex flex-1 items-start gap-3 overflow-x-auto p-4">
+    <div className="flex min-h-0 flex-1 items-start gap-3 overflow-auto p-4">
       {stages.map(column)}
       {orphans.length > 0 && (
         <section className={cn(columnClass, "border border-dashed border-destructive/50")}>
           <header className="flex h-6 shrink-0 items-center px-1 text-sm font-semibold text-destructive">Unknown Stage</header>
           {orphans.map((s) => (
-            <StoryCard key={s.key} story={s} stages={stages} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
+            <StoryCard key={s.key} story={s} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
           ))}
         </section>
       )}
