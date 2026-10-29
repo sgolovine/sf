@@ -1,8 +1,8 @@
 // `sf start`: runs the sf server (Express API + web interface) in the foreground
 // of the calling process until Ctrl-C, SIGTERM or SIGHUP, `sf stop`, or the exit
-// of the process that started it. Nothing is detached.
+// (or orphaning) of the process that started it. Nothing is detached.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import type http from "node:http";
@@ -19,7 +19,8 @@ import { watchFiles } from "../server/watcher.ts";
 import type { Flags } from "./story.ts";
 
 const SWEEP_MS = 60 * 1000;
-const PARENT_CHECK_MS = 1000;
+// ps is a process per check, so poll less often where there is no /proc.
+const PARENT_CHECK_MS = process.platform === "linux" ? 1000 : 3000;
 
 export async function runStart(flags: Flags, root: string, sf: string) {
   const paths = sfPaths(root);
@@ -70,10 +71,16 @@ export async function runStart(flags: Flags, root: string, sf: string) {
   // Run the triggers that Workers queued while no server was running.
   if (store.state.supervisor.capabilities && service.hasProject()) await service.drainPending();
 
-  // Stop with the process that started sf (the agent's shell), even on SIGKILL.
+  // Stop with the process that started sf, even on SIGKILL. That is often a wrapper
+  // shell that outlives a killed agent, so also stop when the wrapper is orphaned
+  // (its own parent changes). Skip that when it was already a child of init.
   const parent = process.ppid;
+  const grandparent = ppidOf(parent);
+  const watchGrandparent = grandparent !== null && grandparent !== 1;
   const parentCheck = setInterval(() => {
-    if (process.ppid !== parent || !isAlive(parent)) shutdown("parent exited");
+    if (process.ppid !== parent || !isAlive(parent)) return shutdown("parent exited");
+    const now = watchGrandparent ? ppidOf(parent) : null;
+    if (now !== null && now !== grandparent) shutdown("parent orphaned");
   }, PARENT_CHECK_MS);
   parentCheck.unref();
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(signal, () => shutdown(signal));
@@ -114,6 +121,20 @@ export function isAlive(pid: number) {
     return true;
   } catch (err) {
     return (err as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** The parent pid of `pid`, or null if it can't be read. */
+export function ppidOf(pid: number): number | null {
+  try {
+    if (process.platform === "linux") {
+      // Fields after "(comm)", which may itself contain spaces and parens: state ppid ...
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+      return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]) || null;
+    }
+    return Number(execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()) || null;
+  } catch {
+    return null;
   }
 }
 

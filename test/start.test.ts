@@ -80,6 +80,28 @@ test("start stops when the process that started it dies", async () => {
   await until(() => refuses(info));
 });
 
+test("start stops when the wrapper that started it is orphaned", async () => {
+  const repo = tempRepo();
+  const spawnScript = (args: string[]) =>
+    `require("node:child_process").spawn(process.execPath, ${JSON.stringify(args)}, { stdio: "inherit" }); setInterval(() => {}, 1000);`;
+  const wrapper = `console.log("wrapper " + process.pid); ${spawnScript(startArgs(repo))}`;
+  const { child, ready, output } = spawnReady(["-e", spawnScript(["-e", wrapper])]);
+  await ready;
+  const wrapperPid = Number(/wrapper (\d+)/.exec(output())![1]);
+  after(() => {
+    try {
+      process.kill(wrapperPid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  });
+  const info = serverInfo(repo);
+  child.kill("SIGKILL");
+  await until(() => !fs.existsSync(sfPaths(repo).serverJson));
+  await until(() => refuses(info));
+  process.kill(wrapperPid, 0); // The wrapper itself is still alive.
+});
+
 test("sf stop stops a running start; url fails without a server", async () => {
   const repo = tempRepo();
   const { ready, exited } = spawnReady(startArgs(repo));
