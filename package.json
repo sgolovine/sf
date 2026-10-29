@@ -15,7 +15,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "node --import tsx --test packages/server/test/*.test.ts",
     "sf": "node packages/cli/dist/sf.mjs",
-    "sf-factory": "node dist/skills/sf-factory/scripts/sf-factory.mjs"
+    "sf-factory": "node dist/skills/sf-factory/scripts/sf-factory.mjs",
+    "sf-dev": "node scripts/sf-dev.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

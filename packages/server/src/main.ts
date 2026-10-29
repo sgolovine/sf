@@ -198,7 +198,7 @@ async function serve() {
   fs.mkdirSync(paths.runtime, { recursive: true });
   const dev = Boolean(flags.dev);
   const token = str(flags.token) ?? crypto.randomBytes(16).toString("hex");
-  const uiDir = str(flags["ui-dir"]) ?? path.join(path.dirname(SCRIPT), "..", "assets", "ui");
+  const uiDir = str(flags["ui-dir"]) ?? process.env.SF_UI_DIR ?? path.join(path.dirname(SCRIPT), "..", "assets", "ui");
   const store = new Store(root, paths.sessionJson);
   const service = createOnlineService(store, { root, sf: SF_COMMAND });
   const stopWatching = watchFiles(root, (changes) => {

@@ -86,6 +86,8 @@ pnpm test           # node --test with tsx
 
 `pnpm dev:server` and `pnpm dev:web` run each part on its own. The dev server uses this repository as its Project. When it is running, the CLI (`node --import tsx packages/server/src/main.ts <cmd> --project .`, or the built script) connects to it.
 
+To test the `sf-factory` skill without building, use the project-internal `sf-dev` skill (`.agents/skills/sf-dev`). It follows `skills/sf-factory/SKILL.md` from source and runs `scripts/sf-dev.mjs` (also `pnpm sf-dev <cmd>`), which runs the CLI and server from TypeScript and rebuilds the UI into `dist/sf-dev/ui` on `start`.
+
 ## Build
 
 ```sh
