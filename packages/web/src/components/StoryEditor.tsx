@@ -1,12 +1,23 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import type { BoardSnapshot, FieldDef, StoryView } from "@sf/protocol";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 type Props = { board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
 
+/** Radix Select items cannot have an empty value; this one stands for "no value". */
+const NONE = "__none__";
+
 /** Create or edit a Story. Custom field inputs follow the Board's Story schema. */
 export function StoryEditor({ board, story, act, onClose }: Props) {
+  const id = useId();
   const [title, setTitle] = useState(story?.title ?? "");
   const [stage, setStage] = useState("backlog");
   const [body, setBody] = useState(story?.body ?? "");
@@ -23,68 +34,85 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <form
-        className="modal panel"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
-      >
-        <h2>{story ? `${story.key}` : `New Story on ${board.config.name}`}</h2>
-        <label>
-          Title
-          <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        </label>
-        {story ? (
-          <p className="muted">
-            Stage: {board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}
-            {story.branch && ` · branch ${story.branch}`}
-          </p>
-        ) : (
-          <label>
-            Stage
-            <select value={stage} onChange={(e) => setStage(e.target.value)}>
-              {board.config.stages.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {schema.map((f) => (
-          <FieldInput key={f.id} field={f} value={fields[f.id]} onChange={(v) => setFields({ ...fields, [f.id]: v })} />
-        ))}
-        <label>
-          Description
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
-        </label>
-        <div className="actions">
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="primary" disabled={!title.trim()}>
-            {story ? "Save" : "Create Story"}
-          </button>
-        </div>
-      </form>
-    </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{story ? story.key : `New Story on ${board.config.name}`}</DialogTitle>
+            <DialogDescription>
+              {story
+                ? `Stage: ${board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}${story.branch ? ` · branch ${story.branch}` : ""}`
+                : "Describe the work; custom fields follow the Board's settings."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-title`}>Title</Label>
+            <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+          </div>
+          {!story && (
+            <div className="grid gap-2">
+              <Label htmlFor={`${id}-stage`}>Stage</Label>
+              <Select value={stage} onValueChange={setStage}>
+                <SelectTrigger id={`${id}-stage`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {board.config.stages.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {schema.map((f) => (
+            <FieldInput
+              key={f.id}
+              id={`${id}-field-${f.id}`}
+              field={f}
+              value={fields[f.id]}
+              onChange={(v) => setFields({ ...fields, [f.id]: v })}
+            />
+          ))}
+          <div className="grid gap-2">
+            <Label htmlFor={`${id}-body`}>Description</Label>
+            <Textarea id={`${id}-body`} value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!title.trim()}>
+              {story ? "Save" : "Create Story"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function FieldInput({ field, value, onChange }: { field: FieldDef; value: unknown; onChange: (v: unknown) => void }) {
-  const label = (input: ReactNode) => (
-    <label>
-      {field.name}
+type FieldProps = { id: string; field: FieldDef; value: unknown; onChange: (v: unknown) => void };
+
+function FieldInput({ id, field, value, onChange }: FieldProps) {
+  const labelled = (input: ReactNode) => (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{field.name}</Label>
       {input}
-    </label>
+    </div>
   );
   switch (field.type) {
     case "number":
-      return label(
-        <input
+      return labelled(
+        <Input
+          id={id}
           type="number"
           value={typeof value === "number" ? value : ""}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
@@ -92,43 +120,55 @@ function FieldInput({ field, value, onChange }: { field: FieldDef; value: unknow
       );
     case "boolean":
       return (
-        <label className="inline">
-          <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} /> {field.name}
-        </label>
+        <div className="flex items-center gap-2">
+          <Checkbox id={id} checked={value === true} onCheckedChange={(c) => onChange(c === true)} />
+          <Label htmlFor={id}>{field.name}</Label>
+        </div>
       );
     case "date":
-      return label(<input type="date" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)} />);
+      return labelled(
+        <Input id={id} type="date" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)} />,
+      );
     case "single-select":
-      return label(
-        <select value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)}>
-          <option value="">—</option>
-          {field.options?.map((o) => (
-            <option key={o}>{o}</option>
-          ))}
-        </select>,
+      return labelled(
+        <Select value={typeof value === "string" && value ? value : NONE} onValueChange={(v) => onChange(v === NONE ? null : v)}>
+          <SelectTrigger id={id} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>—</SelectItem>
+            {field.options?.map((o) => (
+              <SelectItem key={o} value={o}>
+                {o}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>,
       );
     case "multi-select": {
       const selected = Array.isArray(value) ? (value as string[]) : [];
       return (
-        <fieldset>
-          <legend>{field.name}</legend>
-          {field.options?.map((o) => (
-            <label key={o} className="inline">
-              <input
-                type="checkbox"
+        <fieldset className="grid gap-2">
+          <legend className="mb-2 text-sm font-medium">{field.name}</legend>
+          {field.options?.map((o, i) => (
+            <div key={o} className="flex items-center gap-2">
+              <Checkbox
+                id={`${id}-${i}`}
                 checked={selected.includes(o)}
-                onChange={(e) => {
-                  const next = e.target.checked ? [...selected, o] : selected.filter((x) => x !== o);
+                onCheckedChange={(c) => {
+                  const next = c === true ? [...selected, o] : selected.filter((x) => x !== o);
                   onChange(next.length ? next : null);
                 }}
-              />{" "}
-              {o}
-            </label>
+              />
+              <Label htmlFor={`${id}-${i}`} className="font-normal">
+                {o}
+              </Label>
+            </div>
           ))}
         </fieldset>
       );
     }
     default:
-      return label(<input value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)} />);
+      return labelled(<Input id={id} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)} />);
   }
 }

@@ -3,6 +3,8 @@ import type { BoardSnapshot, RuntimeState, StageConfig } from "@sf/protocol";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { StoryCard } from "./StoryCard.tsx";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 type Props = {
   board: BoardSnapshot;
@@ -12,6 +14,8 @@ type Props = {
   /** Opens Board Settings on the Stages tab. */
   onOpenStages: () => void;
 };
+
+const columnClass = "flex min-h-32 w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
 
 /** The kanban: one column per Stage. Drag a card onto a column, or use its "Move to…" menu. */
 export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Props) {
@@ -26,7 +30,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
     return (
       <section
         key={stage.id}
-        className={`column${over === stage.id ? " drop" : ""}`}
+        className={cn(columnClass, over === stage.id && "outline-2 outline-ring outline-dashed")}
         onDragOver={(e) => {
           e.preventDefault();
           setOver(stage.id);
@@ -40,13 +44,20 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
           if (story && story.stage !== stage.id) void act(() => sfApi.moveStory(key, stage.id));
         }}
       >
-        <header>
-          <button type="button" className="column-title" onClick={onOpenStages} title="Stage settings">
-            {stage.name} <span className="count">{stories.length}</span>
+        <header className="flex items-center justify-between gap-2 px-1">
+          <button
+            type="button"
+            className="cursor-pointer truncate rounded-sm text-sm font-semibold hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={onOpenStages}
+            title="Stage settings"
+          >
+            {stage.name} <span className="font-normal text-muted-foreground">{stories.length}</span>
           </button>
-          <span className={`prompt-flag${stage.promptEnabled && prompt ? " on" : ""}`}>
-            {stage.promptEnabled && prompt ? "Worker" : stage.promptEnabled ? "no prompt" : ""}
-          </span>
+          {stage.promptEnabled && (
+            <Badge variant={prompt ? "default" : "outline"} className={cn(!prompt && "text-muted-foreground")}>
+              {prompt ? "Worker" : "no prompt"}
+            </Badge>
+          )}
         </header>
         {stories.map((s) => (
           <StoryCard key={s.key} story={s} stages={stages} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
@@ -56,11 +67,11 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
   };
 
   return (
-    <div className="board">
+    <div className="flex flex-1 items-start gap-3 overflow-x-auto p-4">
       {stages.map(column)}
       {orphans.length > 0 && (
-        <section className="column orphans">
-          <header>Unknown Stage</header>
+        <section className={cn(columnClass, "border border-dashed border-destructive/50")}>
+          <header className="px-1 text-sm font-semibold text-destructive">Unknown Stage</header>
           {orphans.map((s) => (
             <StoryCard key={s.key} story={s} stages={stages} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
           ))}
