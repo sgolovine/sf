@@ -6,7 +6,7 @@ sf has three parts:
 
 - **CLI** (`packages/cli`): `sf setup` installs the `sf-factory` skill (and optional skills) for Claude Code, Codex, or OpenCode.
 - **Skill** (`skills/sf-factory`): turns an agent thread into the _Supervisor_. It checks capabilities, starts the web interface, and spawns a Worker whenever a Story Moves into a Stage with an enabled Stage Prompt.
-- **Web interface** (`packages/web` + `packages/server`): a React + TanStack Query kanban and an Express server. Users create Boards and Stories, edit Stage Prompts, and Move Stories; the server turns Moves into `worker.spawn` commands for the Supervisor.
+- **Web interface** (`packages/web` + `packages/server`): a React + TanStack Query kanban (Tailwind CSS v4 and shadcn/ui) and an Express server. A sidebar lists the Boards, with New Board at the bottom. Users create Stories and Move them on the Board; each Board's Board Settings page has tabs for Stages, Custom Fields (the Story schema), and Stage Prompts (with agent and model overrides). The server turns Moves into `worker.spawn` commands for the Supervisor.
 
 ## Layout
 
@@ -14,7 +14,7 @@ sf has three parts:
 packages/
   protocol/  shared types, routes, and command builders (UI ⇄ server ⇄ Supervisor)
   server/    Express API + `sf-factory` CLI (bundled into the skill); src/project is the Story service
-  web/       React UI; `src/api` has the client and hooks
+  web/       React UI; `src/api` has the client and hooks, `src/components/ui` the shadcn/ui components
   cli/       `sf setup`
 skills/
   sf-factory/  SKILL.md and references (source)

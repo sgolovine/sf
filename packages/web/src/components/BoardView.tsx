@@ -49,7 +49,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
             type="button"
             className="cursor-pointer truncate rounded-sm text-sm font-semibold hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             onClick={onOpenStages}
-            title="Stage settings"
+            title="Board Settings: Stages"
           >
             {stage.name} <span className="font-normal text-muted-foreground">{stories.length}</span>
           </button>
