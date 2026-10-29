@@ -1,0 +1,33 @@
+{
+  "key": "ANO",
+  "name": "Another Board",
+  "stages": [
+    {
+      "id": "backlog",
+      "name": "Backlog",
+      "promptEnabled": false
+    },
+    {
+      "id": "todo",
+      "name": "TODO",
+      "promptEnabled": false
+    },
+    {
+      "id": "in_progress",
+      "name": "In Progress",
+      "promptEnabled": false
+    },
+    {
+      "id": "in_review",
+      "name": "In Review",
+      "promptEnabled": false
+    },
+    {
+      "id": "done",
+      "name": "Done",
+      "promptEnabled": false
+    }
+  ],
+  "schema": [],
+  "overrides": {}
+}
