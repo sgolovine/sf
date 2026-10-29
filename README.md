@@ -5,15 +5,15 @@ Build and run a software factory.
 sf has three parts:
 
 - **CLI** (`packages/cli`): `sf setup` installs the `sf-factory` skill (and optional skills) for Claude Code, Codex, or OpenCode.
-- **Skill** (`skills/sf-factory`): turns an agent thread into the _host thread_. It checks capabilities, starts the web interface, watches files, and carries out commands from the interface.
-- **Web interface** (`packages/web` + `packages/server`): a React + TanStack Query UI and an Express server. The UI sends commands such as "spawn a new thread with this prompt" to the host thread.
+- **Skill** (`skills/sf-factory`): turns an agent thread into the _Supervisor_. It checks capabilities, starts the web interface, and spawns a Worker whenever a Story Moves into a Stage with an enabled Stage Prompt.
+- **Web interface** (`packages/web` + `packages/server`): a React + TanStack Query kanban and an Express server. Users create Boards and Stories, edit Stage Prompts, and Move Stories; the server turns Moves into `worker.spawn` commands for the Supervisor.
 
 ## Layout
 
 ```
 packages/
-  protocol/  shared types, routes, and command builders (UI ⇄ server ⇄ host)
-  server/    Express API + `sf-factory` host CLI (bundled into the skill)
+  protocol/  shared types, routes, and command builders (UI ⇄ server ⇄ Supervisor)
+  server/    Express API + `sf-factory` CLI (bundled into the skill); src/project is the Story service
   web/       React UI; `src/api` has the client and hooks
   cli/       `sf setup`
 skills/
@@ -22,28 +22,28 @@ scripts/
   build-skill.mjs  bundles the skill into dist/skills/sf-factory
 ```
 
-## How the host thread and the UI talk
+## How the Supervisor, Workers, and the UI talk
 
 ```
-UI ── POST /api/commands ──▶ server queue ◀── sf-factory next (long-poll) ── host thread
-UI ◀── GET /api/events (SSE) ── server ◀── sf-factory done | fail | say ──── host thread
+UI ── Move / create Story ──▶ server ── Story service (.sf) ──▶ worker.spawn queue
+                                  ◀── sf-factory next (long-poll) ── Supervisor ── spawns ──▶ Worker
+UI ◀── GET /api/events (SSE) ── server ◀── sf-factory done | fail | say ─ Supervisor
+                                  ◀── sf-factory story move|update|create|release --worker ── Worker
 ```
 
-1. The UI enqueues a `HostCommand` (`thread.spawn`, `subagent.spawn`, `host.instruct`).
-2. The host runs `sf-factory next`, which blocks until it claims a command.
-3. The host does the work and reports back with `sf-factory done <id> --result …` or `fail`.
-4. Every state change streams to the UI over server-sent events.
+1. A Story enters a Stage with an enabled Stage Prompt. sf claims the Story for a new Worker id and queues a `worker.spawn` command (or queues the spawn, oldest first, when the Project is at `maxConcurrentWorkers`).
+2. The Supervisor runs `sf-factory next`. The server creates or reuses the Story Worktree and hands out the command with the Worker Brief.
+3. The Supervisor starts the Worker (a thread, or a subagent when it cannot start threads) and reports `sf-factory done <id> --result <thread id>`, or `fail`.
+4. The Worker changes Stories only through `sf-factory story ... --worker <id> --project <root>`. Its Claim ends when it Moves or releases the Story, when the user force-releases it, or after the claim timeout.
+5. Every state change streams to the UI over server-sent events.
 
 UI helpers (`packages/web/src/api`):
 
 ```ts
-sfApi.spawnThread("Add dark mode", { workspace: "worktree", branch: "feat/dark-mode" });
-sfApi.spawnSubagent("Audit the auth module");
+sfApi.createStory({ board: "DEV", title: "Add dark mode", stage: "todo" });
+sfApi.moveStory("DEV-3", "in_review");   // rejected with code "claimed" while a Worker holds it
 sfApi.instruct("Pause after the current task");
-
-const spawnThread = useSpawnThread();   // TanStack mutation
-spawnThread.mutate({ prompt: "Add dark mode" });
-const { data: session } = useSession(); // live state: host, commands, messages, file changes
+const { data: session } = useSession(); // live state: Supervisor, commands, Project snapshot
 ```
 
 The server listens on `127.0.0.1` only. Each `/api` call needs the session token in the `authToken` header. The printed UI URL carries the token in its fragment so the browser can add the header without sending the token in the HTTP URL.
@@ -54,9 +54,10 @@ The server listens on `127.0.0.1` only. Each `/api` call needs the session token
 pnpm install
 pnpm dev            # Express on :4317 + Vite on :5173 → http://localhost:5173/#authToken=dev
 pnpm typecheck
+pnpm test           # node --test with tsx
 ```
 
-`pnpm dev:server` and `pnpm dev:web` run each part on its own. When the dev server is running, the host CLI (`node --import tsx packages/server/src/main.ts <cmd>`, or the built script) connects to it for the same workspace.
+`pnpm dev:server` and `pnpm dev:web` run each part on its own. The dev server uses this repository as its Project. When it is running, the CLI (`node --import tsx packages/server/src/main.ts <cmd> --project .`, or the built script) connects to it.
 
 ## Build
 
@@ -64,7 +65,7 @@ pnpm typecheck
 pnpm build
 ```
 
-This builds the UI into `dist/skills/sf-factory/assets/ui`. It bundles the server and host CLI into `dist/skills/sf-factory/scripts/sf-factory.mjs`, a single file with no runtime dependencies. Then it builds the CLI and ships the skills with it. In production, `sf-factory start` starts a detached server that serves the UI.
+This builds the UI into `dist/skills/sf-factory/assets/ui`. It bundles the server and CLI into `dist/skills/sf-factory/scripts/sf-factory.mjs`, a single file with no runtime dependencies. Then it builds the CLI and ships the skills with it. In production, `sf-factory start` starts a detached server that serves the UI.
 
 ```sh
 pnpm sf setup                                   # interactive
