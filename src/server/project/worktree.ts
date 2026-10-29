@@ -7,7 +7,9 @@ export type Git = (args: string[], cwd: string) => Promise<string>;
 
 export const runGit: Git = (args, cwd) =>
   new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, encoding: "utf8" }, (err, stdout, stderr) => {
+    // Never wait on a credential prompt: sf runs git unattended.
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+    execFile("git", args, { cwd, encoding: "utf8", env }, (err, stdout, stderr) => {
       if (err) reject(new Error(`git ${args.join(" ")}: ${(stderr || err.message).trim()}`));
       else resolve(stdout.trim());
     });
@@ -46,30 +48,65 @@ export async function ensureWorktree(git: Git, root: string, key: string, base: 
   return { path: wtPath, branch, created: true };
 }
 
-export type CleanupResult = { removed: boolean; path: string; branch: string; reason?: string };
+export type CleanupResult = {
+  removed: boolean;
+  path: string;
+  branch: string;
+  /** Why the worktree was kept. */
+  reason?: string;
+  /** Set when `deleteBranch` was asked for. */
+  branchDeleted?: boolean;
+  /** Why the branch was kept. */
+  branchReason?: string;
+};
 
 /**
- * Removes the Story Worktree when it is clean and pushed (or when `force` is
- * set), keeping the branch. Otherwise returns the reason it was kept.
+ * Fetches (pruning gone remote branches) so a branch merged on the remote is
+ * seen as pushed, then removes the Story Worktree when it is clean and pushed
+ * (or when `force` is set). Otherwise returns the reason it was kept. With
+ * `deleteBranch`, then deletes the branch with `git branch -d`, which refuses
+ * unmerged branches; the refusal is returned as `branchReason`.
  */
 export async function cleanupWorktree(
   git: Git,
   root: string,
   key: string,
   base: string,
-  force = false,
+  { force = false, deleteBranch = false }: { force?: boolean; deleteBranch?: boolean } = {},
 ): Promise<CleanupResult> {
   const wtPath = worktreePath(root, key);
-  const result = { path: wtPath, branch: storyBranch(key) };
-  if (!(await hasWorktree(git, root, wtPath))) return { ...result, removed: false };
-  if (!force) {
-    if (await git(["status", "--porcelain"], wtPath))
-      return { ...result, removed: false, reason: "uncommitted changes" };
-    if (await git(["rev-list", "HEAD", "--not", "--remotes", base], wtPath))
-      return { ...result, removed: false, reason: "unpushed commits" };
+  const branch = storyBranch(key);
+  const result = { path: wtPath, branch };
+  try {
+    await git(["fetch", "--prune"], root);
+  } catch {
+    // No remote, or it is unreachable: judge with the refs we have.
   }
-  await git(["worktree", "remove", ...(force ? ["--force"] : []), wtPath], root);
-  return { ...result, removed: true };
+  if (await hasWorktree(git, root, wtPath)) {
+    if (!force) {
+      if (await git(["status", "--porcelain"], wtPath))
+        return { ...result, removed: false, reason: "uncommitted changes" };
+      if (await git(["rev-list", "HEAD", "--not", "--remotes", base], wtPath))
+        return { ...result, removed: false, reason: "unpushed commits" };
+    }
+    await git(["worktree", "remove", ...(force ? ["--force"] : []), wtPath], root);
+    return { ...result, removed: true, ...(deleteBranch ? await deleteMergedBranch(git, root, branch) : {}) };
+  }
+  return { ...result, removed: false, ...(deleteBranch ? await deleteMergedBranch(git, root, branch) : {}) };
+}
+
+/** `git branch -d`: deletes the branch only if git sees it as merged. */
+async function deleteMergedBranch(git: Git, root: string, branch: string) {
+  if (!(await branchExists(git, root, branch))) return { branchDeleted: false };
+  try {
+    await git(["branch", "-d", branch], root);
+    return { branchDeleted: true };
+  } catch (err) {
+    return {
+      branchDeleted: false,
+      branchReason: (err as Error).message.replace(/^git branch -d \S+: (error: )?/, "").split("\n")[0],
+    };
+  }
 }
 
 async function hasWorktree(git: Git, root: string, wtPath: string) {

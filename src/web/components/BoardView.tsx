@@ -63,7 +63,14 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
           )}
         </header>
         {stories.map((s) => (
-          <StoryCard key={s.key} story={s} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
+          <StoryCard
+            key={s.key}
+            story={s}
+            board={board.config}
+            runtime={runtime}
+            act={act}
+            onOpen={() => onOpenStory(s.key)}
+          />
         ))}
       </section>
     );
@@ -78,7 +85,14 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
             Unknown Stage
           </header>
           {orphans.map((s) => (
-            <StoryCard key={s.key} story={s} runtime={runtime} act={act} onOpen={() => onOpenStory(s.key)} />
+            <StoryCard
+              key={s.key}
+              story={s}
+              board={board.config}
+              runtime={runtime}
+              act={act}
+              onOpen={() => onOpenStory(s.key)}
+            />
           ))}
         </section>
       )}

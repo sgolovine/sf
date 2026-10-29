@@ -28,11 +28,12 @@ sf board show DEV
 sf stage add DEV "In Fixup" --after in_review
 sf stage set DEV todo --name "Ready for Development" --prompt-file prompts/ready.md --prompt-enabled true
 sf stage set DEV todo --agent codex --model <model-id>   # an empty value clears the override
+sf stage set DEV in_progress --hil-flag requires_dev_hil --hil-comment dev_hil_comment   # "" clears
 sf stage reorder DEV in_fixup --index 3
 sf stage remove DEV in_fixup                      # only when the Stage holds no Stories
 ```
 
-Stage ids never change on rename. Backlog (first) and Done (last) cannot be renamed, reordered, removed, or given a Stage Prompt.
+Stage ids never change on rename. Backlog (first) and Done (last) cannot be renamed, reordered, removed, or given a Stage Prompt or HIL fields.
 
 ## Stories
 
@@ -51,6 +52,19 @@ sf worktree remove DEV-3 [--force]
 `--field` values follow the Board's Story schema: numbers, `true`/`false`, `YYYY-MM-DD` dates, one option for single-select, and comma-separated options for multi-select. An empty value (`--field priority=`) clears the field.
 
 Creating a Story in a Stage, or Moving it there, spawns a Worker when the Stage has an enabled, non-empty Stage Prompt. A claimed Story can be updated by anyone, but only its Worker can Move it. Editing `stage:` in a Story file by hand is not a Move and starts no Worker.
+
+When a Story Moves to Done, sf fetches, removes its worktree if it is clean and pushed, and deletes the `sf/<KEY>` branch with `git branch -d`, which keeps a branch git does not see as merged. `sf worktree remove` reports a kept worktree or branch and why.
+
+## HIL (human in the loop)
+
+A Stage can name a HIL flag field (boolean) and a HIL comment field (text) from the Board schema; `sf board show` lists them as `hil=<flag>/<comment>`. While a Story's HIL flag for its current Stage is true, sf starts no Worker for it there, even when it is Moved in. When a Worker needs a human, it records the question and hands the Story back:
+
+```sh
+sf story update DEV-3 --field requires_dev_hil=true --field "dev_hil_comment=Which auth provider?" --worker w-1a2b --project /abs/repo
+sf story release DEV-3 --worker w-1a2b --project /abs/repo
+```
+
+The Story stays in its Stage, marked in the UI with the comment. When a human clears the flag (`sf story update DEV-3 --field requires_dev_hil=false`, or unchecks it in the UI), and the Story is unclaimed and the Stage has an enabled Stage Prompt, a Worker starts as if the Story had just entered the Stage. Clearing the flag of another Stage starts nothing.
 
 ## Configuration
 

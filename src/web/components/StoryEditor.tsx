@@ -1,5 +1,5 @@
 import { type ReactNode, useId, useState } from "react";
-import type { FieldDef } from "#model/config";
+import { activeHil, type FieldDef } from "#model/config";
 import type { BoardSnapshot, StoryView } from "#model/project";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -35,6 +35,7 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
   const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");
   const [fields, setFields] = useState<Record<string, unknown>>(story?.fields ?? {});
   const schema = board.config.schema;
+  const hil = story && activeHil(board.config, story);
 
   const save = async () => {
     // Send every schema field; null clears it on the server.
@@ -63,6 +64,16 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
                 : "Describe the work; custom fields follow the Board's settings."}
             </DialogDescription>
           </DialogHeader>
+          {hil && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p className="font-semibold">Needs a human</p>
+              {hil.comment && <p className="whitespace-pre-wrap">{hil.comment}</p>}
+              <p className="mt-1 text-xs">
+                No Worker runs while {schema.find((f) => f.id === hil.flag)?.name ?? hil.flag} is checked. Uncheck it
+                and save to start one.
+              </p>
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor={`${id}-title`}>Title</Label>
             <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />

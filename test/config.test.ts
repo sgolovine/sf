@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BoardConfig } from "#model/config";
+import type { BoardConfig, FieldDef, StageConfig } from "#model/config";
 import {
   DEFAULT_PROJECT_CONFIG,
   defaultBoard,
@@ -64,4 +64,26 @@ test("validateBoard rejects bad boards", () => {
     /Stage Prompt/,
   );
   assert.throws(() => validateBoard({ ...ok, schema: [{ id: "title", name: "T", type: "text" }] }), /reserved/);
+});
+
+test("validateBoard checks Stage HIL fields", () => {
+  const base = defaultBoard("Dev", "DEV");
+  const schema: FieldDef[] = [
+    { id: "hil", name: "HIL", type: "boolean" },
+    { id: "note", name: "Note", type: "text" },
+    { id: "count", name: "Count", type: "number" },
+  ];
+  const withHil = (stageId: string, hil: unknown) => ({
+    ...base,
+    schema,
+    stages: base.stages.map((s) => (s.id === stageId ? { ...s, hil: hil as StageConfig["hil"] } : s)),
+  });
+  validateBoard(withHil("todo", { flag: "hil", comment: "note" }));
+  validateBoard(withHil("todo", { flag: "hil" }));
+  assert.throws(() => validateBoard(withHil("todo", { flag: "note" })), /must be a boolean field/);
+  assert.throws(() => validateBoard(withHil("todo", { flag: "nope" })), /must be a boolean field/);
+  assert.throws(() => validateBoard(withHil("todo", { flag: "hil", comment: "count" })), /must be a text field/);
+  assert.throws(() => validateBoard(withHil("todo", { comment: "note" })), /needs a flag field/);
+  assert.throws(() => validateBoard(withHil("backlog", { flag: "hil" })), /Backlog cannot have HIL fields/);
+  assert.throws(() => validateBoard(withHil("done", { flag: "hil" })), /Done cannot have HIL fields/);
 });

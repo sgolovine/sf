@@ -15,17 +15,38 @@
     {
       "id": "in_refinement",
       "name": "In Refinement",
-      "promptEnabled": false
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_refinement_hil",
+        "comment": "refinement_hil_comment"
+      }
     },
     {
       "id": "in_progress",
-      "name": "In Progress",
-      "promptEnabled": false
+      "name": "In Development",
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_dev_hil",
+        "comment": "dev_hil_comment"
+      }
+    },
+    {
+      "id": "in_validation",
+      "name": "In Validation",
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_validation_hil",
+        "comment": "validation_hil_comment"
+      }
     },
     {
       "id": "in_review",
       "name": "In Review",
-      "promptEnabled": false
+      "promptEnabled": true,
+      "hil": {
+        "flag": "requires_review_hil",
+        "comment": "review_hil_comment"
+      }
     },
     {
       "id": "done",
@@ -35,23 +56,8 @@
   ],
   "schema": [
     {
-      "id": "desc",
-      "name": "Description",
-      "type": "text"
-    },
-    {
       "id": "requires_refinement_hil",
       "name": "Requires Refinement HIL",
-      "type": "boolean"
-    },
-    {
-      "id": "requires_dev_hil",
-      "name": "Requires Development HIL",
-      "type": "boolean"
-    },
-    {
-      "id": "requires_qa_hil",
-      "name": "Requires QA HIL",
       "type": "boolean"
     },
     {
@@ -60,14 +66,49 @@
       "type": "text"
     },
     {
+      "id": "requires_dev_hil",
+      "name": "Requires Development HIL",
+      "type": "boolean"
+    },
+    {
       "id": "dev_hil_comment",
       "name": "Development HIL Comment",
       "type": "text"
     },
     {
-      "id": "qa_hil_comment",
-      "name": "QA HIL Comment",
+      "id": "requires_validation_hil",
+      "name": "Requires Validation HIL",
+      "type": "boolean"
+    },
+    {
+      "id": "validation_hil_comment",
+      "name": "Validation HIL Comment",
       "type": "text"
+    },
+    {
+      "id": "requires_review_hil",
+      "name": "Requires Review HIL",
+      "type": "boolean"
+    },
+    {
+      "id": "review_hil_comment",
+      "name": "Review HIL Comment",
+      "type": "text"
+    },
+    {
+      "id": "pr_url",
+      "name": "PR URL",
+      "type": "text"
+    },
+    {
+      "id": "validation_rounds",
+      "name": "Validation Rounds",
+      "type": "number"
+    },
+    {
+      "id": "review_rounds",
+      "name": "Review Rounds",
+      "type": "number"
     }
   ],
   "overrides": {}

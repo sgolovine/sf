@@ -112,6 +112,7 @@ export function validateBoard(board: BoardConfig) {
     if (isFixedStage(s.id) && s.promptEnabled) invalid(`${s.name} cannot have a Stage Prompt`);
   }
   validateSchema(board.schema);
+  for (const s of board.stages) if (s.hil !== undefined) validateHil(board, s);
   validateOverrides(board.overrides);
 }
 
@@ -131,6 +132,17 @@ export function validateSchema(schema: FieldDef[]) {
         invalid(`field ${f.id} needs a list of options`);
     }
   }
+}
+
+function validateHil(board: BoardConfig, stage: StageConfig) {
+  const { hil } = stage;
+  if (isFixedStage(stage.id)) invalid(`${stage.name} cannot have HIL fields`);
+  if (!hil || typeof hil !== "object" || typeof hil.flag !== "string" || !hil.flag)
+    invalid(`Stage ${stage.id} HIL needs a flag field`);
+  const type = (id: string) => board.schema.find((f) => f.id === id)?.type;
+  if (type(hil.flag) !== "boolean") invalid(`HIL flag of Stage ${stage.id} must be a boolean field, got "${hil.flag}"`);
+  if (hil.comment !== undefined && type(hil.comment) !== "text")
+    invalid(`HIL comment of Stage ${stage.id} must be a text field, got "${hil.comment}"`);
 }
 
 export function validateOverrides(overrides: BoardOverrides) {

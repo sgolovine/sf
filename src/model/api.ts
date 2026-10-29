@@ -56,6 +56,8 @@ export type UpdateStageRequest = {
   prompt?: string;
   agent?: string | null;
   model?: string | null;
+  hilFlag?: string | null;
+  hilComment?: string | null;
 };
 export type ReorderStageRequest = { index: number };
 export type CreateStoryRequest = {
@@ -71,7 +73,14 @@ export type UpdateStoryRequest = { title?: string; fields?: Record<string, unkno
 export type MoveStoryRequest = { stage: string; worker?: string };
 export type ReleaseStoryRequest = { worker: string };
 export type WorktreeRequest = { action: "ensure" | "remove"; force?: boolean };
-export type WorktreeResponse = { path: string; branch: string; removed?: boolean; reason?: string };
+export type WorktreeResponse = {
+  path: string;
+  branch: string;
+  removed?: boolean;
+  reason?: string;
+  branchDeleted?: boolean;
+  branchReason?: string;
+};
 
 export type SfErrorCode = "claim_gone" | "claimed" | "invalid" | "not_found" | "no_project";
 
@@ -82,4 +91,6 @@ export type StoryDetails = StoryView & {
   queued?: boolean;
   failure?: RuntimeState["failures"][string];
   worktreeWarning?: RuntimeState["worktreeWarnings"][string];
+  /** Set while the Story's HIL flag for its Stage is true: it waits for a human. */
+  hil?: { flag: string; comment?: string };
 };

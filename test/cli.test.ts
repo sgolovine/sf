@@ -39,3 +39,30 @@ test("setup installs only the skill's markdown", () => {
   assert.ok(!fs.existsSync(path.join(skill, "scripts")));
   assert.ok(!fs.existsSync(path.join(skill, "assets")));
 });
+
+test("stage set --hil-flag/--hil-comment set and clear a Stage's HIL fields", () => {
+  const project = tempDir();
+  const run = (...args: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", main, ...args, "--project", project], { encoding: "utf8" });
+  assert.equal(run("board", "create", "Development", "--key", "DEV").status, 0);
+  const file = path.join(project, ".sf/boards/development/board.config.json");
+  const board = JSON.parse(fs.readFileSync(file, "utf8"));
+  board.schema = [
+    { id: "dev_hil", name: "Dev HIL", type: "boolean" },
+    { id: "dev_hil_comment", name: "Dev HIL comment", type: "text" },
+  ];
+  fs.writeFileSync(file, JSON.stringify(board));
+  const hil = () => JSON.parse(fs.readFileSync(file, "utf8")).stages.find((s: { id: string }) => s.id === "todo").hil;
+
+  const set = run("stage", "set", "DEV", "todo", "--hil-flag", "dev_hil", "--hil-comment", "dev_hil_comment");
+  assert.equal(set.status, 0, set.stderr);
+  assert.match(set.stdout, /HIL dev_hil \/ dev_hil_comment/);
+  assert.deepEqual(hil(), { flag: "dev_hil", comment: "dev_hil_comment" });
+  assert.equal(run("stage", "set", "DEV", "todo", "--hil-comment", "").status, 0);
+  assert.deepEqual(hil(), { flag: "dev_hil" });
+  const bad = run("stage", "set", "DEV", "todo", "--hil-flag", "dev_hil_comment");
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /must be a boolean field/);
+  assert.equal(run("stage", "set", "DEV", "todo", "--hil-flag", "").status, 0);
+  assert.equal(hil(), undefined);
+});

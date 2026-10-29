@@ -20,6 +20,7 @@ export const PROJECT_HELP = `Project commands (all accept --project <dir>, --jso
   sf stage add <board> <name> [--after <stage-id>]
   sf stage set <board> <stage-id> [--name <n>] [--prompt-enabled true|false]
                [--prompt <text> | --prompt-file <path>] [--agent <a>] [--model <m>]
+               [--hil-flag <field-id>] [--hil-comment <field-id>]
   sf stage reorder <board> <stage-id> --index <n>
   sf stage remove <board> <stage-id>
   sf story create <board> --title "<t>" [--stage <id>] [--field k=v]... [--body "<md>" | --body-file <p>]
@@ -107,6 +108,8 @@ export async function runProjectCommand(
         if (str(flags["prompt-file"])) patch.prompt = fs.readFileSync(str(flags["prompt-file"])!, "utf8");
         else if (str(flags.prompt) !== undefined) patch.prompt = str(flags.prompt);
         for (const k of ["agent", "model"]) if (flags[k] !== undefined) patch[k] = str(flags[k]) || null;
+        if (flags["hil-flag"] !== undefined) patch.hilFlag = str(flags["hil-flag"]) || null;
+        if (flags["hil-comment"] !== undefined) patch.hilComment = str(flags["hil-comment"]) || null;
         const stage = await call<StageConfig & { prompt: string }>("PATCH", routes.stage(ref, stageId), patch, () =>
           svc.updateStage(ref, stageId, patch),
         );
@@ -114,7 +117,8 @@ export async function runProjectCommand(
           stage,
           () =>
             `Stage ${stage.id}: ${stage.name}, prompt ${stage.promptEnabled ? "enabled" : "disabled"}` +
-            `${stage.prompt.trim() ? "" : " (no prompt text)"}.`,
+            `${stage.prompt.trim() ? "" : " (no prompt text)"}` +
+            `${stage.hil ? `, HIL ${stage.hil.flag}${stage.hil.comment ? ` / ${stage.hil.comment}` : ""}` : ""}.`,
         );
       }
       if (sub === "reorder") {
@@ -213,12 +217,17 @@ export async function runProjectCommand(
         const wt = await call<WorktreeResponse>("POST", routes.storyWorktree(key), { action: "remove", force }, () =>
           svc.removeWorktree(key, force),
         );
+        const branch = wt.branchDeleted
+          ? ` Deleted branch ${wt.branch}.`
+          : wt.branchReason
+            ? ` Kept branch ${wt.branch}: ${wt.branchReason}`
+            : "";
         return out(wt, () =>
           wt.removed
-            ? `Removed ${wt.path} (kept branch ${wt.branch}).`
+            ? `Removed ${wt.path}.${branch || ` Kept branch ${wt.branch}.`}`
             : wt.reason
               ? `Kept ${wt.path}: ${wt.reason}.`
-              : `No worktree for ${key}.`,
+              : `No worktree for ${key}.${branch}`,
         );
       }
       throw new SfError("invalid", "usage: sf worktree ensure|remove <KEY> [--force]");
@@ -232,7 +241,7 @@ function formatStages(stages: StageConfig[]) {
   return stages
     .map(
       (s, i) =>
-        `  ${i}. ${s.id.padEnd(16)} ${s.name}${s.promptEnabled ? "  [prompt enabled]" : ""}${s.agent ? `  agent=${s.agent}` : ""}${s.model ? `  model=${s.model}` : ""}`,
+        `  ${i}. ${s.id.padEnd(16)} ${s.name}${s.promptEnabled ? "  [prompt enabled]" : ""}${s.agent ? `  agent=${s.agent}` : ""}${s.model ? `  model=${s.model}` : ""}${s.hil ? `  hil=${s.hil.flag}${s.hil.comment ? `/${s.hil.comment}` : ""}` : ""}`,
     )
     .join("\n");
 }
@@ -253,6 +262,7 @@ function statusText(s: StoryDetails) {
   if (s.claim) return ` Claimed by Worker ${s.claim.workerId} (${s.claim.status}).`;
   if (s.queued) return " Waiting for a Worker.";
   if (s.failure) return ` Spawn failed: ${s.failure.error}`;
+  if (s.hil) return ` Held for HIL (${s.hil.flag})${s.hil.comment ? `: ${s.hil.comment}` : ""}.`;
   return "";
 }
 
@@ -262,6 +272,7 @@ function formatStoryLine(s: StoryDetails) {
     s.queued && "waiting for a Worker",
     s.failure && `failed: ${s.failure.error}`,
     s.worktreeWarning && `worktree kept: ${s.worktreeWarning.reason}`,
+    s.hil && `HIL${s.hil.comment ? `: ${s.hil.comment}` : ""}`,
   ].filter(Boolean);
   return `${s.key.padEnd(8)} ${s.stage.padEnd(14)} ${s.title}${tags.length ? `  [${tags.join("; ")}]` : ""}`;
 }
