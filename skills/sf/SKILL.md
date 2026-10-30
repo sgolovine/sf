@@ -35,6 +35,10 @@ Run `sf capabilities`. It detects the agent and app from the environment. It can
 - `canSpawnThreads`: true only if you have a tool that starts new top-level threads (for example T3 Code `t3_thread_launch`). Workers then run as threads.
 - `canSpawnSubagents`: true only if you have a tool that runs child agents (for example the Claude Code Agent tool or T3 Code `delegate_task`). Workers run as subagents when you cannot spawn threads.
 
+These flags describe local launch ability; they do not establish remote support. Before any future
+remote dispatch, follow the [remote preflight](references/commands.md#remote-dispatch-preflight).
+Current sf commands and Worker Briefs support local execution only.
+
 ## 3. Start sf
 
 Start sf the way a person does in a terminal, as a long-running background process of this thread:
