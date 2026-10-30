@@ -56,10 +56,12 @@ sf keeps its data in `.sf/` at the repository root, committed with the repositor
 
 ```
 .sf/
+  SF.md                     optional shared Worker instructions
   sf.config.json            Project defaults: Worker agent/model, base branch, claim timeout, brief preamble, maxConcurrentWorkers
   .gitignore                ignores runtime/
   runtime/                  Claims, queued spawns, failures, pending triggers, server.json (gitignored)
   boards/development/
+    BOARD.md                optional instructions for this Board
     board.config.json       key, ordered Stages, Story schema, overrides
     stages/<stage-id>.md    Stage model frontmatter + Prompt text
     stories/DEV-1.md        YAML frontmatter (title, stage, branch, model, custom fields) + description
@@ -75,11 +77,21 @@ sf story list
 sf start --no-open      # runs until Ctrl-C; prints `sf ready: <url>`
 ```
 
+### Worker models
+
 Worker models inherit Story → current Stage → Board → Project → Supervisor default. Use `sf project set --model gpt-6.1-sol`, `sf board set DEV --model claude-opus-5-5`, `sf stage set DEV todo --model gpt-6-luna`, or Story create/update `--model <slug>`. Pass `--model ""` to clear a level. `sf project show`, `sf board show`, Stage set and Story show explain the effective model/source (and return catalogs with `--json`).
 
 Project/Board JSON retain `worker.model` / `overrides.worker.model` and support custom `modelOptions: [{slug, label}]`; repeat `--model-option vendor/custom` on Project/Board set to add without selecting. Choices merge presets + Project customs + Board customs by exact slug; Board custom labels win, preset labels stay fixed. Labels default to slugs. Unknown saved slugs remain selectable. Stage/Story models use Markdown frontmatter; Stage prompt bodies exclude metadata. Legacy Stage JSON values migrate on that Stage's next update, preserving unrelated metadata. Missing/null/empty overrides inherit; with no selection sf omits the spawn model and displays “Supervisor default.” `model` cannot be redefined by custom fields; legacy conflicts require renaming before schema changes. See the [model formats and preset slugs](docs/specs/01-core-function.md#worker-models).
 
 Settings changes affect the next Worker, including queue drain, offline replay, HIL wake, and retry. They do not restart active Workers. The Supervisor passes explicit model slugs unchanged or reports an unsupported selection visibly.
+
+### Shared Worker instructions
+
+Project owners can maintain optional, case-sensitive Markdown files at `.sf/SF.md` (shared by every Board's Workers) and `.sf/boards/<board-id>/BOARD.md` (shared by that Board's Workers across Stages). The Board id determines the path, not its display name or Story key prefix. These files supplement the existing resolved `briefPreamble`; sf does not expand templates or interpret instruction conflicts.
+
+Worker Briefs contain, in order: the sf operational preamble (including commands and HIL guidance), the resolved `briefPreamble` when present, `## SF.md`, `## BOARD.md`, `## Stage Prompt`, and `## Story`. Each instruction section appears only when its file contains nonblank text, with only surrounding whitespace trimmed. Missing, empty, or whitespace-only files are omitted independently; other read errors report the failing path. Existing Projects need no migration or generated files. If an instruction read fails while deferred spawns are drained, sf reports the path and retains unfinished work for a later drain after the file is repaired. Already dispatched spawns are not replayed.
+
+sf reads these files from the service's Project root in the Supervisor's checkout each time it composes a brief, including when concurrency-queued spawns or offline pending triggers are drained. Creation, edits, and deletion take effect on the next composition without a restart. Already composed/dispatched briefs and running Workers are unchanged. The files do not instruct the Supervisor or enable Stages, start Workers, or change Claims and HIL behavior; an enabled, nonblank Stage Prompt is still required.
 
 See [worker-commands.md](skills/sf/references/worker-commands.md) for every Project command.
 

@@ -175,6 +175,15 @@ export function createService(opts: ServiceOptions) {
     }
   }
 
+  function instructionText(file: string) {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw new SfError("invalid", `cannot read Worker instructions at ${file}: ${String(err)}`);
+    }
+  }
+
   /** True when entering this Stage spawns a Worker: enabled, not fixed, and a non-blank prompt. */
   function stageSpawns(boardId: string, board: BoardConfig, stageId: string) {
     const stage = board.stages.find((s) => s.id === stageId);
@@ -308,7 +317,13 @@ export function createService(opts: ServiceOptions) {
       const found = tryLocate(entry.storyKey);
       if (!found || tx.rt.claims[entry.storyKey] || found.story.stage !== entry.stageId) continue;
       if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) continue;
-      spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
+      try {
+        spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
+      } catch (err) {
+        // Runtime is saved even on error; keep this spawn first for the next drain.
+        tx.rt.queue.unshift(entry);
+        throw err;
+      }
     }
   }
 
@@ -345,6 +360,8 @@ export function createService(opts: ServiceOptions) {
       workerId,
       sf: opts.sf ?? "sf",
       preamble: settings.briefPreamble,
+      projectInstructions: instructionText(paths.instructions),
+      boardInstructions: instructionText(paths.boardInstructions(boardId)),
       prompt: promptText(boardId, stageId),
       effectiveModel: resolveModel(tx.project, board, stage, story),
     });
@@ -392,9 +409,12 @@ export function createService(opts: ServiceOptions) {
   function enterStage(tx: Tx, key: string, boardId: string, board: BoardConfig, story: StoryData, claimEnded: boolean) {
     const stageId = story.stage;
     if (stageId === DONE) scheduleCleanup(tx, key);
-    // Free capacity goes to the oldest queued spawn before this Story asks for one.
-    if (claimEnded) drainQueue(tx);
-    if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
+    if (claimEnded && online) {
+      // Persist this Story's intent before a drain can fail, behind older spawns.
+      if (spawnsFor(boardId, board, stageId, story))
+        tx.rt.queue.push({ storyKey: key, board: boardId, stageId, queuedAt: now() });
+      drainQueue(tx);
+    } else if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
   }
 
   /** Drops any queued or pending spawn for the Story. */
@@ -886,16 +906,25 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         const triggers = tx.rt.pendingTriggers;
         tx.rt.pendingTriggers = [];
-        for (const t of triggers) {
-          const found = tryLocate(t.storyKey);
-          if (!found) continue;
-          if (t.type === "cleanup") scheduleCleanup(tx, t.storyKey);
-          else if (
-            found.story.stage === t.stageId &&
-            !tx.rt.claims[t.storyKey] &&
-            spawnsFor(found.boardId, found.board, t.stageId, found.story)
-          )
-            requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
+        let index = 0;
+        try {
+          for (; index < triggers.length; index++) {
+            const t = triggers[index]!;
+            const found = tryLocate(t.storyKey);
+            if (!found) continue;
+            if (t.type === "cleanup") scheduleCleanup(tx, t.storyKey);
+            else if (
+              found.story.stage === t.stageId &&
+              !tx.rt.claims[t.storyKey] &&
+              spawnsFor(found.boardId, found.board, t.stageId, found.story)
+            )
+              requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
+          }
+        } catch (err) {
+          // Keep unfinished triggers and cleanups whose after-tasks cannot run on error.
+          // Completed spawns must not be replayed after their Claims end.
+          tx.rt.pendingTriggers.unshift(...triggers.filter((t, i) => i >= index || t.type === "cleanup"));
+          throw err;
         }
       });
     },

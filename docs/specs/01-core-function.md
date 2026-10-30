@@ -12,10 +12,12 @@ Now that we have the basics of the app in place, this document describes the cor
 - The directory looks like this:
 
 ```sh
+SF.md                 # Optional shared Worker instructions.
 sf.config.json        # Project configuration.
 runtime/              # gitignored: Claims, Worker thread ids, spawn failures, queued spawns.
 boards/
   development/
+    BOARD.md          # Optional instructions for this Board.
     board.config.json # Board key, Stage list, Story schema, and overrides of sf.config.json for this Board.
     stages/
       ready_for_dev.md  # Stage Prompt text, one file per Stage id.
@@ -54,6 +56,14 @@ Attachments belong to the Supervisor's Project, outside runtime and Story Worktr
 | Extra preamble text for Worker Briefs | yes | no |
 | Max concurrent Workers (Project-wide total) | **no** | no |
 
+### Shared Worker instructions
+
+Project owners can maintain optional, case-sensitive Markdown files at `.sf/SF.md` (shared by every Board's Workers) and `.sf/boards/<board-id>/BOARD.md` (shared by that Board's Workers across Stages). The Board id determines the path, not its display name or Story key prefix. These files supplement the existing resolved `briefPreamble`; sf does not expand templates or interpret instruction conflicts.
+
+Worker Briefs contain, in order: the sf operational preamble (including commands and HIL guidance), the resolved `briefPreamble` when present, `## SF.md`, `## BOARD.md`, `## Stage Prompt`, and `## Story`. Each instruction section appears only when its file contains nonblank text, with only surrounding whitespace trimmed. Missing, empty, or whitespace-only files are omitted independently; other read errors report the failing path. Existing Projects need no migration or generated files. If an instruction read fails while deferred spawns are drained, sf reports the path and retains unfinished work for a later drain after the file is repaired. This includes the next-stage spawn for a Worker Move that freed capacity, queued behind older work before draining. Already dispatched spawns are not replayed.
+
+sf reads these files from the service's Project root in the Supervisor's checkout each time it composes a brief, including when concurrency-queued spawns or offline pending triggers are drained. Creation, edits, and deletion take effect on the next composition without a restart. Already composed/dispatched briefs and running Workers are unchanged. The files do not instruct the Supervisor or enable Stages, start Workers, or change Claims and HIL behavior; an enabled, nonblank Stage Prompt is still required.
+
 ### Board config
 
 `board.config.json` holds:
@@ -78,7 +88,7 @@ The agent thread where the `sf-factory` skill was started. It starts the web UI 
 
 Agent threads spawned by the Supervisor. A Worker runs as a new top-level thread when the harness can spawn threads, otherwise as a subagent.
 
-- **Worker Brief.** A Worker receives an sf preamble (Story Key, Board, Stage list, the Project path, and the sf commands to Move, update, create, and release Stories), then the Stage Prompt, then the Story.
+- **Worker Brief.** A Worker receives an sf preamble (Story Key, Board, Stage list, the Project path, and the sf commands to Move, update, create, and release Stories), the resolved configured preamble, optional SF.md and BOARD.md sections, then the Stage Prompt and Story.
 - **Story Worktree.** Every Worker runs in its Story's worktree. The first Worker on a Story creates the worktree and branch from the configured base branch and records the branch on the Story. Later Workers on the same Story reuse it.
 - **Claim.** While a Worker is active, it claims its Story and no one else can Move it. The claim ends when:
   - the Worker Moves the Story (this Move is allowed and triggers the next Stage as usual),

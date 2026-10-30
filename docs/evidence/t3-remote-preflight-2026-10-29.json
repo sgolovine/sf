@@ -1,0 +1,238 @@
+{
+  "checkedAt": "2026-10-29",
+  "environment": {
+    "environmentId": "729b1264-b961-4247-b425-94a8bb98c273",
+    "label": "thinkpad",
+    "serverVersion": "0.1.2",
+    "platform": {
+      "os": "linux",
+      "arch": "x64",
+      "machine": "laptop"
+    }
+  },
+  "capabilities": {
+    "features": {
+      "appOwnedSubagents": true,
+      "asyncPolling": true,
+      "cancellation": true,
+      "batchThreadCreation": true,
+      "threadManagement": true,
+      "incrementalThreadRead": true,
+      "scheduledTasks": true,
+      "maxBatchThreads": 20
+    },
+    "inheritedProviderInstanceId": "codex",
+    "inheritedModel": "gpt-6.1-sol",
+    "inheritedOptions": [
+      {
+        "id": "reasoningEffort",
+        "value": "medium"
+      },
+      {
+        "id": "serviceTier",
+        "value": "default"
+      }
+    ],
+    "providers": [
+      {
+        "providerInstanceId": "codex",
+        "canRunChildTask": true,
+        "constraints": [],
+        "models": [
+          {
+            "id": "gpt-6.1-sol",
+            "options": [
+              {
+                "id": "reasoningEffort",
+                "values": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                "default": "low"
+              },
+              {
+                "id": "serviceTier",
+                "values": ["default", "priority"],
+                "default": "default"
+              }
+            ]
+          },
+          {
+            "id": "gpt-6-astra",
+            "options": [
+              {
+                "id": "reasoningEffort",
+                "values": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                "default": "medium"
+              },
+              {
+                "id": "serviceTier",
+                "values": ["default", "priority"],
+                "default": "default"
+              }
+            ]
+          },
+          {
+            "id": "gpt-6.1-terra",
+            "label": "GPT-6.1 Terra",
+            "options": [
+              {
+                "id": "reasoningEffort",
+                "values": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                "default": "low"
+              },
+              {
+                "id": "serviceTier",
+                "values": ["default", "priority"],
+                "default": "default"
+              }
+            ]
+          },
+          {
+            "id": "gpt-6-luna",
+            "options": [
+              {
+                "id": "reasoningEffort",
+                "values": ["low", "medium", "high", "xhigh", "max"],
+                "default": "medium"
+              },
+              {
+                "id": "serviceTier",
+                "values": ["default", "priority"],
+                "default": "default"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "providerInstanceId": "claudeAgent",
+        "canRunChildTask": true,
+        "constraints": [],
+        "models": [
+          {
+            "id": "claude-opus-5-5",
+            "label": "Claude Opus 5.5",
+            "options": [
+              {
+                "id": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max", "ultracode", "ultrathink"],
+                "default": "medium"
+              },
+              {
+                "id": "fastMode",
+                "values": [false, true]
+              }
+            ]
+          },
+          {
+            "id": "claude-sonnet-5-5",
+            "label": "Claude Sonnet 5.5",
+            "options": [
+              {
+                "id": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max", "ultrathink"],
+                "default": "high"
+              }
+            ]
+          },
+          {
+            "id": "claude-fable-5-1",
+            "label": "Claude Fable 5.1",
+            "options": [
+              {
+                "id": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max", "ultracode", "ultrathink"],
+                "default": "medium"
+              }
+            ]
+          },
+          {
+            "id": "claude-haiku-5-5",
+            "label": "Claude Haiku 5.5",
+            "options": [
+              {
+                "id": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max", "ultrathink"],
+                "default": "medium"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "providerInstanceId": "cursor",
+        "canRunChildTask": false,
+        "constraints": ["Provider instance is disabled."],
+        "models": []
+      },
+      {
+        "providerInstanceId": "grok",
+        "canRunChildTask": false,
+        "constraints": ["Provider instance is disabled."],
+        "models": [
+          {
+            "id": "grok-build",
+            "label": "Grok Build"
+          }
+        ]
+      },
+      {
+        "providerInstanceId": "opencode",
+        "canRunChildTask": false,
+        "constraints": ["Provider instance is disabled."],
+        "models": []
+      },
+      {
+        "providerInstanceId": "antigravity",
+        "canRunChildTask": false,
+        "constraints": ["Provider instance is disabled."],
+        "models": []
+      },
+      {
+        "providerInstanceId": "muse",
+        "canRunChildTask": false,
+        "constraints": ["Provider instance is disabled."],
+        "models": []
+      },
+      {
+        "providerInstanceId": "pi",
+        "canRunChildTask": false,
+        "constraints": ["Provider instance is disabled."],
+        "models": [
+          {
+            "id": "default",
+            "label": "Pi default"
+          }
+        ]
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "mcp__t3_code__delegate_task",
+      "description": "Needs an agent running inside a T3 thread. Delegate one task to a T3-owned child agent/subagent of THIS thread and run it with only the supplied task prompt, without copying parent conversation history. Choose providers and models from orchestrator_capabilities, which uses the same live catalog as the composer. Prefer native subagent tools for same-provider work only when they support the chosen model and no model options are requested or inherited. Use this for any model missing from the native tool, including same-provider work, for cross-provider work, or for explicitly T3-owned child tasks. For every T3 delegated review round, call delegate_task again with the original brief, prior findings, responses, and unresolved objections in the task prompt. Track each round by its own taskId and use a distinct clientRequestId per round, stable across retries of that round. The childThreadId is backing storage, not the target for starting another delegated review round through t3_thread_send. Set isolation to worktree for a separate checkout based on the parent local commit, with project setup completed before the child starts. Uncommitted edits are not copied; omitted isolation shares the parent checkout. Use delegate_task when model options are requested or the child keeps the parent's provider instance and model with nonempty inheritedOptions from orchestrator_capabilities, even for native-supported models. Native subagents cannot reliably apply T3 model options. Set target.options using advertised IDs: Claude {effort: 'max', fastMode: true}; Codex {reasoningEffort: 'max', serviceTier: 'priority'}. Check providerInstanceId, model, and options in the result. Provider/model and modes inherit unless overridden. Options inherit only for the same instance and model; explicit entries override individual values and [] or {} clears them. A requested runtimeMode must be one the target provider lists in orchestrator_capabilities runtimeModes; an inherited one steps down to the broadest mode it offers. Leave runtimeMode unset unless the user asks for a supervised child: approval-required and auto-accept-edits usually make the child wait for a person at each action that needs approval. Prefer mode='async' for long work; mode='wait' blocks until completion, a blocking question, a pending approval, or timeout. If hasPendingQuestion, pass threadId=childThreadId to t3_pending_request_list, t3_pending_request_read (with requestId) and t3_pending_request_respond, or ask the user; the task's completion still wakes this thread. If pendingApproval is set, read the fresh full request in childThreadId before responding: the record can outlive its provider callback. It grants no approval authority; decisions remain with the child's existing approval holder, and pending request tools answer questions only. The child keeps running and its completion still wakes this thread. timeoutMs on mode=wait is only the parent's wait budget and does not cancel the child. waitTimedOut on that wait call means the timeout fired; keep that taskId and read status on later task_status. An async child's completion wakes this thread through a notification, steered into active turns where supported or queued otherwise, so end the turn instead of polling or spawning watchers; use task_status only when the result is needed mid-turn.\n\nexec tool declaration:\n```ts\ndeclare const tools: { mcp__t3_code__delegate_task(args: {\n  clientRequestId?: string | null;\n  interactionMode?: \"inherit\" | \"default\" | \"plan\" | null;\n  isolation?: \"shared\" | \"worktree\" | null;\n  mode?: \"async\" | \"wait\" | null;\n  role?: \"implementation\" | \"research\" | \"review\" | \"design\" | \"test\" | \"general\" | null;\n  runtimeMode?: \"inherit\" | \"approval-required\" | \"auto-accept-edits\" | \"auto\" | \"full-access\" | null;\n  target?: { driverKind?: string | null; model?: string | null; options?: Array<{ id: string; value: string | boolean; [key: string]: unknown; }> | { [key: string]: string | boolean; } | null; providerInstanceId?: string | null; [key: string]: unknown; } | null;\n  task: string;\n  // Wait budget for mode=wait only. Default 10 minutes. Elapsing it returns waitTimedOut=true on that call and does not cancel the child.\n  timeoutMs?: number | null;\n  title?: string | null;\n  [key: string]: unknown;\n}): Promise<CallToolResult<{\n  childNodeId: string;\n  childRunId: string | null;\n  childThreadId: string;\n  hasPendingChildRuns: boolean;\n  // Blocking question ends mode=wait. Pass threadId=childThreadId to t3_pending_request_list, t3_pending_request_read (with requestId) and t3_pending_request_respond, or ask the user; the task's completion still wakes this thread.\n  hasPendingQuestion: boolean;\n  latestTerminalResultContextTransferId: string | null;\n  latestTerminalRunId: string | null;\n  latestTerminalStatus: \"completed\" | \"failed\" | \"cancelled\" | \"interrupted\" | null;\n  latestTerminalSummary: string | null;\n  model: string | null;\n  options?: Array<{ id: string; value: string | boolean; [key: string]: unknown; }> | null;\n  // Identity of the oldest pending live approval for this task's own unfinished work, or null. Ends mode=wait without cancelling the child; completion still wakes this thread. This grants no approval authority. Read the fresh full request in childThreadId before responding: the record can outlive its provider callback. Decisions remain with the child's existing approval holder; pending request tools answer questions only.\n  pendingApproval: { kind: \"command\" | \"file-read\" | \"file-change\" | \"mcp-elicitation\" | \"permission\"; requestId: string; runId: string; [key: string]: unknown; } | null;\n  providerInstanceId: string;\n  resultContextTransferId: string | null;\n  status: \"queued\" | \"running\" | \"waiting\" | \"completed\" | \"failed\" | \"cancelled\" | \"interrupted\";\n  summary: string | null;\n  taskId: string;\n  // True only on that mode=wait call when timeoutMs elapsed. The timeout does not cancel the child. Later task_status reads return false and use status for liveness.\n  waitTimedOut: boolean;\n  workState: \"working\" | \"waiting_for_children\" | \"result_available\";\n  [key: string]: unknown;\n}>>; };\n```"
+    },
+    {
+      "name": "mcp__t3_code__orchestrator_capabilities",
+      "description": "List the V2 provider instances, a short list of their models from the same live catalog as the composer, inherited runtime settings, and app-owned orchestration features available to this caller. The list has the user's favorite and custom models, your own model, every current Codex, Claude, Muse and Grok model, and the first 8 current models of other providers. Other legacy models are left out. omittedModels counts models left out; pass search, such as 'sonnet 4.6', to find them. delegate_task accepts any catalog model, listed or not. For a separate top-level thread in a new or existing worktree, use t3_thread_launch with workspaceStrategy.\n\nexec tool declaration:\n```ts\ndeclare const tools: { mcp__t3_code__orchestrator_capabilities(args: { search?: string | null; [key: string]: unknown; }): Promise<CallToolResult<{ features: { appOwnedSubagents: boolean; asyncPolling: boolean; batchThreadCreation: boolean; cancellation: boolean; incrementalThreadRead: boolean; maxBatchThreads: number | \"Infinity\" | \"-Infinity\" | \"NaN\"; scheduledTasks: boolean; threadManagement: boolean; [key: string]: unknown; }; inheritedModel: string | null; inheritedOptions?: Array<{ id: string; value: string | boolean; [key: string]: unknown; }> | null; inheritedProviderInstanceId: string | null; interactionMode: \"default\" | \"plan\"; parentThreadId: string | null; providers: Array<{ canRunChildTask: boolean; canRunCrossProviderChildTask: boolean; constraints: Array<string>; displayName: string | null; driverKind: string; models: Array<{ id: string; label?: string | null; options?: Array<{ default?: string | boolean | null; id: string; values: Array<string | boolean>; [key: string]: unknown; }> | null; [key: string]: unknown; }>; omittedModels?: number | null; providerInstanceId: string; runtimeModes?: Array<\"approval-required\" | \"auto-accept-edits\" | \"auto\" | \"full-access\"> | null; [key: string]: unknown; }>; runtimeMode: \"approval-required\" | \"auto-accept-edits\" | \"auto\" | \"full-access\"; [key: string]: unknown; }>>; };\n```"
+    },
+    {
+      "name": "mcp__t3_code__t3_environment_read",
+      "description": "Read this server's identity and selected environment preferences. Provider/model availability is exposed by orchestrator_capabilities. Writing instructions are limited to 4,000 characters.\n\nexec tool declaration:\n```ts\ndeclare const tools: { mcp__t3_code__t3_environment_read(args: {}): Promise<CallToolResult<{ environmentId: string; label: string; platform: { arch: \"arm64\" | \"x64\" | \"other\"; machine?: unknown; os: \"darwin\" | \"linux\" | \"windows\" | \"unknown\"; [key: string]: unknown; }; preferences: { backgroundActivity: { profile: \"balanced\" | \"performance\" | \"battery-saver\" | \"custom\"; [key: string]: unknown; }; defaultThreadEnvMode?: unknown; enableProviderUpdateChecks?: boolean | null; newWorktreesStartFromOrigin?: boolean | null; sourceControlWritingStyle: { customInstructions: string; followChangeRequestTemplates: boolean; mode: string; truncated: boolean; [key: string]: unknown; }; [key: string]: unknown; }; serverVersion: string; [key: string]: unknown; }>>; };\n```"
+    },
+    {
+      "name": "mcp__t3_code__t3_project_list",
+      "description": "List registered projects in this environment. Pages use the current project snapshot and may shift between calls.\n\nexec tool declaration:\n```ts\ndeclare const tools: { mcp__t3_code__t3_project_list(args: { cursor?: number | null; limit?: number | null; [key: string]: unknown; }): Promise<CallToolResult<{ nextCursor: number | null; projects: Array<{ autoPull?: boolean | null; createdAt: string; defaultModelSelection: { instanceId?: unknown | null; model: unknown; options?: unknown | null; provider?: unknown | null; [key: string]: unknown; } | null; defaultThreadEnvMode?: \"local\" | \"worktree\" | null | null; deletedAt: string | null; faviconPath?: string | null | null; id: string; projectIcon?: { color: \"gray\" | \"red\" | \"orange\" | \"amber\" | \"yellow\" | \"lime\" | \"green\" | \"emerald\" | \"teal\" | \"cyan\" | \"sky\" | \"blue\" | \"indigo\" | \"violet\" | \"purple\" | \"fuchsia\" | \"pink\" | \"rose\"; kind: \"lucide\"; monogram?: string | null; monogramText?: string | null; name: string; [key: string]: unknown; } | { emoji: string; kind: \"emoji\"; [key: string]: unknown; } | { color: \"gray\" | \"red\" | \"orange\" | \"amber\" | \"yellow\" | \"lime\" | \"green\" | \"emerald\" | \"teal\" | \"cyan\" | \"sky\" | \"blue\" | \"indigo\" | \"violet\" | \"purple\" | \"fuchsia\" | \"pink\" | \"rose\"; kind: \"monogram\"; text: string; [key: string]: unknown; } | { kind: string; [key: string]: unknown; } | null | null; repositoryIdentity?: { canonicalKey: string; displayName?: string; locator: { remoteName: string; remoteUrl: string; source: \"git-remote\"; [key: string]: unknown; }; name?: string; origin?: { canonicalKey: string; displayName?: string; remoteUrl?: string; [key: string]: unknown; }; owner?: string; provider?: string; rootPath?: string; webUrl?: string; [key: string]: unknown; } | null | null; scripts: Array<{ async?: boolean | null; autoOpenPreview?: boolean | null; command: string; icon: \"play\" | \"test\" | \"lint\" | \"configure\" | \"build\" | \"debug\"; id: string; name: string; previewUrl?: string | null; runOnSettle?: boolean | null; runOnWorktreeCreate: boolean; [key: string]: unknown; }>; title: string; updatedAt: string; workspaceRoot: string; [key: string]: unknown; }>; [key: string]: unknown; }>>; };\n```"
+    },
+    {
+      "name": "mcp__t3_code__t3_thread_launch",
+      "description": "Create an ordinary TOP-LEVEL thread with an explicit workspace binding before its agent starts. Use this when the user requests independent work, a new thread, or a PR stack in its own worktree; use delegate_task for child subagents. Set workspaceStrategy to {type:\"worktree\",baseRef:\"parent-branch\",branch:\"new-branch\",startFromOrigin:false} for a new worktree based on local commits, or {type:\"existing_worktree\",worktreePath:\"/absolute/path\",branch:\"existing-branch\"} to use an existing checkout. To fetch and start from the base branch's remote, set startFromOrigin:true. Omitted workspaceStrategy means the project root, NOT the caller's worktree. Omit projectId/modelSelection/modes to inherit those settings from the calling thread; a caller outside a T3 thread must pass projectId and gets the project's default model. Set scratch:true instead of projectId for a thread without a project: it runs in a fresh folder of its own, outside any repository. Put the task in message. Do not ask the agent to create its own worktree via shell: that does not update the thread binding. Each call creates a new launch with no retry key; retain threadId and use t3_thread_read/t3_thread_wait to follow preparation. To link a thread for the user, write `[title](t3-thread://v1/<threadId>)` with the threadId exactly as returned, not URL-encoded; T3 Code shows the thread's current title. After errors or lost responses, inspect t3_thread_list before retrying. Attachments must be pending uploads. The new thread may not run with broader runtime or interaction modes than the caller: the calling T3 thread's own modes, or the permission mode an outside agent was approved with.\n\nexec tool declaration:\n```ts\ndeclare const tools: { mcp__t3_code__t3_thread_launch(args: { attachments?: Array<{ id: string; mimeType: string; name: string; sizeBytes: number; type: \"image\"; [key: string]: unknown; } | { id: string; mimeType: string; name: string; sizeBytes: number; source?: { _tag: \"pasted-text\"; [key: string]: unknown; } | null; type: \"file\"; [key: string]: unknown; }> | null; interactionMode?: \"default\" | \"plan\" | null; message?: string | null; modelSelection?: { instanceId?: unknown | null; model: unknown; options?: unknown | null; provider?: unknown | null; [key: string]: unknown; } | null; projectId?: string | null; runtimeMode?: \"approval-required\" | \"auto-accept-edits\" | \"auto\" | \"full-access\" | null; scratch?: boolean | null; title: string; workspaceStrategy?: { branch?: string | null; type: \"root\"; [key: string]: unknown; } | { branch?: string | null; type: \"existing_worktree\"; worktreePath: string; [key: string]: unknown; } | { baseRef: string; branch?: string | null; startFromOrigin?: boolean | null; type: \"worktree\"; [key: string]: unknown; } | null; [key: string]: unknown; }): Promise<CallToolResult<{ modelSelection: { instanceId?: unknown | null; model: unknown; options?: unknown | null; provider?: unknown | null; [key: string]: unknown; }; projectId: string; runId: string | null; status: \"preparing\" | \"queued\" | \"starting\" | \"running\" | \"waiting\" | \"completed\" | \"interrupted\" | \"failed\" | \"cancelled\" | \"rolled_back\" | null; threadId: string; [key: string]: unknown; }>>; };\n```"
+    },
+    {
+      "name": "mcp__t3_code__task_cancel",
+      "description": "Needs an agent running inside a T3 thread. Stop a T3-owned delegated task and dispose its automatic parent delivery. Its child thread stops like a user Stop: the running turn is interrupted, other queued turns are held, pull request watches end, and the tasks it delegated stop too. The task's own queued turn is cancelled, including when held in a stopped queue. This includes later child-thread runs, even after the task is terminal. A terminal task returns its existing status, and published task results remain available.\n\nexec tool declaration:\n```ts\ndeclare const tools: { mcp__t3_code__task_cancel(args: { clientRequestId?: string | null; reason?: string | null; taskId: string; [key: string]: unknown; }): Promise<CallToolResult<{ status: \"cancel_requested\" | \"completed\" | \"failed\" | \"cancelled\" | \"interrupted\"; taskId: string; [key: string]: unknown; }>>; };\n```"
+    },
+    {
+      "name": "mcp__t3_code__task_status",
+      "description": "Needs an agent running inside a T3 thread. Read a T3-owned delegated task created by this parent thread. childRunId identifies the original delegated run. workState distinguishes working, waiting_for_children, and result_available; a completed turn with live nested work is not a completed task. summary is the final task result, including provider errors on failure, and remains stable after publication. hasPendingChildRuns reports later queued or executing turns in the backing child thread, even after the task is terminal; it does not reopen the task, and task_cancel stops those turns too. Turns held in a stopped queue wait for the user and do not count. latestTerminal* provides later non-monitor turn results; latestTerminalSummary and latestTerminalResultContextTransferId are independently null when they exactly repeat summary and resultContextTransferId, respectively. pendingApproval identifies the oldest pending live approval for this task's own unfinished work. Read the fresh full request in childThreadId before responding: the record can outlive its provider callback and grants no approval authority. Decisions remain with the child's existing approval holder. Reading a terminal result acknowledges its automatic parent delivery.\n\nexec tool declaration:\n```ts\ndeclare const tools: { mcp__t3_code__task_status(args: { taskId: string; [key: string]: unknown; }): Promise<CallToolResult<{\n  childNodeId: string;\n  childRunId: string | null;\n  childThreadId: string;\n  hasPendingChildRuns: boolean;\n  // Blocking question ends mode=wait. Pass threadId=childThreadId to t3_pending_request_list, t3_pending_request_read (with requestId) and t3_pending_request_respond, or ask the user; the task's completion still wakes this thread.\n  hasPendingQuestion: boolean;\n  latestTerminalResultContextTransferId: string | null;\n  latestTerminalRunId: string | null;\n  latestTerminalStatus: \"completed\" | \"failed\" | \"cancelled\" | \"interrupted\" | null;\n  latestTerminalSummary: string | null;\n  model: string | null;\n  options?: Array<{ id: string; value: string | boolean; [key: string]: unknown; }> | null;\n  // Identity of the oldest pending live approval for this task's own unfinished work, or null. Ends mode=wait without cancelling the child; completion still wakes this thread. This grants no approval authority. Read the fresh full request in childThreadId before responding: the record can outlive its provider callback. Decisions remain with the child's existing approval holder; pending request tools answer questions only.\n  pendingApproval: { kind: \"command\" | \"file-read\" | \"file-change\" | \"mcp-elicitation\" | \"permission\"; requestId: string; runId: string; [key: string]: unknown; } | null;\n  providerInstanceId: string;\n  resultContextTransferId: string | null;\n  status: \"queued\" | \"running\" | \"waiting\" | \"completed\" | \"failed\" | \"cancelled\" | \"interrupted\";\n  summary: string | null;\n  taskId: string;\n  // True only on that mode=wait call when timeoutMs elapsed. The timeout does not cancel the child. Later task_status reads return false and use status for liveness.\n  waitTimedOut: boolean;\n  workState: \"working\" | \"waiting_for_children\" | \"result_available\";\n  [key: string]: unknown;\n}>>; };\n```"
+    }
+  ]
+}
