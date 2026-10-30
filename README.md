@@ -89,6 +89,22 @@ See [worker-commands.md](skills/sf/references/worker-commands.md) for every Proj
 
 The server listens on `127.0.0.1` only. Each `/api` call needs the session token in the `authToken` header. The printed UI URL carries the token in its fragment so the browser can add the header without sending the token in the HTTP URL.
 
+### Story attachments
+
+In a new or existing Story editor, drop/select multiple files or paste images anywhere in the dialog. Files remain pending until Save/Create; Cancel discards the selection. Reopen a Story to download saved files. Limits: **20 MiB per file, 40 MiB and 100 files per submission**.
+
+```sh
+sf story attachment add DEV-3 ./screenshot.png --project /path/to/project
+sf story attachment list DEV-3 --project /path/to/project --json
+sf story attachment get DEV-3 <attachment-id> --output ./download.png --project /path/to/project
+```
+
+Commands work online and offline. Workers append `--worker <id>` to validate and refresh their Claim. `add` accepts one regular file; `get` requires an existing output parent and never overwrites a file. JSON output contains metadata or an output path, never file bytes.
+
+Files and `manifest.json` live in `.sf/boards/<board-id>/attachments/<Story-Key>/`, committed with Project content and independent of Story Worktrees. Opaque server ids identify files; original filenames are display metadata, so duplicate names coexist. No deletion/rename commands are provided.
+
+The API accepts base64 `attachments: [{name, mediaType?, data}]` on Story POST/PATCH. Include a UUID `submissionId` and reuse the **same payload and id** when retrying an uncertain response; committed submissions are not repeated. Files commit before creation/HIL-clear triggers. Standalone POST/GET `/api/stories/<KEY>/attachments` adds one file/lists metadata; GET `/api/stories/<KEY>/attachments/<id>` downloads binary bytes. Worker requests include `worker` in the JSON body or query string. All operations require the `authToken` header. Story JSON requests are bounded at **60 MiB encoded**, with the same decoded per-file/batch limits above; other JSON routes retain their 1 MiB limit. HTML/SVG and all other files download as `application/octet-stream`, never as origin content.
+
 ## Development
 
 ```sh

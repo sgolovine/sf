@@ -18,6 +18,7 @@ export function sfPaths(root: string) {
     board: (id: string) => path.join(boards, id, "board.config.json"),
     boardInstructions: (id: string) => path.join(boards, id, "BOARD.md"),
     stories: (id: string) => path.join(boards, id, "stories"),
+    attachments: (id: string, key: string) => path.join(boards, id, "attachments", key),
     stages: (id: string) => path.join(boards, id, "stages"),
     runtime,
     serverJson: path.join(runtime, "server.json"),

@@ -49,6 +49,12 @@ Change Stories only with these commands. Never edit files under \`.sf\` in your 
   ${b.sf} story create ${b.board.key} --title "<t>" [--stage <stage-id>] [--field <id>=<value>]... [--body-file <path>] ${tail}
 - Show this Story:
   ${b.sf} story show ${b.storyKey} ${tail}
+- List this Story's attachments:
+  ${b.sf} story attachment list ${b.storyKey} ${tail}
+- Upload one local file (up to 20 MiB):
+  ${b.sf} story attachment add ${b.storyKey} <path> ${tail}
+- Retrieve an attachment to a new file:
+  ${b.sf} story attachment get ${b.storyKey} <attachment-id> --output <path> ${tail}
 - Release the Claim if you finish without Moving the Story:
   ${b.sf} story release ${b.storyKey} ${tail}
 

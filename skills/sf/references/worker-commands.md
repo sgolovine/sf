@@ -69,3 +69,13 @@ The Story stays in its Stage, marked in the UI with the comment. When a human cl
 ## Configuration
 
 `.sf/sf.config.json` holds the Project defaults: `worker.agent`/`worker.model`, `worktree.baseBranch`, `claimTimeoutMinutes` (120), `briefPreamble`, and `maxConcurrentWorkers` (3). Edit it by hand; the next sf command picks it up. A Board can override all but `maxConcurrentWorkers` under `overrides` in its `board.config.json`, and a Stage can override `agent` and `model`.
+
+## Attachments
+
+```sh
+sf story attachment add DEV-3 ./screenshot.png --worker <id> --project <root>
+sf story attachment list DEV-3 --worker <id> --project <root> --json
+sf story attachment get DEV-3 <attachment-id> --output ./download.png --worker <id> --project <root>
+```
+
+Add uploads one regular file up to 20 MiB. Get writes exact bytes and refuses to overwrite an existing file. Commands work with the server running or stopped, refresh the Worker Claim, and never Move or release the Story. Files live in the Supervisor's Project and survive Story Worktree cleanup.

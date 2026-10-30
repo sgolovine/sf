@@ -4,9 +4,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { StoryDetails } from "#model/api";
+import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
 import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
 import type { ProjectSnapshot, StoryView } from "#model/project";
 import type { RuntimeState, WorkerEndReason } from "#model/runtime";
+import { attachmentStore } from "./attachments.ts";
 import { composeBrief } from "./brief.ts";
 import {
   BACKLOG,
@@ -68,8 +70,13 @@ export type ServiceOptions = {
   onChange?: () => void;
 };
 
-export type StoryInput = { title: string; stage?: string; fields?: Record<string, unknown>; body?: string };
-export type StoryPatch = { title?: string; fields?: Record<string, unknown>; body?: string };
+export type StoryInput = AttachmentSubmission & {
+  title: string;
+  stage?: string;
+  fields?: Record<string, unknown>;
+  body?: string;
+};
+export type StoryPatch = AttachmentSubmission & { title?: string; fields?: Record<string, unknown>; body?: string };
 export type StagePatch = {
   name?: string;
   promptEnabled?: boolean;
@@ -558,6 +565,12 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         if (actor.kind === "worker") checkWorker(tx, actor.id);
         const { id, config } = boardRef(ref);
+        if (input.submissionId) {
+          for (const existing of storyViews(id)) {
+            if (attachmentStore(paths.attachments(id, existing.key)).hasSubmission(input.submissionId))
+              return details(tx.rt, existing);
+          }
+        }
         const stageId = input.stage ?? BACKLOG;
         requireStage(config, stageId);
         const title = input.title?.trim();
@@ -570,7 +583,14 @@ export function createService(opts: ServiceOptions) {
         saveBoard(root, id, config);
         const key = `${config.key}-${number}`;
         const story: StoryData = { title, stage: stageId, fields, body: input.body ?? "" };
-        writeStory(id, key, story);
+        const storage = attachmentStore(paths.attachments(id, key));
+        storage.hasSubmission(input.submissionId);
+        storage.commit(
+          input.attachments,
+          input.submissionId,
+          () => writeStory(id, key, story),
+          () => fs.rmSync(storyFile(id, key), { force: true }),
+        );
         enterStage(tx, key, id, config, story, false);
         return details(tx.rt, view(key, id, story));
       });
@@ -604,6 +624,8 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         if (actor.kind === "worker") checkWorker(tx, actor.id);
         const { boardId, board, story } = locate(key);
+        const storage = attachmentStore(paths.attachments(boardId, key));
+        if (storage.hasSubmission(patch.submissionId)) return details(tx.rt, view(key, boardId, story));
         const fields = { ...story.fields };
         for (const [k, v] of Object.entries(patch.fields ?? {})) {
           if (v === null || v === undefined) delete fields[k];
@@ -617,7 +639,12 @@ export function createService(opts: ServiceOptions) {
           fields,
           body: patch.body ?? story.body,
         };
-        writeStory(boardId, key, next);
+        storage.commit(
+          patch.attachments,
+          patch.submissionId,
+          () => writeStory(boardId, key, next),
+          () => writeStory(boardId, key, story),
+        );
         // Hold: a Story whose HIL flag is set waits. Wake: clearing the flag spawns as if the Story had just entered.
         const wasHeld = Boolean(activeHil(board, story));
         const held = Boolean(activeHil(board, next));
@@ -625,6 +652,33 @@ export function createService(opts: ServiceOptions) {
         if (wasHeld && !held && !tx.rt.claims[key] && stageSpawns(boardId, board, next.stage))
           requestSpawn(tx, key, boardId, next.stage);
         return details(tx.rt, view(key, boardId, next));
+      });
+    },
+
+    async listAttachments(key: string, actor: Actor) {
+      return mutate((tx) => {
+        if (actor.kind === "worker") checkWorker(tx, actor.id);
+        const { boardId } = locate(key);
+        return attachmentStore(paths.attachments(boardId, key)).list();
+      });
+    },
+    async getAttachment(key: string, id: string, actor: Actor) {
+      return mutate((tx) => {
+        if (actor.kind === "worker") checkWorker(tx, actor.id);
+        const { boardId } = locate(key);
+        return attachmentStore(paths.attachments(boardId, key)).get(id);
+      });
+    },
+    async addAttachment(key: string, input: AttachmentInput, actor: Actor) {
+      return mutate((tx) => {
+        if (actor.kind === "worker") checkWorker(tx, actor.id);
+        const { boardId } = locate(key);
+        return attachmentStore(paths.attachments(boardId, key)).commit(
+          [input],
+          undefined,
+          () => {},
+          () => {},
+        )[0]!;
       });
     },
 

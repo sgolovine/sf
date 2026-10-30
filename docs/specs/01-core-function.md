@@ -23,6 +23,10 @@ boards/
       ready_for_dev.md  # Stage Prompt text, one file per Stage id.
       in_development.md
       ...
+    attachments/
+      DEV-1/
+        manifest.json # Original names, media types, sizes, ids, and successful submission ids.
+        <opaque-id>   # Exact file bytes; names are never paths.
     stories/
       DEV-1.md        # One file per Story, named by Story Key.
       DEV-2.md
@@ -31,6 +35,14 @@ boards/
 - Disk is the source of truth. The server watches `.sf` and the UI shows hand edits live. But editing a Story's `stage` by hand is not a Move and does not trigger a Worker.
 - All writes to Stories go through sf commands (UI, Supervisor, or Worker), against the `.sf` directory in the Supervisor's checkout. Workers never edit `.sf` files in their worktree. See [ADR 0001](../docs/adr/0001-story-writes-through-sf.md).
 - If a Worker runs an sf command while the server is not running, the command writes to disk directly and queues any trigger in `.sf/runtime/`. The Supervisor runs queued triggers when it next starts.
+
+### Story attachments
+
+New/edit Story dialogs use react-dropzone for multiple files, plus window paste events for images while the editor is open. Pending files are removable; Save/Create commits the entire selection before Stage triggers, and Cancel leaves it unpersisted. Saved files remain listed with authenticated downloads. Text paste is unaffected.
+
+Attachments belong to the Supervisor's Project, outside runtime and Story Worktrees, and survive restart, edits, Moves, and worktree cleanup. They are not schema fields. Limits are 20 MiB per file and 40 MiB / 100 files per submission. Story HTTP JSON accepts at most 60 MiB encoded (base64 plus metadata); other JSON routes accept 1 MiB. Failed validation commits neither Story changes nor any files. A UUID submission id makes retrying the same creation/update idempotent.
+
+`sf story attachment add <KEY> <path>`, `list <KEY>`, and `get <KEY> <id> --output <path>` use the same service online/offline and support `--project`, `--worker`, and `--json`. Add takes one regular file; get refuses overwrites. API upload/list/download require the token header; downloads always use attachment disposition and octet-stream so active file content is not rendered in the app's origin. Opaque ids and symlink checks protect storage paths. See README for API payloads and examples.
 
 ### Configuration
 
