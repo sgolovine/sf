@@ -116,3 +116,18 @@ sf setup --agents claude-code,codex --scope global --yes
 ```
 
 `sf setup` copies the skill's markdown only; the skill expects `sf` on PATH. Another program named `sf` (for example the Salesforce CLI) must not come first on PATH.
+
+### Delete a Story
+
+Open an existing Story and click its trash icon to confirm permanent deletion, or run:
+
+```sh
+sf story delete DEV-12 --project /path/to/project
+```
+
+The CLI command deletes immediately without an interactive confirmation and accepts
+`--json` and `--worker <id>`. Release any live Claim first, including your own Worker Claim.
+Deletion removes the Story and its pending scheduling/status, but retains its Story
+Worktree, git branch, and historical Worker records. There is no restore or undo.
+Story Keys are never reused: each Board persists its numbering high-water mark
+in committed `board.config.json`, independent of gitignored runtime state.
