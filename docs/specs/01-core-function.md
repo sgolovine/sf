@@ -21,6 +21,10 @@ boards/
       ready_for_dev.md  # Stage Prompt text, one file per Stage id.
       in_development.md
       ...
+    attachments/
+      DEV-1/
+        manifest.json # Original names, media types, sizes, ids, and successful submission ids.
+        <opaque-id>   # Exact file bytes; names are never paths.
     stories/
       DEV-1.md        # One file per Story, named by Story Key.
       DEV-2.md
@@ -29,6 +33,14 @@ boards/
 - Disk is the source of truth. The server watches `.sf` and the UI shows hand edits live. But editing a Story's `stage` by hand is not a Move and does not trigger a Worker.
 - All writes to Stories go through sf commands (UI, Supervisor, or Worker), against the `.sf` directory in the Supervisor's checkout. Workers never edit `.sf` files in their worktree. See [ADR 0001](../docs/adr/0001-story-writes-through-sf.md).
 - If a Worker runs an sf command while the server is not running, the command writes to disk directly and queues any trigger in `.sf/runtime/`. The Supervisor runs queued triggers when it next starts.
+
+### Story attachments
+
+New/edit Story dialogs use react-dropzone for multiple files, plus window paste events for images while the editor is open. Pending files are removable; Save/Create commits the entire selection before Stage triggers, and Cancel leaves it unpersisted. Saved files remain listed with authenticated downloads. Text paste is unaffected.
+
+Attachments belong to the Supervisor's Project, outside runtime and Story Worktrees, and survive restart, edits, Moves, and worktree cleanup. They are not schema fields. Limits are 20 MiB per file and 40 MiB / 100 files per submission. Story HTTP JSON accepts at most 60 MiB encoded (base64 plus metadata); other JSON routes accept 1 MiB. Failed validation commits neither Story changes nor any files. A UUID submission id makes retrying the same creation/update idempotent.
+
+`sf story attachment add <KEY> <path>`, `list <KEY>`, and `get <KEY> <id> --output <path>` use the same service online/offline and support `--project`, `--worker`, and `--json`. Add takes one regular file; get refuses overwrites. API upload/list/download require the token header; downloads always use attachment disposition and octet-stream so active file content is not rendered in the app's origin. Opaque ids and symlink checks protect storage paths. See README for API payloads and examples.
 
 ### Configuration
 
@@ -47,6 +59,7 @@ boards/
 `board.config.json` holds:
 
 - The Board key used in Story Keys (for example `DEV`).
+- `storyNumber`, the highest allocated Story number. Allocation and deletion preserve this committed high-water mark, accounting for existing files on older Boards, so deleted Keys are never reused.
 - The ordered Stage list. Each Stage has a stable slug id, a display name, a prompt enabled/disabled flag, and optional agent/model overrides. The Stage Prompt text is in `stages/<stage-id>.md`. Renaming a Stage changes only its display name.
 - The Story schema: custom fields with types `text`, `number`, `single-select`, `multi-select`, `boolean`, or `date`.
 - Overrides of `sf.config.json` settings (see the table above).
@@ -100,6 +113,18 @@ Any other Stage can have a Stage Prompt, with an enabled/disabled flag. If a Sto
 ### Story
 
 A Story describes a unit of work. The user, the Supervisor, and Workers can create Stories in any Stage. Creating a Story in a Stage counts as a Move into it.
+
+New Story and Edit Story open on a **Details** tab with Title, Stage, and Description. Creation allows choosing a Stage (Backlog by default); editing shows the current Stage read-only. A **Custom Fields** tab contains the Board schema fields in order, or “No custom fields.” when the schema is empty. Switching tabs preserves unsaved values and the Description Write/Preview mode. Dialog metadata, any active HIL notice, and Cancel/Save actions are shared across tabs.
+
+### Deletion
+
+An existing Story can be permanently deleted through its modal's trash icon and confirmation,
+`DELETE /api/stories/:key`, or `sf story delete <KEY>`. The CLI command needs no interactive
+confirmation and supports `--project`, `--json`, and `--worker`. A live Claim blocks deletion,
+even by its own Worker; release it first. Deletion removes the Story file and queued/pending
+spawn and cleanup triggers, failure, and worktree warning under the shared mutation lock.
+Historical Worker records, Story Worktrees, and branches remain. No Done cleanup runs.
+The UI closes only after success and preserves unsaved edits on cancellation or failure.
 
 ### Moves
 

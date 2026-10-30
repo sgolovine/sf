@@ -1,3 +1,4 @@
+import type { AttachmentSubmission } from "./attachment.ts";
 import type { CommandRecord, SupervisorCommand } from "./commands.ts";
 import type { BoardConfig, BoardOverrides, FieldDef } from "./config.ts";
 import type { StoryView } from "./project.ts";
@@ -28,6 +29,8 @@ export const routes = {
   stageReorder: (board: string, stage: string) => `/api/boards/${enc(board)}/stages/${enc(stage)}/reorder`,
   stories: "/api/stories",
   story: (key: string) => `/api/stories/${enc(key)}`,
+  storyAttachments: (key: string) => `/api/stories/${enc(key)}/attachments`,
+  storyAttachment: (key: string, id: string) => `/api/stories/${enc(key)}/attachments/${enc(id)}`,
   storyMove: (key: string) => `/api/stories/${enc(key)}/move`,
   storyRelease: (key: string) => `/api/stories/${enc(key)}/release`,
   storyForceRelease: (key: string) => `/api/stories/${enc(key)}/force-release`,
@@ -60,7 +63,7 @@ export type UpdateStageRequest = {
   hilComment?: string | null;
 };
 export type ReorderStageRequest = { index: number };
-export type CreateStoryRequest = {
+export type CreateStoryRequest = AttachmentSubmission & {
   board: string;
   title: string;
   stage?: string;
@@ -69,8 +72,15 @@ export type CreateStoryRequest = {
   worker?: string;
 };
 /** A null field value clears the field. */
-export type UpdateStoryRequest = { title?: string; fields?: Record<string, unknown>; body?: string; worker?: string };
+export type UpdateStoryRequest = AttachmentSubmission & {
+  title?: string;
+  fields?: Record<string, unknown>;
+  body?: string;
+  worker?: string;
+};
 export type MoveStoryRequest = { stage: string; worker?: string };
+export type DeleteStoryRequest = { worker?: string };
+export type DeleteStoryResponse = { key: string };
 export type ReleaseStoryRequest = { worker: string };
 export type WorktreeRequest = { action: "ensure" | "remove"; force?: boolean };
 export type WorktreeResponse = {

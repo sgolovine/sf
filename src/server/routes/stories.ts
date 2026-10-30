@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type {
   CreateStoryRequest,
+  DeleteStoryRequest,
   MoveStoryRequest,
   ReleaseStoryRequest,
   UpdateStoryRequest,
@@ -28,8 +29,27 @@ export function storiesRouter(service: Service) {
     res.json(await service.createStory(board, input, actor(worker)));
   });
 
+  router.get("/:key/attachments", async (req, res) => {
+    res.json(await service.listAttachments(req.params.key, actor(req.query.worker)));
+  });
+  router.post("/:key/attachments", async (req, res) => {
+    const { worker, ...input } = req.body;
+    res.json(await service.addAttachment(req.params.key, input, actor(worker)));
+  });
+  router.get("/:key/attachments/:id", async (req, res) => {
+    const { metadata, bytes } = await service.getAttachment(req.params.key, req.params.id, actor(req.query.worker));
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(metadata.name)}`);
+    res.send(bytes);
+  });
+
   router.get("/:key", async (req, res) => {
     res.json(await service.showStory(req.params.key, actor(req.query.worker)));
+  });
+
+  router.delete("/:key", async (req, res) => {
+    res.json(await service.deleteStory(req.params.key, actor((req.body as DeleteStoryRequest)?.worker)));
   });
 
   router.patch("/:key", async (req, res) => {

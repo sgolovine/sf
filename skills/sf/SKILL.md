@@ -39,6 +39,12 @@ These flags describe local launch ability; they do not establish remote support.
 remote dispatch, follow the [remote preflight](references/commands.md#remote-dispatch-preflight).
 Current sf commands and Worker Briefs support local execution only.
 
+Before starting sf, check the current harness/app's available tools and documentation for a supported way to rename the current conversation. If available, use it once to set this Supervisor conversation's title to exactly `SF Supervisor`. Rename support is independent of the agent name and thread-spawning capabilities; do not create or rename another thread.
+
+For example, when T3 Code exposes `t3_thread_update`, call it with `{"action":"rename","title":"SF Supervisor"}`. Omit `threadId` to target the calling conversation. Other harnesses may use their own documented equivalent; do not invent tools or commands.
+
+If no supported rename operation is available, keep the existing/default title and continue startup without asking the user or installing tools. A rejected or failed rename is also nonblocking: continue without retrying. Do not enforce the title again after startup.
+
 ## 3. Start sf
 
 Start sf the way a person does in a terminal, as a long-running background process of this thread:

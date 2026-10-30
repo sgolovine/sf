@@ -68,3 +68,5 @@ that report, obtain the repository documentation before assessing remote compati
 ## Other commands
 
 The server does not send other command types. If one arrives, run `fail` with `unknown command type`.
+
+`sf story delete <KEY>` permanently deletes a Story without confirmation. Release any live Claim first. Story Worktrees, branches, and Worker history are retained; Keys are never reused. Supports `--project`, `--json`, and `--worker`.

@@ -166,6 +166,9 @@ Either future channel must:
 - Preserve HIL hold/wake behavior, complete brief sections, Stage prompts and required Story resources.
   Resolve repository resources at the published head; any local-only resources need an explicit
   authenticated transfer/read contract. A remote `.sf` copy is never the authority.
+  Story attachments must be listed/retrieved from the authority by opaque ID through the scoped
+  channel; preserve upload limits, byte integrity and safe download behavior. The existing
+  attachment CLI still uses local discovery/loopback and is not a verified remote channel.
 - Store secrets outside committed config and briefs, revoke Claim credentials when it ends, and
   distinguish transport failure from rejected/committed mutation for safe retries.
 
@@ -178,6 +181,9 @@ sf story update <KEY> --field <id>=<value> --body-file <path> --worker <id> --pr
 sf story create <board> --title "<title>" --worker <id> --project <absolute-authoritative-checkout>
 sf story move <KEY> <stage-id> --worker <id> --project <absolute-authoritative-checkout>
 sf story release <KEY> --worker <id> --project <absolute-authoritative-checkout>
+sf story attachment list <KEY> --worker <id> --project <absolute-authoritative-checkout>
+sf story attachment get <KEY> <attachment-id> --output <new-local-path> --worker <id> --project <absolute-authoritative-checkout>
+sf story attachment add <KEY> <local-file> --worker <id> --project <absolute-authoritative-checkout>
 ```
 
 These examples are local only. The generated [brief](../src/server/project/brief.ts) supplies the
@@ -216,7 +222,8 @@ The next Stage must wait for branch publication and prior execution termination 
 Confirmed spawn failure/cancellation frees capacity; cancellation request alone does not.
 Required targets never fallback; scan past ineligible/full pins to preserve eligible FIFO.
 
-Current source baseline `81662720545c29e3d53561636bcdc739890a7cbd`:
+Source inspected initially at `81662720545c29e3d53561636bcdc739890a7cbd`, then reconciled
+with `origin/main` at `3da70ca0c1d7b057d7af71a62d779071e4790d4b` before handoff:
 
 - [service](../src/server/project/service.ts): `mutate`, `requestSpawn`, `drainQueue`,
   `spawnNow` serialize local Claim-based capacity; `onSpawn` enqueues before Claims are saved.
@@ -229,7 +236,12 @@ Current source baseline `81662720545c29e3d53561636bcdc739890a7cbd`:
   [worktree](../src/server/project/worktree.ts) retains dirty/unpushed work and deletes branches
   with `git branch -d`. DEV-11 must perform preparation/cleanup on the owning machine, verify the
   authoritative published branch/head on handoff, and surface unreachable/dirty worktrees.
-  Never imply uncommitted files were copied.
+  Never imply uncommitted files were copied. The merged local `removeWorktree` now runs Git
+  cleanup (including fetch) inside `withLock` to serialize deletion; the proposed remote
+  boundary must avoid network calls under that lock while preserving deletion safety.
+- [Attachment storage](../src/server/project/attachments.ts) and the updated brief/CLI provide
+  local authoritative attachment operations. DEV-11 must extend their access through the verified
+  scoped transport, rather than treating a remote clone's attachment files as current authority.
 - [OnlineService](../src/server/services/OnlineService.ts) enqueues local commands.
   [config](../src/server/project/config.ts) supplies the legacy cap.
   [ADR 0001](adr/0001-story-writes-through-sf.md) retains authoritative writes;
