@@ -67,6 +67,47 @@ test("stage set --hil-flag/--hil-comment set and clear a Stage's HIL fields", ()
   assert.equal(hil(), undefined);
 });
 
+test("offline model commands round-trip Project, Board, Stage and built-in Story selections", () => {
+  const project = tempDir();
+  const run = (...args: string[]) => {
+    const r = spawnSync(process.execPath, ["--import", "tsx", main, ...args, "--project", project, "--json"], {
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  run("init");
+  run("board", "create", "Development", "--key", "DEV");
+  const p = run(
+    "project",
+    "set",
+    "--model",
+    "project-slug",
+    "--model-option",
+    "custom/one",
+    "--model-option",
+    "custom/two",
+  );
+  assert.deepEqual(p.effectiveModel, { model: "project-slug", source: "project" });
+  assert.equal(run("project", "show").config.modelOptions.length, 2);
+  run("project", "set", "--model-option", "custom/three");
+  assert.equal(run("project", "show").config.modelOptions.length, 3);
+  run("board", "set", "DEV", "--model", "board-slug", "--model-option", "board/custom");
+  assert.equal(run("board", "show", "DEV").effectiveModel.model, "board-slug");
+  const stage = run("stage", "set", "DEV", "backlog", "--model", "stage-slug");
+  assert.equal(stage.effectiveModel.source, "stage");
+  const s = run("story", "create", "DEV", "--title", "Models", "--model", "story-slug");
+  assert.equal(run("story", "show", s.key).effectiveModel.source, "story");
+  run("story", "update", s.key, "--model", "");
+  assert.equal(run("story", "show", s.key).effectiveModel.source, "stage");
+  run("stage", "set", "DEV", "backlog", "--model", "");
+  assert.equal(run("story", "show", s.key).effectiveModel.source, "board");
+  run("board", "set", "DEV", "--model", "");
+  assert.equal(run("story", "show", s.key).effectiveModel.source, "project");
+  run("project", "set", "--model", "");
+  assert.equal(run("story", "show", s.key).effectiveModel.source, "supervisor");
+});
+
 test("story delete offline accepts project/json and rejects stale Workers and missing Stories", () => {
   const project = tempDir();
   const run = (...args: string[]) =>

@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
-import type { StageConfig } from "#model/config";
+import type { ProjectConfig, StageConfig } from "#model/config";
+import { modelCatalog, resolveModel } from "#model/models";
 import type { BoardSnapshot } from "#model/project";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,11 +18,12 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { sfApi } from "../../api/client.ts";
 import type { Act } from "../ErrorBanner.tsx";
+import { ModelSelector } from "../ModelSelector.tsx";
 import { FIXED_STAGES } from "./fixed.ts";
 
 /** One card per Stage that can run a Worker: its Stage Prompt, the enabled flag, and agent/model overrides. */
-export function StagePromptsTab({ board, act }: { board: BoardSnapshot; act: Act }) {
-  const stages = board.config.stages.filter((s) => !FIXED_STAGES.has(s.id));
+export function StagePromptsTab({ project, board, act }: { project: ProjectConfig; board: BoardSnapshot; act: Act }) {
+  const stages = board.config.stages;
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
@@ -30,14 +32,31 @@ export function StagePromptsTab({ board, act }: { board: BoardSnapshot; act: Act
       </p>
       {stages.length === 0 && <p className="text-sm text-muted-foreground">Add a Stage to give it a prompt.</p>}
       {stages.map((stage) => (
-        <PromptCard key={stage.id} board={board} stage={stage} act={act} />
+        <PromptCard
+          key={JSON.stringify([stage, board.prompts[stage.id]])}
+          project={project}
+          board={board}
+          stage={stage}
+          act={act}
+        />
       ))}
     </div>
   );
 }
 
-function PromptCard({ board, stage, act }: { board: BoardSnapshot; stage: StageConfig; act: Act }) {
+function PromptCard({
+  project,
+  board,
+  stage,
+  act,
+}: {
+  project: ProjectConfig;
+  board: BoardSnapshot;
+  stage: StageConfig;
+  act: Act;
+}) {
   const id = useId();
+  const fixed = FIXED_STAGES.has(stage.id);
   const saved = {
     enabled: stage.promptEnabled,
     prompt: board.prompts[stage.id] ?? "",
@@ -73,13 +92,14 @@ function PromptCard({ board, stage, act }: { board: BoardSnapshot; stage: StageC
           </CardDescription>
           <CardAction className="flex items-center gap-2">
             <Label htmlFor={`${id}-enabled`}>Enabled</Label>
-            <Switch id={`${id}-enabled`} checked={enabled} onCheckedChange={setEnabled} />
+            <Switch id={`${id}-enabled`} checked={enabled} onCheckedChange={setEnabled} disabled={fixed} />
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="grid gap-2">
             <Label htmlFor={`${id}-prompt`}>Stage Prompt</Label>
             <Textarea
+              disabled={fixed}
               id={`${id}-prompt`}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -98,15 +118,13 @@ function PromptCard({ board, stage, act }: { board: BoardSnapshot; stage: StageC
                 placeholder="Board/Project default"
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor={`${id}-model`}>Model override</Label>
-              <Input
-                id={`${id}-model`}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="Board/Project default"
-              />
-            </div>
+            <ModelSelector
+              value={model}
+              onChange={setModel}
+              options={modelCatalog(project, board.config)}
+              effective={resolveModel(project, board.config, { ...stage, model })}
+              defaultLabel="Inherit from Board / Project"
+            />
           </div>
         </CardContent>
         <CardFooter className="justify-end">

@@ -6,7 +6,7 @@ sf is a CLI first. One package builds one `sf` command:
 
 - **CLI** (`src/cli`): `sf setup` installs the `sf` skill for Claude Code, Codex, or OpenCode. `sf start` runs the server in the foreground. The other commands (`sf next`, `sf done`, `sf story ...`) let the Supervisor and Workers talk to the server and change the Project.
 - **Server** (`src/server`): an Express server that `sf start` runs in-process. It serves the built web interface, the API, and server-sent events, and turns Moves into `worker.spawn` commands for the Supervisor. `src/server/project` is the Story service.
-- **Web interface** (`src/web`): a React + TanStack Query kanban (Tailwind CSS v4 and shadcn/ui). A sidebar lists the Boards, with New Board at the bottom. Users create Stories and Move them on the Board; each Board's Board Settings page has tabs for Stages, Custom Fields (the Story schema), and Stage Prompts (with agent and model overrides).
+- **Web interface** (`src/web`): a React + TanStack Query kanban (Tailwind CSS v4 and shadcn/ui). A sidebar lists the Boards, with New Board at the bottom. Users create Stories and Move them on the Board; each Board's Board Settings page has tabs for Stages, Custom Fields (the Story schema), Stage Prompts (with agent and model overrides), and Worker settings. Project settings are in the sidebar; every Story has a built-in model selector.
 - **Skill** (`skills/sf`): instructions only. It turns an agent thread into the _Supervisor_: it checks capabilities, runs `sf start` as a background process of its own thread, and spawns a Worker whenever a Story Moves into a Stage with an enabled Stage Prompt.
 
 ## Layout
@@ -63,8 +63,8 @@ sf keeps its data in `.sf/` at the repository root, committed with the repositor
   boards/development/
     BOARD.md                optional instructions for this Board
     board.config.json       key, ordered Stages, Story schema, overrides
-    stages/<stage-id>.md    Stage Prompt text
-    stories/DEV-1.md        YAML frontmatter (title, stage, branch, custom fields) + description
+    stages/<stage-id>.md    Stage model frontmatter + Prompt text
+    stories/DEV-1.md        YAML frontmatter (title, stage, branch, model, custom fields) + description
 ```
 
 Every Story change goes through `sf` (UI, Supervisor, or Worker). With no server running, CLI commands write `.sf/` directly and queue spawns until the next `sf start`. Hand edits show up in the UI live, but changing `stage:` by hand is not a Move and starts no Worker. Story Worktrees live next to the repository in `<repo>-sf-worktrees/<KEY>` on branch `sf/<KEY>`.
@@ -76,6 +76,14 @@ sf story create DEV --title "Add dark mode" --stage todo   # spawns a Worker
 sf story list
 sf start --no-open      # runs until Ctrl-C; prints `sf ready: <url>`
 ```
+
+### Worker models
+
+Worker models inherit Story → current Stage → Board → Project → Supervisor default. Use `sf project set --model gpt-6.1-sol`, `sf board set DEV --model claude-opus-5-5`, `sf stage set DEV todo --model gpt-6-luna`, or Story create/update `--model <slug>`. Pass `--model ""` to clear a level. `sf project show`, `sf board show`, Stage set and Story show explain the effective model/source (and return catalogs with `--json`).
+
+Project/Board JSON retain `worker.model` / `overrides.worker.model` and support custom `modelOptions: [{slug, label}]`; repeat `--model-option vendor/custom` on Project/Board set to add without selecting. Choices merge presets + Project customs + Board customs by exact slug; Board custom labels win, preset labels stay fixed. Labels default to slugs. Unknown saved slugs remain selectable. Stage/Story models use Markdown frontmatter; Stage prompt bodies exclude metadata. Legacy Stage JSON values migrate on that Stage's next update, preserving unrelated metadata. Missing/null/empty overrides inherit; with no selection sf omits the spawn model and displays “Supervisor default.” `model` cannot be redefined by custom fields; legacy conflicts require renaming before schema changes. See the [model formats and preset slugs](docs/specs/01-core-function.md#worker-models).
+
+Settings changes affect the next Worker, including queue drain, offline replay, HIL wake, and retry. They do not restart active Workers. The Supervisor passes explicit model slugs unchanged or reports an unsupported selection visibly.
 
 ### Shared Worker instructions
 

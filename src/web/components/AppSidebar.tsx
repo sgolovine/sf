@@ -23,10 +23,11 @@ type Props = {
   creating: boolean;
   onSelect: (id: string) => void;
   onNewBoard: () => void;
+  onProjectSettings: () => void;
 };
 
 /** Names the current Board and lists the Project's Boards; "New Board" sits at the bottom. */
-export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewBoard }: Props) {
+export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewBoard, onProjectSettings }: Props) {
   return (
     <Sidebar>
       <SidebarHeader>
@@ -52,6 +53,7 @@ export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewB
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
+        <SidebarMenuButton onClick={onProjectSettings}>Project settings</SidebarMenuButton>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton isActive={creating} onClick={onNewBoard}>

@@ -73,7 +73,7 @@ If the Project has no Board yet, the user can create one in the interface, or as
 Run these as separate commands, not in the `sf start` session. Repeat until the user tells you to stop:
 
 1. Run `sf next` with a shell timeout of at least 10 minutes. It blocks until there is a command and prints it. Exit `2` means no command arrived; run it again.
-2. Carry out the command. See [commands.md](references/commands.md). For `worker.spawn`, start the Worker and report right away; do not wait for the Worker to finish, and never do the Worker's work yourself.
+2. Carry out the command. Honor an explicit Worker `model` slug unchanged through a supported spawn tool; report unsupported selections or spawn failures with `sf fail` and `sf say --level warn`, never silently substitute a default. An omitted model uses the Supervisor default. See [commands.md](references/commands.md). For `worker.spawn`, start the Worker and report right away; do not wait for the Worker to finish, and never do the Worker's work yourself.
 3. Report the outcome: `sf done <id> --result "<outcome>"`, or `sf fail <id> --error "<reason>"`.
 
 Use `sf say "<text>"` to post progress to the interface. Use `sf changes --since <cursor>` to see files changed since the last check. `sf status` shows the number of Workers holding Claims and Stories waiting for a Worker. Always close a claimed command with `done` or `fail`.

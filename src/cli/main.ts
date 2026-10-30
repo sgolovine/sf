@@ -45,7 +45,7 @@ ${PROJECT_HELP}`;
 
 const POLL_SECONDS = 25;
 const BOOLEAN_FLAGS = new Set(["json", "no-open", "dev", "force"]);
-const REPEATABLE_FLAGS = new Set(["field"]);
+const REPEATABLE_FLAGS = new Set(["field", "model-option"]);
 
 const argv = process.argv.slice(2);
 const { cmd, positional, flags } = parseArgs(argv);

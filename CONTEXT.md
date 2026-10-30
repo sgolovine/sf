@@ -46,7 +46,7 @@ The optional, toggleable instructions attached to a Stage. When enabled, a Story
 _Avoid_: Column prompt, stage instructions
 
 **Story**:
-A unit of work on a Board, stored as one Markdown file whose frontmatter records its Stage and custom fields.
+A unit of work on a Board, stored as one Markdown file whose frontmatter records its Stage, optional built-in Worker model, and custom fields. Worker models inherit Story → current Stage → Board → Project → Supervisor default.
 _Avoid_: Ticket, card, issue, task
 
 **Story Worktree**:

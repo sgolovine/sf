@@ -1,3 +1,4 @@
+import type { ModelOption } from "./models.ts";
 export type FieldType = "text" | "number" | "single-select" | "multi-select" | "boolean" | "date";
 export const FIELD_TYPES: readonly FieldType[] = ["text", "number", "single-select", "multi-select", "boolean", "date"];
 
@@ -23,6 +24,7 @@ export type WorkerSettings = { agent: string | null; model: string | null };
 /** `.sf/sf.config.json`. */
 export type ProjectConfig = {
   version: 1;
+  modelOptions?: ModelOption[];
   worker: WorkerSettings;
   worktree: { baseBranch: string | null };
   claimTimeoutMinutes: number;
@@ -43,6 +45,7 @@ export type BoardConfig = {
   /** Highest allocated Story number; committed so deleted Keys are never reused. */
   storyNumber?: number;
   key: string;
+  modelOptions?: ModelOption[];
   name: string;
   stages: StageConfig[];
   schema: FieldDef[];

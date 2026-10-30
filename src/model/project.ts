@@ -8,6 +8,7 @@ export type StoryView = {
   title: string;
   stage: string;
   branch?: string;
+  model?: string | null;
   /** Custom field values by field id, plus any frontmatter keys the schema does not know. */
   fields: Record<string, unknown>;
   body: string;
