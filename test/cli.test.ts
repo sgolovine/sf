@@ -66,3 +66,24 @@ test("stage set --hil-flag/--hil-comment set and clear a Stage's HIL fields", ()
   assert.equal(run("stage", "set", "DEV", "todo", "--hil-flag", "").status, 0);
   assert.equal(hil(), undefined);
 });
+
+test("story delete offline accepts project/json and rejects stale Workers and missing Stories", () => {
+  const project = tempDir();
+  const run = (...args: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", main, ...args, "--project", project, "--json"], {
+      encoding: "utf8",
+    });
+  assert.equal(run("board", "create", "Development", "--key", "DEV").status, 0);
+  assert.equal(run("story", "create", "DEV", "--title", "Delete").status, 0);
+  const stale = run("story", "delete", "DEV-1", "--worker", "stale");
+  assert.equal(stale.status, 3);
+  assert.match(stale.stderr, /claim is gone/);
+  const deleted = run("story", "delete", "DEV-1");
+  assert.equal(deleted.status, 0, deleted.stderr);
+  assert.deepEqual(JSON.parse(deleted.stdout), { key: "DEV-1" });
+  assert.deepEqual(JSON.parse(run("story", "list").stdout), []);
+  const repeated = run("story", "delete", "DEV-1");
+  assert.equal(repeated.status, 1);
+  assert.match(repeated.stderr, /no Story DEV-1/);
+  assert.equal(JSON.parse(run("story", "create", "DEV", "--title", "Next").stdout).key, "DEV-2");
+});

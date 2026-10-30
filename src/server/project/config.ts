@@ -50,6 +50,7 @@ export function loadBoard(root: string, id: string): BoardConfig {
   const raw = readJson<Partial<BoardConfig>>(sfPaths(root).board(id));
   if (!raw) throw new SfError("not_found", `no Board ${id}`);
   const board: BoardConfig = {
+    ...(raw.storyNumber !== undefined ? { storyNumber: raw.storyNumber } : {}),
     key: String(raw.key ?? ""),
     name: String(raw.name ?? id),
     stages: raw.stages ?? [],
@@ -101,6 +102,8 @@ export function uniqueId(base: string, taken: Iterable<string>) {
 }
 
 export function validateBoard(board: BoardConfig) {
+  if (board.storyNumber !== undefined && (!Number.isSafeInteger(board.storyNumber) || board.storyNumber < 0))
+    invalid("Board storyNumber must be a nonnegative safe integer");
   if (!/^[A-Z][A-Z0-9]*$/.test(board.key))
     invalid(`Board key must be uppercase letters and digits, got "${board.key}"`);
   if (!board.name.trim()) invalid("Board name must not be empty");

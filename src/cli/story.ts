@@ -3,7 +3,13 @@
 // it is not, so every Story change goes through the same library.
 import fs from "node:fs";
 import path from "node:path";
-import { type BoardResponse, routes, type StoryDetails, type WorktreeResponse } from "#model/api";
+import {
+  type BoardResponse,
+  type DeleteStoryResponse,
+  routes,
+  type StoryDetails,
+  type WorktreeResponse,
+} from "#model/api";
 import { ATTACHMENT_LIMIT, type Attachment } from "#model/attachment";
 import type { ProjectConfig, StageConfig } from "#model/config";
 import type { ProjectSnapshot } from "#model/project";
@@ -33,6 +39,7 @@ export const PROJECT_HELP = `Project commands (all accept --project <dir>, --jso
   sf story attachment add <KEY> <path>  (regular file, up to 20 MiB)
   sf story attachment list <KEY>
   sf story attachment get <KEY> <attachment-id> --output <path>  (never overwrites)
+  sf story delete <KEY>  # permanent; retains Story Worktree and branch; release any Claim first
   sf story release <KEY>
   sf story force-release <KEY>
   sf story retry <KEY>
@@ -243,6 +250,12 @@ export async function runProjectCommand(
         );
         return out(story, () => `Updated ${key}.`);
       }
+      if (sub === "delete") {
+        const deleted = await call<DeleteStoryResponse>("DELETE", routes.story(key), worker, () =>
+          svc.deleteStory(key, actor),
+        );
+        return out(deleted, () => `Permanently deleted ${key}. Story Worktree and branch retained.`);
+      }
       if (sub === "release") {
         const story = await call<StoryDetails>("POST", routes.storyRelease(key), worker, () =>
           svc.releaseStory(key, actor),
@@ -257,7 +270,7 @@ export async function runProjectCommand(
         const story = await call<StoryDetails>("POST", routes.storyRetry(key), {}, () => svc.retry(key));
         return out(story, () => `Retrying ${key} in ${story.stage}.${statusText(story)}`);
       }
-      throw new SfError("invalid", "usage: sf story list|create|show|move|update|release|force-release|retry");
+      throw new SfError("invalid", "usage: sf story list|create|show|move|update|delete|release|force-release|retry");
     }
 
     case "worktree": {

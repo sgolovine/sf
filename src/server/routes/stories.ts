@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type {
   CreateStoryRequest,
+  DeleteStoryRequest,
   MoveStoryRequest,
   ReleaseStoryRequest,
   UpdateStoryRequest,
@@ -45,6 +46,10 @@ export function storiesRouter(service: Service) {
 
   router.get("/:key", async (req, res) => {
     res.json(await service.showStory(req.params.key, actor(req.query.worker)));
+  });
+
+  router.delete("/:key", async (req, res) => {
+    res.json(await service.deleteStory(req.params.key, actor((req.body as DeleteStoryRequest)?.worker)));
   });
 
   router.patch("/:key", async (req, res) => {

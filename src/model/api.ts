@@ -79,6 +79,8 @@ export type UpdateStoryRequest = AttachmentSubmission & {
   worker?: string;
 };
 export type MoveStoryRequest = { stage: string; worker?: string };
+export type DeleteStoryRequest = { worker?: string };
+export type DeleteStoryResponse = { key: string };
 export type ReleaseStoryRequest = { worker: string };
 export type WorktreeRequest = { action: "ensure" | "remove"; force?: boolean };
 export type WorktreeResponse = {

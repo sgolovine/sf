@@ -1,7 +1,19 @@
+import { Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { Attachment } from "#model/attachment";
 import { activeHil, type FieldDef } from "#model/config";
 import type { BoardSnapshot, StoryView } from "#model/project";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -51,11 +63,13 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
         .then(setPersisted)
         .catch((err: Error) => setError(err.message));
   }, [storyKey]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const schema = board.config.schema;
   const hil = story && activeHil(board.config, story);
 
   const save = async () => {
-    if (submitting) return;
+    if (submitting || deleting || confirmDelete) return;
     setSubmitting(true);
     setError("");
     try {
@@ -87,7 +101,7 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !submitting && !deleting && onClose()}>
       <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
         <form
           className="flex flex-col gap-4"
@@ -96,7 +110,7 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
             void save();
           }}
         >
-          <fieldset disabled={submitting || retryOnly} className="contents">
+          <fieldset disabled={submitting || deleting || retryOnly} className="contents">
             <DialogHeader>
               <DialogTitle>{story ? story.key : `New Story on ${board.config.name}`}</DialogTitle>
               <DialogDescription>
@@ -214,14 +228,62 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
               setPending={setPending}
               error={error}
               setError={setError}
-              disabled={submitting || retryOnly}
+              disabled={submitting || deleting || retryOnly}
             />
           </fieldset>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+            {story && (
+              <AlertDialog open={confirmDelete} onOpenChange={(open) => !deleting && setConfirmDelete(open)}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mr-auto"
+                    aria-label={`Delete ${story.key}`}
+                    disabled={submitting || deleting || retryOnly}
+                  >
+                    <Trash2 className="text-destructive" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete {story.key}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Permanently delete {story.key}: {story.title}? This cannot be undone. Any Story Worktree and
+                      branch are retained. A live Claim must be released first.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel type="button" disabled={deleting}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      type="button"
+                      variant="destructive"
+                      disabled={deleting}
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        if (deleting || submitting || retryOnly) return;
+                        setDeleting(true);
+                        try {
+                          if (await act(() => sfApi.deleteStory(story.key))) onClose();
+                          else setConfirmDelete(false);
+                        } finally {
+                          setDeleting(false);
+                        }
+                      }}
+                    >
+                      {deleting ? "Deleting…" : "Delete Story"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting || deleting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting || !title.trim()}>
+            <Button type="submit" disabled={submitting || deleting || confirmDelete || !title.trim()}>
               {retryOnly ? "Retry submission" : story ? "Save" : "Create Story"}
             </Button>
           </DialogFooter>

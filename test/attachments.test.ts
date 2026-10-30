@@ -204,7 +204,8 @@ test("disk failures roll back creation and existing edits without spawning", asy
   assert.equal(spawns.length, 0);
   t.mock.restoreAll();
   const created = await svc.createStory("DEV", { title: "Retry", attachments: [input] }, user);
-  assert.equal(created.key, "DEV-2");
+  // Main reserves Story numbers before writing, so a failed creation leaves a gap.
+  assert.equal(created.key, "DEV-3");
   assert.equal((await svc.listAttachments(created.key, user)).length, 1);
 });
 
