@@ -76,6 +76,52 @@ test("offline pending triggers read newly created instructions when drained", as
 });
 
 for (const scope of ["project", "board"] as const) {
+  test(`Worker Moves retain their next-stage spawn when queued ${scope} instructions cannot be read`, async () => {
+    const { root, svc, spawns, make } = await setupProject({ config: { maxConcurrentWorkers: 1 } });
+    await svc.createBoard("Quality", "QA");
+    await svc.updateStage("QA", "todo", { promptEnabled: true, prompt: "Test it." });
+    await svc.createStory("DEV", { title: "Moving Worker", stage: "todo" }, user);
+    await svc.createStory("QA", { title: "First queued", stage: "todo" }, user);
+    await svc.createStory("QA", { title: "Second queued", stage: "todo" }, user);
+    const movingWorker = spawns[0]!.workerId;
+    const paths = sfPaths(root);
+    const file = scope === "project" ? paths.instructions : paths.boardInstructions("quality");
+    fs.mkdirSync(file);
+
+    await assert.rejects(svc.moveStory("DEV-1", "in_progress", worker(movingWorker)), (err: Error) => {
+      assert.ok(err.message.includes(file));
+      assert.ok(err.message.includes("EISDIR"));
+      return true;
+    });
+    const moved = await svc.showStory("DEV-1", user);
+    assert.equal(moved.stage, "in_progress");
+    assert.equal(moved.claim, undefined);
+    assert.equal(moved.queued, true);
+    assert.equal(svc.snapshot()!.runtime.workers[movingWorker]!.endReason, "moved");
+    assert.deepEqual(
+      svc.snapshot()!.runtime.queue.map((q) => `${q.storyKey}:${q.stageId}`),
+      ["QA-1:todo", "QA-2:todo", "DEV-1:in_progress"],
+    );
+    assert.equal(spawns.length, 1);
+
+    fs.rmdirSync(file);
+    fs.writeFileSync(file, "Repaired instructions");
+    const restarted = make(true);
+    await restarted.sweep();
+    assert.equal(spawns[1]!.storyKey, "QA-1");
+    assert.ok(spawns[1]!.brief.includes("Repaired instructions"));
+    await restarted.forceRelease("QA-1");
+    assert.equal(spawns[2]!.storyKey, "QA-2");
+    await restarted.forceRelease("QA-2");
+    assert.equal(spawns[3]!.storyKey, "DEV-1");
+    assert.equal(spawns[3]!.stageId, "in_progress");
+    assert.ok(spawns[3]!.brief.includes("Build the Story."));
+    assert.notEqual(spawns[3]!.workerId, movingWorker);
+    assert.deepEqual(restarted.snapshot()!.runtime.queue, []);
+    await restarted.sweep();
+    assert.equal(spawns.length, 4);
+  });
+
   test(`queued spawns survive ${scope} instruction read errors and resume FIFO`, async () => {
     const { root, svc, spawns, make } = await setupProject({ config: { maxConcurrentWorkers: 1 } });
     for (const title of ["Active", "First queued", "Second queued"])

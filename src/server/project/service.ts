@@ -365,9 +365,12 @@ export function createService(opts: ServiceOptions) {
   function enterStage(tx: Tx, key: string, boardId: string, board: BoardConfig, story: StoryData, claimEnded: boolean) {
     const stageId = story.stage;
     if (stageId === DONE) scheduleCleanup(tx, key);
-    // Free capacity goes to the oldest queued spawn before this Story asks for one.
-    if (claimEnded) drainQueue(tx);
-    if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
+    if (claimEnded && online) {
+      // Persist this Story's intent before a drain can fail, behind older spawns.
+      if (spawnsFor(boardId, board, stageId, story))
+        tx.rt.queue.push({ storyKey: key, board: boardId, stageId, queuedAt: now() });
+      drainQueue(tx);
+    } else if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
   }
 
   /** Drops any queued or pending spawn for the Story. */
