@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import { after, test } from "node:test";
-import { routes, type StoryDetails } from "#model/api";
+import { promisify } from "node:util";
+import { type ErrorResponse, routes, type StoryDetails } from "#model/api";
 import type { CommandRecord } from "#model/commands";
 import { createApp, listen } from "../src/server/server.ts";
 import { ClientService, type ServerInfo } from "../src/server/services/ClientService.ts";
@@ -119,4 +122,58 @@ test("model API and online CLI settings persist through all four levels", async 
     call("PATCH", routes.board("MOD"), { schema: [{ id: "model", name: "Model", type: "text" }] }),
     /reserved/,
   );
+});
+
+test("DELETE Story uses service Claim checks, updates live state, and returns 404 on repetition", async () => {
+  await call("POST", routes.boards, { name: "Deletion", key: "DEL" });
+  await call("PATCH", routes.stage("DEL", "todo"), { promptEnabled: true, prompt: "Work" });
+  const claimed = await call<StoryDetails>("POST", routes.stories, { board: "DEL", title: "Claimed", stage: "todo" });
+  const request = (key: string, body?: unknown) =>
+    fetch(`http://127.0.0.1:${server.port}${routes.story(key)}`, {
+      method: "DELETE",
+      headers: { authToken: "t", "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  for (const body of [undefined, { worker: claimed.claim!.workerId }]) {
+    const res = await request(claimed.key, body);
+    assert.equal(res.status, 409);
+    assert.equal(((await res.json()) as ErrorResponse).code, "claimed");
+  }
+  await call("POST", routes.storyForceRelease(claimed.key), {});
+  const stale = await request(claimed.key, { worker: claimed.claim!.workerId });
+  assert.equal(stale.status, 409);
+  assert.equal(((await stale.json()) as ErrorResponse).code, "claim_gone");
+  const res = await request(claimed.key);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { key: claimed.key });
+  assert.equal(store.state.project!.boards.find((b) => b.config.key === "DEL")!.stories.length, 0);
+  for (const key of [claimed.key, "DEL-99"]) {
+    const missing = await request(key);
+    assert.equal(missing.status, 404);
+    assert.equal(((await missing.json()) as ErrorResponse).code, "not_found");
+  }
+});
+
+test("online CLI deletion calls HTTP with Worker credentials and refreshes the server snapshot", async () => {
+  const runtime = path.join(root, ".sf/runtime");
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.writeFileSync(path.join(runtime, "server.json"), JSON.stringify(server));
+  const run = (...args: string[]) =>
+    promisify(execFile)(process.execPath, [
+      "--import",
+      "tsx",
+      path.resolve("src/cli/main.ts"),
+      ...args,
+      "--project",
+      root,
+      "--json",
+    ]);
+  const story = await call<StoryDetails>("POST", routes.stories, { board: "DEL", title: "CLI" });
+  await assert.rejects(run("story", "delete", story.key, "--worker", "stale"), (err: unknown) => {
+    assert.match((err as { stderr: string }).stderr, /claim is gone/);
+    return true;
+  });
+  const deleted = await run("story", "delete", story.key);
+  assert.deepEqual(JSON.parse(deleted.stdout), { key: story.key });
+  assert.equal(store.state.project!.boards.find((b) => b.config.key === "DEL")!.stories.length, 0);
 });

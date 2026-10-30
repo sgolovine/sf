@@ -178,7 +178,7 @@ export function App() {
 
         {!creating && editing && (
           <StoryEditor
-            key={`${editing.key ?? "new"}:${JSON.stringify(board.stories.find((s) => s.key === editing.key))}`}
+            key={editing.key ?? "new"}
             project={project!.config}
             board={board}
             story={board.stories.find((s) => s.key === editing.key) ?? null}

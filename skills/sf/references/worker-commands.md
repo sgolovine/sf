@@ -84,3 +84,13 @@ Project defaults stay at `worker.model` in `sf.config.json`; Board defaults at `
 Stage `model` lives in `stages/<id>.md` YAML frontmatter; the body remains the prompt. Story `model` is a built-in top-level frontmatter property, independently of custom fields. Missing/null/empty selections inherit. Stage/Story canonical clears remove the key. Stage frontmatter wins over old `stages[].model` JSON, including explicit null/empty; absent keys fall back to legacy JSON. Reads do not migrate. The next update to that Stage migrates its selection and removes its legacy JSON value, retaining unrelated metadata and prompt text. Clearing removes both copies. Backlog/Done can select models without enabling prompts.
 
 `model` is reserved in custom schemas. A legacy custom field named `model` remains readable and its data is preserved, but schema changes and built-in model writes require renaming that field and its Story metadata first. Coordinate that migration in the Project data; never reinterpret custom values as Worker selections.
+
+## Attachments
+
+```sh
+sf story attachment add DEV-3 ./screenshot.png --worker <id> --project <root>
+sf story attachment list DEV-3 --worker <id> --project <root> --json
+sf story attachment get DEV-3 <attachment-id> --output ./download.png --worker <id> --project <root>
+```
+
+Add uploads one regular file up to 20 MiB. Get writes exact bytes and refuses to overwrite an existing file. Commands work with the server running or stopped, refresh the Worker Claim, and never Move or release the Story. Files live in the Supervisor's Project and survive Story Worktree cleanup.

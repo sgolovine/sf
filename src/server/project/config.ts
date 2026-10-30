@@ -124,6 +124,8 @@ export function uniqueId(base: string, taken: Iterable<string>) {
 }
 
 export function validateBoard(board: BoardConfig) {
+  if (board.storyNumber !== undefined && (!Number.isSafeInteger(board.storyNumber) || board.storyNumber < 0))
+    invalid("Board storyNumber must be a nonnegative safe integer");
   if (!/^[A-Z][A-Z0-9]*$/.test(board.key))
     invalid(`Board key must be uppercase letters and digits, got "${board.key}"`);
   if (!board.name.trim()) invalid("Board name must not be empty");

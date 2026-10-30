@@ -248,3 +248,20 @@ test("patches preserve unknown JSON keys, nested Worker settings, YAML metadata 
   });
   assert.equal(modelCatalog(DEFAULT_PROJECT_CONFIG).length, 7);
 });
+
+test("malformed selections cannot overwrite Stage or incompatible Story metadata", async () => {
+  const { svc, root } = await setupProject();
+  await svc.updateStage("DEV", "todo", { model: "kept" });
+  await assert.rejects(svc.updateStage("DEV", "todo", { model: false as never }), /slug/);
+  assert.equal(svc.showBoard("DEV").config.stages[1]!.model, "kept");
+  const file = path.join(sfPaths(root).stories("development"), "DEV-1.md");
+  fs.writeFileSync(file, "---\ntitle: Unknown metadata\nstage: backlog\nmodel: 42\nnullable: null\n---\n");
+  const story = await svc.showStory("DEV-1", user);
+  assert.equal(story.model, undefined);
+  assert.equal(story.fields.model, 42);
+  await assert.rejects(svc.updateStory(story.key, { model: "overwrite" }, user), /rename/);
+  await svc.updateStory(story.key, { title: "Edited safely" }, user);
+  const saved = parseStory(fs.readFileSync(file, "utf8"));
+  assert.equal(saved.fields.model, 42);
+  assert.equal(saved.fields.nullable, null);
+});

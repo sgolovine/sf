@@ -1,4 +1,4 @@
-import { type NextFunction, type Request, type Response, Router } from "express";
+import express, { type NextFunction, type Request, type Response, Router } from "express";
 import { TOKEN_HEADER } from "#model/api";
 import { HTTP_STATUS, SfError } from "../project/errors.ts";
 import type { Service } from "../project/service.ts";
@@ -21,6 +21,8 @@ export function apiRouter({ store, service, token, onStop }: ApiOptions) {
     next();
   });
 
+  router.use("/stories", express.json({ limit: "60mb" }));
+  router.use(express.json({ limit: "1mb" }));
   router.use(sessionRouter(store, onStop));
   router.use("/commands", commandsRouter(store, service));
   router.use("/supervisor", supervisorRouter(store, service));
