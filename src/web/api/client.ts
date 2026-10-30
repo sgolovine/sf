@@ -1,6 +1,7 @@
 import {
   type BoardResponse,
   type CreateStoryRequest,
+  type DeleteStoryResponse,
   type ErrorResponse,
   routes,
   type StoryDetails,
@@ -70,6 +71,7 @@ export const sfApi = {
 
   createStory: (body: CreateStoryRequest) => request<StoryDetails>("POST", routes.stories, body),
   updateStory: (key: string, patch: UpdateStoryRequest) => request<StoryDetails>("PATCH", routes.story(key), patch),
+  deleteStory: (key: string) => request<DeleteStoryResponse>("DELETE", routes.story(key)),
   moveStory: (key: string, stage: string) => request<StoryDetails>("POST", routes.storyMove(key), { stage }),
   forceRelease: (key: string) => request<StoryDetails>("POST", routes.storyForceRelease(key), {}),
   retry: (key: string) => request<StoryDetails>("POST", routes.storyRetry(key), {}),

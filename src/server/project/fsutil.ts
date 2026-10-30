@@ -23,7 +23,6 @@ export function writeJson(file: string, value: unknown) {
   atomicWrite(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-const STALE_MS = 30_000;
 const RETRY_MS = 50;
 const WAIT_MS = 5_000;
 
@@ -33,7 +32,7 @@ let chain: Promise<unknown> = Promise.resolve();
 
 /**
  * Runs `fn` while holding `.sf/runtime/lock` (an O_EXCL file with `{pid, at}`).
- * A lock is stale when its process is dead or it is older than 30 seconds.
+ * A live process keeps its lock regardless of age, including during slow Git operations.
  */
 export function withLock<T>(root: string, fn: () => T | Promise<T>): Promise<T> {
   const run = chain.then(() => holdLock(root, fn));
@@ -74,8 +73,7 @@ function isStale(lock: string) {
     // Missing (just released) or half-written: retry rather than steal it.
     return false;
   }
-  if (typeof holder.at !== "number" || Date.now() - holder.at > STALE_MS) return true;
-  if (typeof holder.pid !== "number") return true;
+  if (typeof holder.pid !== "number" || !Number.isSafeInteger(holder.pid) || holder.pid <= 0) return true;
   try {
     process.kill(holder.pid, 0);
     return false;
