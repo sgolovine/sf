@@ -47,13 +47,13 @@ boards/
 `board.config.json` holds:
 
 - The Board key used in Story Keys (for example `DEV`).
-- The ordered Stage list. Each Stage has a stable slug id, a display name, a prompt enabled/disabled flag, and optional agent/model overrides. The Stage Prompt text is in `stages/<stage-id>.md`. Renaming a Stage changes only its display name.
+- The ordered Stage list. Each Stage has a stable slug id, a display name, a prompt enabled/disabled flag, and optional agent overrides. The model override is YAML frontmatter in the Stage Markdown file. The Stage Prompt text is in `stages/<stage-id>.md`. Renaming a Stage changes only its display name.
 - The Story schema: custom fields with types `text`, `number`, `single-select`, `multi-select`, `boolean`, or `date`.
 - Overrides of `sf.config.json` settings (see the table above).
 
 ### Story file
 
-A Markdown file named `<Story Key>.md`. YAML frontmatter holds `stage` (a Stage id) and the custom field values. The body is the Story description. Story numbers increment per Board.
+A Markdown file named `<Story Key>.md`. YAML frontmatter holds `title`, `stage` (a Stage id), optional `branch`, the built-in optional `model`, and the custom field values. The body is the Story description. Story numbers increment per Board.
 
 ## SF Concepts
 
@@ -132,3 +132,29 @@ A Stage other than Backlog and Done can name a HIL flag field (a boolean field i
   - **In Review**: a Worker dispatches a PR review agent to check the work. If the review finds issues, it Moves the Story to "In Fixup". If not, it merges the PR and Moves the Story to "Done".
   - **In Fixup**: entered only when a PR review finds issues. A Worker fixes them in the same Story Worktree and Moves the Story back to "In Review".
   - **Done**: work comes here only after it is complete. sf removes the Story Worktree.
+
+## Worker models
+
+One shared resolver returns both slug and source: Story → current Stage → Board → Project. A missing, null, or empty selection inherits. With no selection, the result is `{model: null, source: "supervisor"}`; the UI says “Supervisor default” and `worker.spawn` omits `model`. Agent inheritance remains Stage → Board → Project.
+
+Project `worker.model` and Board `overrides.worker.model` retain their existing locations. Both JSON files support top-level `modelOptions` arrays of `{slug, label}` custom choices (absent means empty). Presets always exist; customs extend them, deduplicating exact slugs with Board labels over Project labels. Preset labels cannot be changed. Missing custom labels default to the slug on writes. Adding choices never selects them. Unknown saved selections remain valid and visible. Reject empty custom slugs and whitespace; never derive slugs from labels.
+
+| Label | Worker slug |
+| --- | --- |
+| GPT 6.1 Sol | `gpt-6.1-sol` |
+| Opus 5.5 | `claude-opus-5-5` |
+| Fable 5.1 | `claude-fable-5-1` |
+| Haiku 5.5 | `claude-haiku-5-5` |
+| GPT 6 Luna | `gpt-6-luna` |
+| GPT 6.1 Terra | `gpt-6.1-terra` |
+| GPT 6 Astra | `gpt-6-astra` |
+
+Stage `model` is frontmatter in `stages/<id>.md`; its body is the prompt and metadata is excluded from rendering/briefs. Story `model` is a standard frontmatter property, outside custom fields. Clearing Stage/Story selections removes their keys. Legacy prompt-only files and `stages[].model` in Board JSON still load. An explicitly present frontmatter model wins, even null/empty; otherwise use the legacy JSON. Reads never rewrite. A Stage update migrates that Stage's effective selection and removes its JSON copy, preserving unrelated JSON/YAML values and prompt body. A Stage can have a metadata-only file. No version bump is required.
+
+`model` is reserved in schema validation/editor. Legacy custom-field definitions/data remain readable and preserved; report a conflict requiring the field and its data to be renamed before schema changes or built-in model writes. Non-string legacy metadata is never used as a Worker model.
+
+Project settings are reachable from the sidebar; Board Settings has a Worker tab with model/catalog controls. Stage Prompts settings expose model selectors for every Stage, including Backlog/Done with prompt controls disabled. Story create/edit always exposes the built-in selector even with an empty schema, using the chosen Stage for creates and actual current Stage for edits. Selectors show labels/slugs, inheritance and effective model/source; live refresh displays persisted values.
+
+CLI: `sf project show|set`, `sf board show|set <board>`, `sf stage set`, and Story create/update support `--model <slug>` (`""` clears). Project/Board set support repeatable additive `--model-option <slug>`. Show output and Stage set expose effective model/source/catalogs as JSON; human output identifies the effective model/source. Typed API operations use GET/PATCH `/api/project/settings`, PATCH `/api/boards/:board`, Stage PATCH, and Story POST/PATCH. JSON model patches merge unrelated nested settings. Commands work online/offline.
+
+Spawns read persisted selections for immediate create/Move, retry, HIL wake, queue drain and offline replay. Moving an inheriting Story changes the next model; a Story override survives. Settings edits do not restart active Workers or trigger a new one. The exact resolved slug goes in `worker.spawn.model`; the Worker Brief names model/source. The Supervisor must honor supported explicit requests and report unsupported/spawn failures visibly, never claim a substituted model was used. Provider discovery, credentials, inference parameters and catalog editing below Board level are outside this feature.
