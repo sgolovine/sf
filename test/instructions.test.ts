@@ -75,6 +75,102 @@ test("offline pending triggers read newly created instructions when drained", as
   assert.ok(spawns[0]!.brief.includes("Board while offline"));
 });
 
+for (const scope of ["project", "board"] as const) {
+  test(`queued spawns survive ${scope} instruction read errors and resume FIFO`, async () => {
+    const { root, svc, spawns, make } = await setupProject({ config: { maxConcurrentWorkers: 1 } });
+    for (const title of ["Active", "First queued", "Second queued"])
+      await svc.createStory("DEV", { title, stage: "todo" }, user);
+    const paths = sfPaths(root);
+    const file = scope === "project" ? paths.instructions : paths.boardInstructions("development");
+    fs.mkdirSync(file);
+    await assert.rejects(svc.forceRelease("DEV-1"), (err: Error) => {
+      assert.ok(err.message.includes(file));
+      assert.ok(err.message.includes("EISDIR"));
+      return true;
+    });
+    assert.deepEqual(
+      svc.snapshot()!.runtime.queue.map((q) => q.storyKey),
+      ["DEV-2", "DEV-3"],
+    );
+    assert.equal(spawns.length, 1);
+
+    fs.rmdirSync(file);
+    fs.writeFileSync(file, "Repaired instructions");
+    const restarted = make(true);
+    await restarted.sweep();
+    assert.equal(spawns[1]!.storyKey, "DEV-2");
+    assert.ok(spawns[1]!.brief.includes("Repaired instructions"));
+    await restarted.forceRelease("DEV-2");
+    assert.equal(spawns[2]!.storyKey, "DEV-3");
+    assert.deepEqual(restarted.snapshot()!.runtime.queue, []);
+    await restarted.sweep();
+    assert.equal(spawns.length, 3);
+  });
+
+  test(`offline pending spawns survive ${scope} instruction read errors without losing later triggers`, async () => {
+    const { root, svc, spawns, make } = await setupProject();
+    const offline = make(false);
+    await offline.createStory("DEV", { title: "First pending", stage: "todo" }, user);
+    await offline.createStory("DEV", { title: "Later pending", stage: "todo" }, user);
+    const paths = sfPaths(root);
+    const file = scope === "project" ? paths.instructions : paths.boardInstructions("development");
+    fs.mkdirSync(file);
+    await assert.rejects(svc.drainPending(), (err: Error) => {
+      assert.ok(err.message.includes(file));
+      assert.ok(err.message.includes("EISDIR"));
+      return true;
+    });
+    assert.deepEqual(
+      svc.snapshot()!.runtime.pendingTriggers.map((t) => t.storyKey),
+      ["DEV-1", "DEV-2"],
+    );
+    assert.equal(spawns.length, 0);
+
+    fs.rmdirSync(file);
+    fs.writeFileSync(file, "Repaired instructions");
+    const restarted = make(true);
+    await restarted.drainPending();
+    assert.deepEqual(
+      spawns.map((s) => s.storyKey),
+      ["DEV-1", "DEV-2"],
+    );
+    assert.ok(spawns.every((s) => s.brief.includes("Repaired instructions")));
+    assert.deepEqual(restarted.snapshot()!.runtime.pendingTriggers, []);
+    await restarted.drainPending();
+    assert.equal(spawns.length, 2);
+  });
+}
+
+test("a partially drained pending batch retains cleanup and later Boards without replaying dispatched spawns", async () => {
+  const { root, svc, spawns, make } = await setupProject();
+  await svc.createBoard("Quality", "QA");
+  await svc.updateStage("QA", "todo", { promptEnabled: true, prompt: "Test it." });
+  const offline = make(false);
+  await offline.createStory("DEV", { title: "Cleanup", stage: "done" }, user);
+  await offline.createStory("DEV", { title: "Dispatch before failure", stage: "todo" }, user);
+  await offline.createStory("QA", { title: "Read failure", stage: "todo" }, user);
+  await offline.createStory("DEV", { title: "Dispatch after failure", stage: "todo" }, user);
+  const file = sfPaths(root).boardInstructions("quality");
+  fs.mkdirSync(file);
+  await assert.rejects(svc.drainPending(), /EISDIR/);
+  assert.deepEqual(
+    spawns.map((s) => s.storyKey),
+    ["DEV-2"],
+  );
+  assert.deepEqual(
+    svc.snapshot()!.runtime.pendingTriggers.map((t) => `${t.type}:${t.storyKey}`),
+    ["cleanup:DEV-1", "spawn:QA-1", "spawn:DEV-3"],
+  );
+  await svc.forceRelease("DEV-2");
+  fs.rmdirSync(file);
+  await svc.drainPending();
+  assert.deepEqual(
+    spawns.map((s) => s.storyKey),
+    ["DEV-2", "QA-1", "DEV-3"],
+  );
+  assert.deepEqual(svc.snapshot()!.runtime.pendingTriggers, []);
+});
+
 test("blank instruction files omit sections; unreadable files surface their paths", async () => {
   for (const scope of ["project", "board"] as const) {
     const { root, svc, spawns } = await setupProject();

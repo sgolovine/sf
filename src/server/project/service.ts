@@ -274,7 +274,13 @@ export function createService(opts: ServiceOptions) {
       const found = tryLocate(entry.storyKey);
       if (!found || tx.rt.claims[entry.storyKey] || found.story.stage !== entry.stageId) continue;
       if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) continue;
-      spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
+      try {
+        spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
+      } catch (err) {
+        // Runtime is saved even on error; keep this spawn first for the next drain.
+        tx.rt.queue.unshift(entry);
+        throw err;
+      }
     }
   }
 
@@ -685,16 +691,25 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         const triggers = tx.rt.pendingTriggers;
         tx.rt.pendingTriggers = [];
-        for (const t of triggers) {
-          const found = tryLocate(t.storyKey);
-          if (!found) continue;
-          if (t.type === "cleanup") scheduleCleanup(tx, t.storyKey);
-          else if (
-            found.story.stage === t.stageId &&
-            !tx.rt.claims[t.storyKey] &&
-            spawnsFor(found.boardId, found.board, t.stageId, found.story)
-          )
-            requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
+        let index = 0;
+        try {
+          for (; index < triggers.length; index++) {
+            const t = triggers[index]!;
+            const found = tryLocate(t.storyKey);
+            if (!found) continue;
+            if (t.type === "cleanup") scheduleCleanup(tx, t.storyKey);
+            else if (
+              found.story.stage === t.stageId &&
+              !tx.rt.claims[t.storyKey] &&
+              spawnsFor(found.boardId, found.board, t.stageId, found.story)
+            )
+              requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
+          }
+        } catch (err) {
+          // Keep unfinished triggers and cleanups whose after-tasks cannot run on error.
+          // Completed spawns must not be replayed after their Claims end.
+          tx.rt.pendingTriggers.unshift(...triggers.filter((t, i) => i >= index || t.type === "cleanup"));
+          throw err;
         }
       });
     },
