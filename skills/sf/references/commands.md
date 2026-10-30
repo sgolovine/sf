@@ -42,6 +42,31 @@ sf reads these files from the service's Project root in the Supervisor's checkou
 
 If `done` or `fail` prints `marked cancelled`, the user force-released the Story before the spawn finished. That is fine; nothing else is needed.
 
+## Remote dispatch preflight
+
+Current `worker.spawn` commands, worktree paths and briefs are local. Keep using the local
+instructions above. Neither `sf capabilities`, an app name, nor thread/subagent support proves
+remote execution. Do not route today's command remotely or pass its Project path/loopback server
+as though accessible on another machine.
+
+Before a future remote adapter dispatches, require dated public API/schema evidence for stable
+environment identity, linked-target discovery, beta/link/access, target project/repository and
+provider/model/options; remote launch with durable retry identity; status/cancel/terminal
+reconciliation; target worktree/head preparation/cleanup; correct task/thread links; and a
+Worker/Claim-scoped authenticated channel to the authoritative sf Project.
+Unknown-key acceptance is not proof of a supported argument. An uncertain launch retains
+occupancy and branch exclusion; do not retry elsewhere on disconnect or response loss.
+
+On the 2026-10-29 installed T3 integration (serverVersion 0.1.2), discovery and remote target
+selection are not declared: report remote unavailable and preserve local operation. Recheck
+after upgrades; minimum compatible release is unverified. Never inspect private T3 databases
+for credentials or invent remote arguments.
+
+The repository's [compatibility report](../../../docs/remote-workers.md) contains the reproducible
+read-only preflight, exact observed declarations, transport gate and unrun real-target checklist;
+it is source documentation, not bundled runtime functionality. If using an installed skill without
+that report, obtain the repository documentation before assessing remote compatibility.
+
 ## `supervisor.instruct`
 
 `text` is a direct instruction to you, the Supervisor. Do it, then run `done` with a short summary.
