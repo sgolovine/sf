@@ -88,67 +88,96 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
               </p>
             </div>
           )}
-          <div className="grid gap-2">
-            <Label htmlFor={`${id}-title`}>Title</Label>
-            <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-          </div>
-          {!story && (
-            <div className="grid gap-2">
-              <Label htmlFor={`${id}-stage`}>Stage</Label>
-              <Select value={stage} onValueChange={setStage}>
-                <SelectTrigger id={`${id}-stage`} className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {board.config.stages.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          {schema.map((f) => (
-            <FieldInput
-              key={f.id}
-              id={`${id}-field-${f.id}`}
-              field={f}
-              value={fields[f.id]}
-              onChange={(v) => setFields({ ...fields, [f.id]: v })}
-            />
-          ))}
-          <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor={`${id}-body`}>Description</Label>
-              <TabsList>
-                <TabsTrigger value="write">Write</TabsTrigger>
-                <TabsTrigger value="preview">Preview</TabsTrigger>
-              </TabsList>
-            </div>
-            <TabsContent value="write">
-              <Textarea
-                id={`${id}-body`}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={8}
-                className="min-h-40 font-mono"
-                placeholder="Markdown supported"
-              />
-            </TabsContent>
-            <TabsContent value="preview">
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
-              <div
-                className="min-h-40 cursor-text rounded-md border px-3 py-2"
-                onDoubleClick={() => setBodyTab("write")}
-                title="Double-click to edit"
-              >
-                {body.trim() ? (
-                  <Markdown>{body}</Markdown>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Nothing to preview.</p>
-                )}
+          <Tabs defaultValue="details" className="min-w-0 gap-4">
+            <TabsList aria-label="Story sections">
+              <TabsTrigger type="button" value="details">
+                Details
+              </TabsTrigger>
+              <TabsTrigger type="button" value="fields">
+                Custom Fields
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="details" className="min-w-0 space-y-4">
+              <div className="grid gap-2">
+                <Label htmlFor={`${id}-title`}>Title</Label>
+                <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
               </div>
+              {story ? (
+                <div className="grid gap-2">
+                  <span className="text-sm font-medium">Stage</span>
+                  <p className="text-sm">
+                    {board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <Label htmlFor={`${id}-stage`}>Stage</Label>
+                  <Select value={stage} onValueChange={setStage}>
+                    <SelectTrigger id={`${id}-stage`} className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {board.config.stages.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={`${id}-body`}>Description</Label>
+                  <TabsList aria-label="Description mode">
+                    <TabsTrigger type="button" value="write">
+                      Write
+                    </TabsTrigger>
+                    <TabsTrigger type="button" value="preview">
+                      Preview
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                <TabsContent value="write">
+                  <Textarea
+                    id={`${id}-body`}
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    rows={8}
+                    className="min-h-40 font-mono"
+                    placeholder="Markdown supported"
+                  />
+                </TabsContent>
+                <TabsContent value="preview">
+                  {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
+                  <div
+                    className="min-h-40 cursor-text rounded-md border px-3 py-2"
+                    onDoubleClick={() => setBodyTab("write")}
+                    title="Double-click to edit"
+                  >
+                    {body.trim() ? (
+                      <Markdown>{body}</Markdown>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Nothing to preview.</p>
+                    )}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+            <TabsContent value="fields" className="min-w-0 space-y-4">
+              {schema.length ? (
+                schema.map((f) => (
+                  <FieldInput
+                    key={f.id}
+                    id={`${id}-field-${f.id}`}
+                    field={f}
+                    value={fields[f.id]}
+                    onChange={(v) => setFields({ ...fields, [f.id]: v })}
+                  />
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No custom fields.</p>
+              )}
             </TabsContent>
           </Tabs>
           <DialogFooter>
