@@ -73,3 +73,50 @@ test("errors map to HTTP codes", async () => {
   });
   assert.equal(res.status, 409);
 });
+
+test("model API and online CLI settings persist through all four levels", async () => {
+  const { spawn } = await import("node:child_process");
+  const path = await import("node:path");
+  const cli = (...args: string[]) =>
+    new Promise<StoryDetails>((resolve, reject) => {
+      const proc = spawn(
+        process.execPath,
+        ["--import", "tsx", path.resolve("src/cli/main.ts"), ...args, "--project", root, "--json"],
+        { env: process.env },
+      );
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data) => {
+        stdout += data;
+      });
+      proc.stderr.on("data", (data) => {
+        stderr += data;
+      });
+      proc.on("error", reject);
+      proc.on("exit", (code) => (code === 0 ? resolve(JSON.parse(stdout)) : reject(new Error(stderr))));
+    });
+  // CLI discovery points at this in-process server; async children leave it free to answer HTTP.
+  const { sfPaths } = await import("../src/server/project/paths.ts");
+  fs.writeFileSync(sfPaths(root).serverJson, JSON.stringify({ ...server, pid: process.pid }));
+  await call("POST", routes.boards, { name: "Models", key: "MOD" });
+  await cli("project", "set", "--model", "online-project", "--model-option", "online/custom");
+  const p = await call<import("#model/api").ProjectSettingsResponse>("GET", routes.projectSettings);
+  assert.equal(p.config.worker.model, "online-project");
+  assert.ok(p.config.modelOptions!.some((o) => o.slug === "online/custom"));
+  await cli("board", "set", "MOD", "--model", "online-board", "--model-option", "board/custom");
+  await cli("stage", "set", "MOD", "backlog", "--model", "online-stage");
+  const s = await cli("story", "create", "MOD", "--title", "Online", "--model", "online-story");
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "story");
+  await cli("story", "update", s.key, "--model", "");
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.model, "online-stage");
+  await call("PATCH", routes.stage("MOD", "backlog"), { model: null });
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "board");
+  await call("PATCH", routes.board("MOD"), { model: null });
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "project");
+  await call("PATCH", routes.projectSettings, { model: null });
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "supervisor");
+  await assert.rejects(
+    call("PATCH", routes.board("MOD"), { schema: [{ id: "model", name: "Model", type: "text" }] }),
+    /reserved/,
+  );
+});

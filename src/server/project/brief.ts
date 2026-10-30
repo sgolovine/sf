@@ -1,7 +1,9 @@
 import type { BoardConfig, FieldDef } from "#model/config";
+import { modelDescription, type ResolvedModel } from "#model/models";
 import type { StoryData } from "./story.ts";
 
 export type BriefInput = {
+  effectiveModel?: ResolvedModel;
   storyKey: string;
   story: StoryData;
   boardId: string;
@@ -31,6 +33,7 @@ export function composeBrief(b: BriefInput): string {
 You are an sf Worker for Story ${b.storyKey} on Board "${b.board.name}" (key ${b.board.key}, id ${b.boardId}).
 Your worker id is ${b.workerId}. You hold the Claim on ${b.storyKey}: no one else can Move it until you Move or release it.
 
+- Worker model: ${modelDescription(b.effectiveModel ?? { model: null, source: "supervisor" })}
 - Project (the Supervisor's checkout): ${b.root}
 - Your Story Worktree: ${b.worktree.path} (branch ${b.worktree.branch}). Do all work there.
 

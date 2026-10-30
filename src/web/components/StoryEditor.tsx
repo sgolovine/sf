@@ -1,5 +1,7 @@
 import { type ReactNode, useId, useState } from "react";
+import type { ProjectConfig } from "#model/config";
 import { activeHil, type FieldDef } from "#model/config";
+import { modelCatalog, resolveModel } from "#model/models";
 import type { BoardSnapshot, StoryView } from "#model/project";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,30 +21,49 @@ import { Textarea } from "@/components/ui/textarea";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { ModelSelector } from "./ModelSelector.tsx";
 
-type Props = { board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
+type Props = { project: ProjectConfig; board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
 
 /** Radix Select items cannot have an empty value; this one stands for "no value". */
 const NONE = "__none__";
 
 /** Create or edit a Story. Custom field inputs follow the Board's Story schema. */
-export function StoryEditor({ board, story, act, onClose }: Props) {
+export function StoryEditor({ project, board, story, act, onClose }: Props) {
   const id = useId();
   const [title, setTitle] = useState(story?.title ?? "");
-  const [stage, setStage] = useState("backlog");
+  const [stage, setStage] = useState(story?.stage ?? "backlog");
+  const [model, setModel] = useState(story?.model ?? "");
+  const legacyModel = board.config.schema.some((f) => f.id === "model");
   const [body, setBody] = useState(story?.body ?? "");
   // Open existing descriptions rendered; start empty ones ready to type.
   const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");
   const [fields, setFields] = useState<Record<string, unknown>>(story?.fields ?? {});
-  const schema = board.config.schema;
+  const schema = board.config.schema.filter((f) => f.id !== "model");
   const hil = story && activeHil(board.config, story);
 
   const save = async () => {
     // Send every schema field; null clears it on the server.
     const values = Object.fromEntries(schema.map((f) => [f.id, fields[f.id] ?? null]));
     const ok = story
-      ? await act(() => sfApi.updateStory(story.key, { title, body, fields: values }))
-      : await act(() => sfApi.createStory({ board: board.id, title, stage, body, fields: values }));
+      ? await act(() =>
+          sfApi.updateStory(story.key, {
+            title,
+            body,
+            fields: values,
+            ...(!legacyModel ? { model: model || null } : {}),
+          }),
+        )
+      : await act(() =>
+          sfApi.createStory({
+            board: board.id,
+            title,
+            stage,
+            body,
+            fields: values,
+            ...(!legacyModel ? { model: model || null } : {}),
+          }),
+        );
     if (ok) onClose();
   };
 
@@ -95,6 +116,25 @@ export function StoryEditor({ board, story, act, onClose }: Props) {
               </Select>
             </div>
           )}
+          {legacyModel && (
+            <p role="alert">
+              Legacy custom field “model” conflicts with the built-in model. Rename the field and its data before
+              selecting a Worker model.
+            </p>
+          )}
+          <ModelSelector
+            disabled={legacyModel}
+            value={model}
+            onChange={setModel}
+            options={modelCatalog(project, board.config)}
+            effective={resolveModel(
+              project,
+              board.config,
+              board.config.stages.find((s) => s.id === stage),
+              { model },
+            )}
+            defaultLabel="Inherit from Stage / Board / Project"
+          />
           {schema.map((f) => (
             <FieldInput
               key={f.id}

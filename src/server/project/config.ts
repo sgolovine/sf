@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import {
   type BoardConfig,
   type BoardOverrides,
@@ -7,9 +8,11 @@ import {
   type ProjectConfig,
   type StageConfig,
 } from "#model/config";
+import { type ModelOption, resolveModel } from "#model/models";
 import { SfError } from "./errors.ts";
 import { readJson, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";
+import { readStage } from "./stage.ts";
 
 export const BACKLOG = "backlog";
 export const DONE = "done";
@@ -50,18 +53,38 @@ export function loadBoard(root: string, id: string): BoardConfig {
   const raw = readJson<Partial<BoardConfig>>(sfPaths(root).board(id));
   if (!raw) throw new SfError("not_found", `no Board ${id}`);
   const board: BoardConfig = {
+    ...raw,
     key: String(raw.key ?? ""),
     name: String(raw.name ?? id),
     stages: raw.stages ?? [],
     schema: raw.schema ?? [],
     overrides: raw.overrides ?? {},
   };
+  for (const stage of board.stages) {
+    const { metadata } = readStage(path.join(sfPaths(root).stages(id), `${stage.id}.md`));
+    if (Object.hasOwn(metadata, "model")) {
+      validateModel(metadata.model);
+      stage.model = typeof metadata.model === "string" && metadata.model ? metadata.model : null;
+    }
+  }
   return board;
 }
 
 export function saveBoard(root: string, id: string, board: BoardConfig) {
-  validateBoard(board);
-  writeJson(sfPaths(root).board(id), board);
+  validateBoard({ ...board, schema: board.schema.filter((f) => f.id !== "model") });
+  const stored = {
+    ...board,
+    stages: board.stages.map((stage) => {
+      const copy = { ...stage };
+      // A migrated Stage's value lives only in Markdown.
+      if (fs.existsSync(path.join(sfPaths(root).stages(id), `${stage.id}.md`))) {
+        const { metadata } = readStage(path.join(sfPaths(root).stages(id), `${stage.id}.md`));
+        if (Object.hasOwn(metadata, "model")) delete copy.model;
+      }
+      return copy;
+    }),
+  };
+  writeJson(sfPaths(root).board(id), stored);
 }
 
 export function defaultBoard(name: string, key: string): BoardConfig {
@@ -111,6 +134,9 @@ export function validateBoard(board: BoardConfig) {
     if (!s.id || !s.name.trim()) invalid("every Stage needs an id and a name");
     if (isFixedStage(s.id) && s.promptEnabled) invalid(`${s.name} cannot have a Stage Prompt`);
   }
+  validateModel(board.overrides.worker?.model);
+  normalizeModelOptions(board.modelOptions);
+  for (const stage of board.stages) validateModel(stage.model);
   validateSchema(board.schema);
   for (const s of board.stages) if (s.hil !== undefined) validateHil(board, s);
   validateOverrides(board.overrides);
@@ -122,7 +148,7 @@ export function validateSchema(schema: FieldDef[]) {
   for (const f of schema) {
     if (!f || typeof f.id !== "string" || !/^[a-z][a-z0-9_]*$/.test(f.id))
       invalid(`field id must be lowercase letters, digits, and _, got "${f?.id}"`);
-    if (["title", "stage", "branch"].includes(f.id)) invalid(`"${f.id}" is a reserved field id`);
+    if (["title", "stage", "branch", "model"].includes(f.id)) invalid(`"${f.id}" is a reserved field id`);
     if (seen.has(f.id)) invalid(`duplicate field id "${f.id}"`);
     seen.add(f.id);
     if (typeof f.name !== "string" || !f.name.trim()) invalid(`field ${f.id} needs a name`);
@@ -162,12 +188,17 @@ export type Settings = {
 };
 
 /** Stage over Board over Project for agent/model; Board over Project for the rest. */
-export function resolveSettings(project: ProjectConfig, board?: BoardConfig, stage?: StageConfig): Settings {
+export function resolveSettings(
+  project: ProjectConfig,
+  board?: BoardConfig,
+  stage?: StageConfig,
+  story?: { model?: string | null },
+): Settings {
   const o = board?.overrides ?? {};
   const pick = <T>(...values: (T | null | undefined)[]) => values.find((v) => v !== undefined && v !== null) ?? null;
   return {
     agent: pick(stage?.agent, o.worker?.agent, project.worker.agent),
-    model: pick(stage?.model, o.worker?.model, project.worker.model),
+    model: resolveModel(project, board, stage, story).model,
     baseBranch: pick(o.worktree?.baseBranch, project.worktree.baseBranch),
     claimTimeoutMinutes: o.claimTimeoutMinutes ?? project.claimTimeoutMinutes,
     briefPreamble: o.briefPreamble ?? project.briefPreamble,
@@ -177,4 +208,23 @@ export function resolveSettings(project: ProjectConfig, board?: BoardConfig, sta
 
 function invalid(message: string): never {
   throw new SfError("invalid", message);
+}
+
+/** Selections may be cleared, but slugs are never silently rewritten. */
+export function validateModel(value: unknown) {
+  if (value === undefined || value === null || value === "") return;
+  if (typeof value !== "string" || value !== value.trim() || /\s/.test(value))
+    invalid("model slug must be a nonempty string without whitespace");
+}
+
+export function normalizeModelOptions(value: unknown): ModelOption[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) invalid("modelOptions must be an array");
+  return value.map((entry) => {
+    if (!entry || typeof entry.slug !== "string" || !entry.slug) invalid("model option needs a nonempty slug");
+    validateModel(entry.slug);
+    if (entry.label !== undefined && (typeof entry.label !== "string" || !entry.label.trim()))
+      invalid("model option label must be nonempty text");
+    return { slug: entry.slug, label: entry.label ?? entry.slug };
+  });
 }

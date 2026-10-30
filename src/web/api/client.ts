@@ -1,3 +1,4 @@
+import type { ProjectSettingsResponse, UpdateProjectRequest } from "#model/api";
 import {
   type BoardResponse,
   type CreateStoryRequest,
@@ -56,6 +57,8 @@ export const sfApi = {
   /** Give the Supervisor a free-form instruction. */
   instruct: (text: string) => sfApi.send(commands.instruct(text)),
 
+  updateProject: (patch: UpdateProjectRequest) =>
+    request<ProjectSettingsResponse>("PATCH", routes.projectSettings, patch),
   initProject: () => request<ProjectConfig>("POST", routes.projectInit, {}),
   createBoard: (name: string, key: string) => request<BoardResponse>("POST", routes.boards, { name, key }),
   updateBoard: (board: string, patch: UpdateBoardRequest) =>
