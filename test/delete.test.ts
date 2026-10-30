@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import { loadBoard, saveBoard } from "../src/server/project/config.ts";
 import { sfPaths } from "../src/server/project/paths.ts";
 import { loadRuntime, saveRuntime } from "../src/server/project/runtime.ts";
 import { createService } from "../src/server/project/service.ts";
-import { storyBranch, worktreePath } from "../src/server/project/worktree.ts";
+import { runGit, storyBranch, worktreePath } from "../src/server/project/worktree.ts";
 import { git, setupProject, tempRepo, user, worker } from "./helpers.ts";
 
 test("deletion persists absence, preserves other Stories, and rejects repeated/missing deletion", async () => {
@@ -131,4 +133,81 @@ test("a deferred Done cleanup is harmless after deletion wins the mutation lock"
   await Promise.all([draining, deleting]);
   assert.deepEqual(svc.listStories(), []);
   assert.deepEqual(loadRuntime(root).worktreeWarnings, {});
+});
+
+test("deletion recovers a mutation lock whose process has exited", async () => {
+  const { root, svc } = await setupProject();
+  await svc.createStory("DEV", { title: "Abandoned lock" }, user);
+  const exited = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" });
+  assert.equal(exited.status, 0, exited.stderr);
+  fs.writeFileSync(sfPaths(root).lock, JSON.stringify({ pid: Number(exited.stdout), at: Date.now() }));
+  await svc.deleteStory("DEV-1", user);
+  assert.deepEqual(svc.listStories(), []);
+  assert.equal(fs.existsSync(sfPaths(root).lock), false);
+});
+
+test("slow Done cleanup excludes offline deletion even after 30 seconds", { timeout: 45_000 }, async () => {
+  const root = tempRepo();
+  let startFetch!: () => void;
+  let releaseFetch!: () => void;
+  const fetchStarted = new Promise<void>((resolve) => {
+    startFetch = resolve;
+  });
+  const finishFetch = new Promise<void>((resolve) => {
+    releaseFetch = resolve;
+  });
+  const svc = createService({
+    root,
+    online: true,
+    git: async (args, cwd) => {
+      if (args[0] === "fetch") {
+        startFetch();
+        await finishFetch;
+      }
+      return runGit(args, cwd);
+    },
+  });
+  svc.init();
+  await svc.createBoard("Development", "DEV");
+  await svc.createStory("DEV", { title: "Slow cleanup" }, user);
+  const wt = await svc.ensureStoryWorktree("DEV-1");
+  const moving = svc.moveStory("DEV-1", "done", user);
+  const remove = () =>
+    spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        path.resolve(import.meta.dirname, "../src/cli/main.ts"),
+        "story",
+        "delete",
+        "DEV-1",
+        "--project",
+        root,
+        "--json",
+      ],
+      { encoding: "utf8", timeout: 10_000 },
+    );
+  try {
+    await fetchStarted;
+    // Exercise the real old stale threshold, with a separate CLI process that
+    // does not share withLock's in-process promise chain.
+    await setTimeout(30_100);
+    const blocked = remove();
+    assert.equal(blocked.status, 1, blocked.stderr);
+    assert.match(blocked.stderr, /timed out waiting for .*lock/);
+    assert.equal(svc.listStories().length, 1);
+    assert.ok(fs.existsSync(wt.path));
+    assert.ok(git(root, "branch", "--list", wt.branch));
+  } finally {
+    releaseFetch();
+    await moving;
+  }
+  // Cleanup finishes before deletion can succeed; no destructive Git work can
+  // remain pending after delete returns its retention promise.
+  assert.equal(fs.existsSync(wt.path), false);
+  assert.equal(git(root, "branch", "--list", wt.branch), "");
+  const deleted = remove();
+  assert.equal(deleted.status, 0, deleted.stderr);
+  assert.deepEqual(svc.listStories(), []);
 });
