@@ -45,9 +45,19 @@ async function api<T>(server: ServerInfo, method: string, pathname: string, body
   return json;
 }
 
+async function download(server: ServerInfo, pathname: string) {
+  const res = await fetch(`http://127.0.0.1:${server.port}${pathname}`, { headers: { [TOKEN_HEADER]: server.token } });
+  if (!res.ok) {
+    const error = (await res.json()) as ErrorResponse;
+    throw error.code ? new SfError(error.code, error.error) : new Error(error.error);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 export const ClientService = {
   readServerInfo,
   findServer,
   uiUrl,
   api,
+  download,
 };

@@ -2,6 +2,7 @@
 // server's HTTP routes when it is running and the Story service directly when
 // it is not, so every Story change goes through the same library.
 import fs from "node:fs";
+import path from "node:path";
 import {
   type BoardResponse,
   type DeleteStoryResponse,
@@ -9,6 +10,7 @@ import {
   type StoryDetails,
   type WorktreeResponse,
 } from "#model/api";
+import { ATTACHMENT_LIMIT, type Attachment } from "#model/attachment";
 import type { ProjectConfig, StageConfig } from "#model/config";
 import type { ProjectSnapshot } from "#model/project";
 import { SfError } from "../server/project/errors.ts";
@@ -34,6 +36,9 @@ export const PROJECT_HELP = `Project commands (all accept --project <dir>, --jso
   sf story show <KEY>
   sf story move <KEY> <stage-id>
   sf story update <KEY> [--title "<t>"] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story attachment add <KEY> <path>  (regular file, up to 20 MiB)
+  sf story attachment list <KEY>
+  sf story attachment get <KEY> <attachment-id> --output <path>  (never overwrites)
   sf story delete <KEY>  # permanent; retains Story Worktree and branch; release any Claim first
   sf story release <KEY>
   sf story force-release <KEY>
@@ -145,6 +150,57 @@ export async function runProjectCommand(
     }
 
     case "story": {
+      if (sub === "attachment") {
+        const operation = args[1];
+        const key = need(args[2], "story attachment add|list|get <KEY>");
+        const query = workerId ? `?worker=${encodeURIComponent(workerId)}` : "";
+        if (operation === "list") {
+          const files = await call<Attachment[]>("GET", routes.storyAttachments(key) + query, undefined, () =>
+            svc.listAttachments(key, actor),
+          );
+          return out(files, () =>
+            files.length
+              ? files.map((f) => `${f.id}  ${f.name}  ${f.mediaType}  ${f.size} bytes`).join("\n")
+              : "No attachments.",
+          );
+        }
+        if (operation === "add") {
+          const inputPath = need(args[3], "story attachment add <KEY> <path>");
+          const fd = fs.openSync(inputPath, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+          let bytes: Buffer;
+          try {
+            const stat = fs.fstatSync(fd);
+            if (!stat.isFile()) throw new SfError("invalid", "input must be a regular file");
+            if (stat.size > ATTACHMENT_LIMIT) throw new SfError("invalid", "attachment exceeds 20 MiB");
+            bytes = fs.readFileSync(fd);
+          } finally {
+            fs.closeSync(fd);
+          }
+          const input = { name: path.basename(inputPath), data: bytes.toString("base64") };
+          const file = await call<Attachment>(
+            "POST",
+            routes.storyAttachments(key),
+            { ...input, worker: workerId },
+            () => svc.addAttachment(key, input, actor),
+          );
+          return out(file, () => `Added ${file.id}: ${file.name} (${file.size} bytes).`);
+        }
+        if (operation === "get") {
+          const id = need(args[3], "story attachment get <KEY> <attachment-id> --output <path>");
+          const output = path.resolve(
+            need(str(flags.output), "story attachment get <KEY> <attachment-id> --output <path>"),
+          );
+          if (!fs.statSync(path.dirname(output)).isDirectory())
+            throw new SfError("invalid", "output parent must be a directory");
+          if (fs.existsSync(output)) throw new SfError("invalid", "output already exists");
+          const bytes = server
+            ? await ClientService.download(server, routes.storyAttachment(key, id) + query)
+            : (await svc.getAttachment(key, id, actor)).bytes;
+          fs.writeFileSync(output, bytes, { flag: "wx" });
+          return out({ output, size: bytes.length }, () => `Saved ${output} (${bytes.length} bytes).`);
+        }
+        throw new SfError("invalid", "usage: sf story attachment add|list|get <KEY>");
+      }
       if (sub === "list") {
         const ref = args[1];
         const stage = str(flags.stage);

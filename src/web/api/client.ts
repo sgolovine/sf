@@ -11,6 +11,7 @@ import {
   type UpdateStoryRequest,
   type WorktreeResponse,
 } from "#model/api";
+import type { Attachment } from "#model/attachment";
 import { type CommandRecord, commands, type SupervisorCommand } from "#model/commands";
 import type { ProjectConfig, StageConfig } from "#model/config";
 import type { ServerEvent, SessionState } from "#model/session";
@@ -69,6 +70,17 @@ export const sfApi = {
     request<StageConfig[]>("POST", routes.stageReorder(board, stage), { index }),
   removeStage: (board: string, stage: string) => request<StageConfig[]>("DELETE", routes.stage(board, stage)),
 
+  listAttachments: (key: string) => request<Attachment[]>("GET", routes.storyAttachments(key)),
+  async downloadAttachment(key: string, file: Attachment) {
+    const res = await fetch(routes.storyAttachment(key, file.id), { headers: { [TOKEN_HEADER]: token } });
+    if (!res.ok) throw new ApiError(`Download failed: HTTP ${res.status}`);
+    const url = URL.createObjectURL(await res.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
   createStory: (body: CreateStoryRequest) => request<StoryDetails>("POST", routes.stories, body),
   updateStory: (key: string, patch: UpdateStoryRequest) => request<StoryDetails>("PATCH", routes.story(key), patch),
   deleteStory: (key: string) => request<DeleteStoryResponse>("DELETE", routes.story(key)),

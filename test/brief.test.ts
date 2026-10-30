@@ -39,6 +39,8 @@ test("brief sections are sf preamble, configured preamble, Stage Prompt, Story",
     positions,
   );
   assert.match(brief, /node \/abs\/sf\.mjs story move DEV-3 <stage-id> --worker w-1a2b --project '\/abs\/my repo'/);
+  for (const command of ["list DEV-3", "add DEV-3 <path>", "get DEV-3 <attachment-id> --output <path>"])
+    assert.ok(brief.includes(`story attachment ${command} --worker w-1a2b --project '/abs/my repo'`));
   assert.match(brief, /story release DEV-3 --worker w-1a2b/);
   assert.match(brief, /`todo`: TODO \(current\)/);
   assert.match(brief, /Never edit files under `\.sf`/);
