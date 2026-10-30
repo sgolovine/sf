@@ -56,10 +56,12 @@ sf keeps its data in `.sf/` at the repository root, committed with the repositor
 
 ```
 .sf/
+  SF.md                     optional shared Worker instructions
   sf.config.json            Project defaults: Worker agent/model, base branch, claim timeout, brief preamble, maxConcurrentWorkers
   .gitignore                ignores runtime/
   runtime/                  Claims, queued spawns, failures, pending triggers, server.json (gitignored)
   boards/development/
+    BOARD.md                optional instructions for this Board
     board.config.json       key, ordered Stages, Story schema, overrides
     stages/<stage-id>.md    Stage Prompt text
     stories/DEV-1.md        YAML frontmatter (title, stage, branch, custom fields) + description
@@ -74,6 +76,14 @@ sf story create DEV --title "Add dark mode" --stage todo   # spawns a Worker
 sf story list
 sf start --no-open      # runs until Ctrl-C; prints `sf ready: <url>`
 ```
+
+### Shared Worker instructions
+
+Project owners can maintain optional, case-sensitive Markdown files at `.sf/SF.md` (shared by every Board's Workers) and `.sf/boards/<board-id>/BOARD.md` (shared by that Board's Workers across Stages). The Board id determines the path, not its display name or Story key prefix. These files supplement the existing resolved `briefPreamble`; sf does not expand templates or interpret instruction conflicts.
+
+Worker Briefs contain, in order: the sf operational preamble (including commands and HIL guidance), the resolved `briefPreamble` when present, `## SF.md`, `## BOARD.md`, `## Stage Prompt`, and `## Story`. Each instruction section appears only when its file contains nonblank text, with only surrounding whitespace trimmed. Missing, empty, or whitespace-only files are omitted independently; other read errors report the failing path. Existing Projects need no migration or generated files. If an instruction read fails while deferred spawns are drained, sf reports the path and retains unfinished work for a later drain after the file is repaired. Already dispatched spawns are not replayed.
+
+sf reads these files from the service's Project root in the Supervisor's checkout each time it composes a brief, including when concurrency-queued spawns or offline pending triggers are drained. Creation, edits, and deletion take effect on the next composition without a restart. Already composed/dispatched briefs and running Workers are unchanged. The files do not instruct the Supervisor or enable Stages, start Workers, or change Claims and HIL behavior; an enabled, nonblank Stage Prompt is still required.
 
 See [worker-commands.md](skills/sf/references/worker-commands.md) for every Project command.
 

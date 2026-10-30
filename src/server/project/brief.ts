@@ -14,9 +14,11 @@ export type BriefInput = {
   sf: string;
   preamble: string;
   prompt: string;
+  projectInstructions?: string;
+  boardInstructions?: string;
 };
 
-/** The Worker Brief: sf preamble, then the configured preamble, then the Stage Prompt, then the Story. */
+/** The Worker Brief: sf/configured preambles, project/board instructions, Stage Prompt, Story. */
 export function composeBrief(b: BriefInput): string {
   const tail = `--worker ${b.workerId} --project ${shellQuote(b.root)}`;
   const stages = b.board.stages
@@ -65,6 +67,8 @@ Every command refreshes your Claim. If a command fails with "claim is gone", sto
       `\n\nIf you need a human, set this Stage's HIL flag${hil.comment ? " and comment" : ""}, then release the Story; no Worker runs on it here until a human clears the flag:\n` +
       `  ${b.sf} story update ${b.storyKey} --field ${hil.flag}=true${hil.comment ? ` --field "${hil.comment}=<what you need>"` : ""} ${tail}`;
   if (b.preamble.trim()) sections.push(b.preamble.trim());
+  if (b.projectInstructions?.trim()) sections.push(`## SF.md\n\n${b.projectInstructions.trim()}`);
+  if (b.boardInstructions?.trim()) sections.push(`## BOARD.md\n\n${b.boardInstructions.trim()}`);
   sections.push(`## Stage Prompt\n\n${b.prompt.trim()}`);
   sections.push(`## Story\n\n${storyText(b.storyKey, b.story, b.board.schema)}`);
   return `${sections.join("\n\n")}\n`;
