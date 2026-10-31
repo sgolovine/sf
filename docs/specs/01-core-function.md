@@ -126,6 +126,8 @@ A Story describes a unit of work. The user, the Supervisor, and Workers can crea
 
 New Story and Edit Story open on a **Details** tab with Title, Stage, and Description. Creation allows choosing a Stage (Backlog by default); editing shows the current Stage read-only. A **Custom Fields** tab contains the Board schema fields in order, or “No custom fields.” when the schema is empty. Switching tabs preserves unsaved values and the Description Write/Preview mode. Dialog metadata, any active HIL notice, and Cancel/Save actions are shared across tabs.
 
+The Story dialog has a URL path: `/create` for New Story on the selected Board and `/<KEY>` (for example `/DEV-19`) for an existing Story; closing it returns to `/`. Opening and closing push history entries, so Back and Forward close and reopen it. Loading a Story path opens that Story with its Board selected. An unknown path or key, a Story deleted while open, or `/create` with no Boards shows no dialog and replaces the URL with `/`. Board, Board Settings, and Project settings views have no URL.
+
 ### Deletion
 
 An existing Story can be permanently deleted through its modal's trash icon and confirmation,
