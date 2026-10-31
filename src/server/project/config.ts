@@ -68,6 +68,7 @@ export function loadBoard(root: string, id: string): BoardConfig {
   for (const stage of board.stages) {
     if ("scheduling" in stage) invalid("scheduling is Project-wide and cannot be set per Stage");
     const { metadata } = readStage(path.join(sfPaths(root).stages(id), `${stage.id}.md`));
+    if (Object.hasOwn(metadata, "scheduling")) invalid("scheduling is Project-wide and cannot be set per Stage");
     if (Object.hasOwn(metadata, "model")) {
       validateModel(metadata.model);
       stage.model = typeof metadata.model === "string" && metadata.model ? metadata.model : null;

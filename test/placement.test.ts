@@ -79,20 +79,26 @@ test("override candidates, fallback and preferred stable deduplication", () => {
 
 test("eligibility priority precedes capacity; missing evidence never implies eligibility", () => {
   const policy = normalizePlacementPolicy({ scheduling: scheduling(), maxConcurrentWorkers: 3 });
-  for (const [index, code] of ELIGIBILITY_REASONS.entries()) {
-    assert.deepEqual(
-      selectPlacement(
-        policy,
-        { mode: "required", machineId: "a" },
-        { a: { failures: [...ELIGIBILITY_REASONS.slice(index)].reverse() } },
-        { a: 99 },
-      ),
-      { kind: "wait", reasons: [{ machineId: "a", code }] },
-    );
+  for (const used of [0, 99]) {
+    for (const [index, code] of ELIGIBILITY_REASONS.entries()) {
+      assert.deepEqual(
+        selectPlacement(
+          policy,
+          { mode: "required", machineId: "a" },
+          { a: { failures: [...ELIGIBILITY_REASONS.slice(index)].reverse() } },
+          { a: used },
+        ),
+        { kind: "wait", reasons: [{ machineId: "a", code }] },
+      );
+    }
   }
   assert.deepEqual(selectPlacement(policy, { mode: "required", machineId: "gone" }, eligible, {}), {
     kind: "wait",
     reasons: [{ machineId: "gone", code: "missing-target" }],
+  });
+  assert.deepEqual(selectPlacement(policy, { mode: "preferred", machineId: "gone" }, eligible, {}), {
+    kind: "selected",
+    machineId: "a",
   });
   policy.machines.a!.enabled = false;
   assert.deepEqual(selectPlacement(policy, { mode: "required", machineId: "a" }, {}, {}), {
@@ -124,4 +130,20 @@ test("zero and reduced caps wait; invalid supplied usage is rejected", () => {
     });
   for (const used of [-1, 0.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1, "1"])
     assert.throws(() => selectPlacement(policy, undefined, eligible, { unused: used } as never), /usage.unused/);
+});
+
+test("valid machine slugs do not read inherited usage from object prototypes", () => {
+  const config = scheduling();
+  config.remotes[0]!.id = "constructor";
+  config.remotes[0]!.capacity = 0;
+  config.order = ["constructor"];
+  assert.deepEqual(
+    selectPlacement(
+      normalizePlacementPolicy({ scheduling: config, maxConcurrentWorkers: 3 }),
+      undefined,
+      { constructor: { failures: [] } },
+      {},
+    ),
+    { kind: "wait", reasons: [{ machineId: "constructor", code: "capacity" }] },
+  );
 });

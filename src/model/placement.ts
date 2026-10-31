@@ -11,7 +11,13 @@ function invalid(field: string, correction: string): never {
 }
 
 function object(value: unknown, field: string, keys: string[]): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) invalid(field, "must be an object");
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    invalid(
+      field,
+      field === "placement"
+        ? "must be a placement object; rename any legacy custom field named placement and its Story data"
+        : "must be an object",
+    );
   const record = value as Record<string, unknown>;
   for (const key of Object.keys(record))
     if (!keys.includes(key)) invalid(`${field}.${key}`, "unsupported field; remove it");
@@ -25,7 +31,7 @@ function text(value: unknown, field: string): asserts value is string {
 
 function identity(value: unknown, field: string) {
   text(value, field);
-  if (/[\\/\s]/.test(value) || /^[.~]|^[a-z]:/i.test(value) || value.includes("://"))
+  if (/[\\/\s]/.test(value) || /^[a-z]:/i.test(value) || [".", "..", "~"].includes(value) || value.includes("://"))
     invalid(field, "use the canonical opaque ID, not a URL or filesystem path");
 }
 
@@ -64,7 +70,7 @@ export function validateScheduling(value: unknown): asserts value is SchedulingC
     const parts = project.repository.split("/");
     if (
       parts.length < 2 ||
-      !/^[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$/.test(parts[0]!) ||
+      !parts[0]!.split(".").every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label)) ||
       parts.some((part) => !part || part === "." || part === "..") ||
       /[\s\\:@?#]/.test(project.repository)
     )
@@ -116,7 +122,7 @@ export type PlacementPolicy = { machines: Record<string, { capacity: number; ena
 export function normalizePlacementPolicy(
   config: Pick<ProjectConfig, "scheduling" | "maxConcurrentWorkers">,
 ): PlacementPolicy {
-  if (!config.scheduling) {
+  if (config.scheduling === undefined) {
     const capacity = config.maxConcurrentWorkers ?? 3;
     validateCapacity(capacity, "maxConcurrentWorkers");
     return { machines: { local: { capacity, enabled: true } }, order: ["local"] };
@@ -191,7 +197,8 @@ export function selectPlacement(
             ? { detail: evidence.detail }
             : {}),
       });
-    else if ((usage[machineId] ?? 0) >= machine!.capacity) reasons.push({ machineId, code: "capacity" });
+    else if ((Object.hasOwn(usage, machineId) ? usage[machineId]! : 0) >= machine!.capacity)
+      reasons.push({ machineId, code: "capacity" });
     else return { kind: "selected", machineId };
   }
   return { kind: "wait", reasons: reasons.length ? reasons : [{ code: "no-candidates" }] };
