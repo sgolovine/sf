@@ -1,5 +1,5 @@
 import { ArrowLeft, Plus, Settings } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -18,7 +18,6 @@ import { StoryEditor } from "./components/StoryEditor.tsx";
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
-  | { kind: "create-board" }
   | { kind: "project-settings" };
 
 /** The Story being edited in the dialog; key null means a new Story. */
@@ -28,6 +27,21 @@ export function App() {
   const { data: session, error } = useSession();
   const [view, setView] = useState<View>({ kind: "board", boardId: null });
   const [editing, setEditing] = useState<Editing>(null);
+  const [creating, setCreating] = useState(false);
+  const initialized = useRef(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const emptyAction = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (session && !initialized.current) {
+      initialized.current = true;
+      setCreating(!session.project?.boards.length);
+    }
+  }, [session]);
+  const openCreateBoard = () => {
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setCreating(true);
+    setEditing(null);
+  };
   const [failure, setFailure] = useState<string | null>(null);
 
   const act: Act = async (fn) => {
@@ -47,9 +61,8 @@ export function App() {
   const { capabilities, listening } = session.supervisor;
   const project = session.project;
   const boards = project?.boards ?? [];
-  const selectedId = view.kind === "create-board" || view.kind === "project-settings" ? null : view.boardId;
+  const selectedId = view.kind === "project-settings" ? null : view.boardId;
   const board = boards.find((b) => b.id === selectedId) ?? boards[0];
-  const creating = view.kind === "create-board" || !board;
   const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
@@ -75,10 +88,7 @@ export function App() {
           setEditing(null);
         }}
         onSelect={openBoard}
-        onNewBoard={() => {
-          setView({ kind: "create-board" });
-          setEditing(null);
-        }}
+        onNewBoard={openCreateBoard}
       />
       {/* Fixed height: only the content region scrolls, so the header and footer stay in place. */}
       <SidebarInset className="h-svh min-w-0">
@@ -86,19 +96,19 @@ export function App() {
         <header className="@container/header flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SidebarTrigger className="shrink-0" />
           {/* The sidebar shows the Board name; the header names only the other views. */}
-          {(creating || settings) && (
+          {(view.kind === "project-settings" || settings) && (
             <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           )}
-          <h1 className={cn("min-w-0 truncate font-medium", !creating && !settings && "sr-only")}>
+          <h1
+            className={cn("min-w-0 truncate font-medium", view.kind !== "project-settings" && !settings && "sr-only")}
+          >
             {view.kind === "project-settings"
               ? "Project settings"
-              : creating
-                ? "New Board"
-                : settings
-                  ? "Board Settings"
-                  : board.config.name}
+              : settings
+                ? "Board Settings"
+                : (board?.config.name ?? "Boards")}
           </h1>
-          {!creating && settings && (
+          {board && settings && (
             <Button
               size="sm"
               variant="outline"
@@ -111,7 +121,7 @@ export function App() {
             </Button>
           )}
           <span className="flex-1" />
-          {!creating && !settings && view.kind !== "project-settings" && (
+          {board && !settings && view.kind !== "project-settings" && (
             <>
               <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
                 <Plus />
@@ -140,8 +150,13 @@ export function App() {
 
           {view.kind === "project-settings" && project ? (
             <ModelSettings key={JSON.stringify(project.config)} project={project.config} act={act} />
-          ) : creating ? (
-            <CreateBoard act={act} onCreated={openBoard} onCancel={board ? () => openBoard(board.id) : undefined} />
+          ) : !board ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+              <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
+              <Button ref={emptyAction} onClick={openCreateBoard}>
+                New Board
+              </Button>
+            </div>
           ) : settings ? (
             <BoardSettings
               project={project!.config}
@@ -177,7 +192,21 @@ export function App() {
           </span>
         </footer>
 
-        {!creating && editing && (
+        {creating && (
+          <CreateBoard
+            onClose={() => setCreating(false)}
+            onRestoreFocus={() => {
+              const target = returnFocus.current;
+              if (target?.isConnected) target.focus();
+              else emptyAction.current?.focus();
+            }}
+            onCreated={(id) => {
+              setCreating(false);
+              openBoard(id);
+            }}
+          />
+        )}
+        {board && editing && (
           <StoryEditor
             key={editing.key ?? "new"}
             project={project!.config}
