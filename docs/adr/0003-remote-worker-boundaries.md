@@ -25,9 +25,9 @@ external identities and verified status/termination. Reconcile uncertain launche
 before retry; retain occupied/unknown capacity and branch exclusion until uncertainty is resolved.
 
 Claim invalidation revokes Story command authority independently of external execution.
-Move/release/force-release/timeout cannot be treated as proof of termination. Current local
-expiry deletes the Claim and frees its counted slot without stopping the Worker; DEV-10 must
-change that behavior. The next Stage cannot reuse a branch still occupied by external work.
+Move/release/force-release/timeout cannot be treated as proof of termination. Local expiry used to
+delete the Claim and free its counted slot without stopping the Worker; DEV-10 changed that (see
+the [execution ledger](../execution-ledger.md)). The next Stage cannot reuse a branch still occupied by external work.
 
 Remote Workers must use a Worker/Claim-scoped authenticated channel into the authoritative sf
 Story service for read/update/create/move/release and Claim refresh. Preserve HIL, complete briefs

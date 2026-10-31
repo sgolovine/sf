@@ -107,11 +107,25 @@ for (const online of [true, false]) {
   });
 }
 
-test("scheduling configuration does not activate policy in local dispatch", async () => {
+test("scheduling replaces the legacy cap; a required remote waits without blocking later local work", async () => {
   const { svc, spawns } = await setupProject({ config: { maxConcurrentWorkers: 1, scheduling: scheduling() } });
-  await svc.createStory("DEV", { title: "One", stage: "todo", placement: { mode: "required", machineId: "a" } }, user);
-  const second = await svc.createStory("DEV", { title: "Two", stage: "todo" }, user);
-  assert.equal(spawns.length, 1);
-  assert.equal(second.queued, true);
-  assert.equal(spawns[0]?.storyKey, "DEV-1");
+  const first = await svc.createStory(
+    "DEV",
+    { title: "One", stage: "todo", placement: { mode: "required", machineId: "a" } },
+    user,
+  );
+  await svc.createStory("DEV", { title: "Two", stage: "todo" }, user);
+  await svc.createStory("DEV", { title: "Three", stage: "todo" }, user);
+  // Production has no verified remote adapter: remotes are incompatible, never a silent fallback.
+  assert.equal(first.queued, true);
+  const held = await svc.showStory("DEV-1", user);
+  assert.deepEqual(
+    held.wait?.reasons.map((r) => `${"machineId" in r ? r.machineId : ""}:${r.code}`),
+    ["a:incompatible"],
+  );
+  // Inherit follows the order past incompatible remotes to local, at the per-machine cap of 2.
+  assert.deepEqual(
+    spawns.map((s) => `${s.storyKey}@${s.execution?.machineId}`),
+    ["DEV-2@local", "DEV-3@local"],
+  );
 });

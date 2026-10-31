@@ -11,7 +11,10 @@ type Props = { story: StoryView; board: BoardConfig; runtime: RuntimeState; act:
 
 export function StoryCard({ story, board, runtime, act, onOpen }: Props) {
   const claim = runtime.claims[story.key];
-  const queued = runtime.queue.some((q) => q.storyKey === story.key);
+  const entry = runtime.queue.find((q) => q.storyKey === story.key);
+  const busy = Object.values(runtime.executions ?? {}).find((e) => e.storyKey === story.key && e.status !== "terminal");
+  // Claim ended, but sf has no evidence yet that the Worker's execution stopped.
+  const windingDown = busy && claim?.workerId !== busy.workerId ? busy : undefined;
   const failure = runtime.failures[story.key];
   const warning = runtime.worktreeWarnings[story.key];
   const hil = activeHil(board, story);
@@ -38,22 +41,35 @@ export function StoryCard({ story, board, runtime, act, onOpen }: Props) {
         </Status>
       )}
       {hil && (
-        <Status className="bg-amber-50 text-amber-900">
+        <Status className="bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           <span className="font-semibold">Needs a human</span>
           {hil.comment && <span className="break-normal whitespace-pre-wrap">{hil.comment}</span>}
         </Status>
       )}
       {claim && (
-        <Status className="bg-blue-50 text-blue-900">
+        <Status className="bg-blue-50 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
           Worker {claim.workerId} · {claim.status} · {age(claim.claimedAt)}
           <Button size="xs" variant="outline" onClick={() => act(() => sfApi.forceRelease(story.key))}>
             Force release
           </Button>
         </Status>
       )}
-      {queued && <Status className="bg-muted text-muted-foreground">Waiting for Worker capacity</Status>}
+      {windingDown && (
+        <Status className="bg-muted text-muted-foreground">
+          Previous Worker {windingDown.workerId} · {windingDown.status} · waiting for it to end
+        </Status>
+      )}
+      {entry && (
+        <Status className="bg-muted text-muted-foreground">
+          {entry.wait?.reasons[0]?.code === "branch-occupied"
+            ? "Waiting for the previous Worker to end"
+            : entry.wait?.reasons.length && entry.wait.reasons.some((r) => r.code !== "capacity")
+              ? `Waiting for a machine: ${entry.wait.reasons.map((r) => ("machineId" in r && r.machineId ? `${r.machineId} ${r.code}` : r.code)).join(", ")}`
+              : "Waiting for Worker capacity"}
+        </Status>
+      )}
       {failure && (
-        <Status className="bg-red-50 text-destructive">
+        <Status className="bg-red-50 text-destructive dark:bg-red-950/40">
           Spawn failed: {failure.error}
           <Button size="xs" variant="outline" onClick={() => act(() => sfApi.retry(story.key))}>
             Retry
@@ -61,7 +77,7 @@ export function StoryCard({ story, board, runtime, act, onOpen }: Props) {
         </Status>
       )}
       {warning && (
-        <Status className="bg-amber-50 text-amber-900">
+        <Status className="bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           Worktree kept ({warning.reason}): {warning.path}
           <Button size="xs" variant="outline" onClick={() => act(() => sfApi.removeWorktree(story.key))}>
             Remove worktree

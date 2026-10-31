@@ -14,7 +14,7 @@ Now that we have the basics of the app in place, this document describes the cor
 ```sh
 SF.md                 # Optional shared Worker instructions.
 sf.config.json        # Project configuration.
-runtime/              # gitignored: Claims, Worker thread ids, spawn failures, queued spawns.
+runtime/              # gitignored: Claims, the execution ledger, spawn failures, queued spawns.
 boards/
   development/
     BOARD.md          # Optional instructions for this Board.
@@ -57,13 +57,13 @@ Attachments belong to the Supervisor's Project, outside runtime and Story Worktr
 | Max concurrent Workers (legacy Project-wide total, default 3) | **no** | no |
 | Optional machine scheduling policy | **no** | no |
 
-### Machine scheduling policy (DEV-9; dispatch activation deferred)
+### Machine scheduling policy (DEV-9 policy, DEV-10 dispatch)
 
-Optional Project-only `scheduling` is validated and persisted policy data. It does **not** activate
-remote launches or change `requestSpawn`/`drainQueue` in DEV-9: those still dispatch locally using
-`maxConcurrentWorkers` (default 3), even when scheduling or a Story override is present.
-DEV-10 integrates policy with reservations/dispatch; DEV-11 requires a positively verified adapter
-and authoritative remote Worker commands. See [the compatibility report](../remote-workers.md)
+Optional Project-only `scheduling` is validated and persisted policy data. Dispatch (DEV-10) selects
+with it and reserves per-machine capacity in the execution ledger; see
+[the execution ledger](../execution-ledger.md). It does **not** activate remote launches: until DEV-11
+provides a positively verified adapter and authoritative remote Worker commands, every remote is
+`incompatible`, so required remotes wait and preferred remotes fall back before reservation. See [the compatibility report](../remote-workers.md)
 and [ADR 0003](../adr/0003-remote-worker-boundaries.md). Configured mappings alone prove no capability.
 
 Complete example `.sf/sf.config.json` (IDs are illustrative catalog values):
@@ -129,8 +129,8 @@ Scheduling cannot be set in Board overrides or Stage configuration/frontmatter.
 The pure `normalizePlacementPolicy` presents local alone at the legacy capacity/default 3 when
 scheduling is absent. When scheduling is present, **only** per-machine capacities apply in the policy;
 even an explicitly stored legacy `maxConcurrentWorkers` is ignored and preserved for compatibility.
-There is no additional overall cap in v1. This precedence applies to the policy now and to future
-dispatch integration; current dispatch retains the legacy limit until DEV-10.
+There is no additional overall cap in v1. Dispatch applies the same precedence: every non-terminal
+execution across all Boards counts against its machine.
 
 ### Story placement
 
@@ -198,7 +198,7 @@ reason `detail`. With no candidates, the only reason is `{ code: "no-candidates"
 Malformed Project configuration is rejected as `SfError("invalid", ...)` at shared load/validation,
 not disguised as a wait. Tests simulate caller-owned usage to produce four build-server selections,
 two spare-server selections, two local selections, then wait regardless of legacy cap 3. This is
-policy evidence, not a claim that current runtime dispatch performs remote 4+2+2 allocation.
+policy evidence; production dispatch performs no remote allocation until DEV-11.
 
 ### Shared Worker instructions
 
@@ -240,6 +240,7 @@ Agent threads spawned by the Supervisor. A Worker runs as a new top-level thread
   - the user force-releases the Story in the UI, or
   - the Worker runs no sf command for the claim timeout.
 - When a claim ends without the Worker's knowledge, sf does not interrupt the thread. Any later sf command from that Worker is rejected with "claim is gone".
+- **Execution.** A claim end revokes authority but does not prove the Worker stopped. Its execution keeps its Worker slot and fences the Story branch (the next Stage waits, Done cleanup is deferred) until the Supervisor reports correlated terminal evidence. Timeouts, force-releases and lost launch results become `unknown` and are reconciled through the Supervisor, never relaunched. See [the execution ledger](../execution-ledger.md).
 
 ### Project
 
@@ -273,6 +274,8 @@ Any other Stage can have a Stage Prompt, with an enabled/disabled flag. If a Sto
 A Story describes a unit of work. The user, the Supervisor, and Workers can create Stories in any Stage. Creating a Story in a Stage counts as a Move into it.
 
 New Story and Edit Story open on a **Details** tab with Title, Stage, and Description. Each configured Stage has a New Story button after its cards, including empty Stages, Backlog, and Done. It opens the dialog with that Stage selected; the header New Story button defaults to Backlog. The synthetic Unknown Stage group has no create button. Creation allows changing the selected Stage, with Worker model inheritance following that selection; editing shows the current Stage read-only. Each creation starts a fresh form on Details. A **Custom Fields** tab contains the Board schema fields in order, or “No custom fields.” when the schema is empty. Switching tabs preserves unsaved values and the Description Write/Preview mode. Dialog metadata, any active HIL notice, and Cancel/Save actions are shared across tabs.
+
+The Story dialog has a URL path: `/create` for New Story on the selected Board and `/<KEY>` (for example `/DEV-19`) for an existing Story; closing it returns to `/`. Opening and closing push history entries, so Back and Forward close and reopen it. Loading a Story path opens that Story with its Board selected. An unknown path or key, a Story deleted while open, or `/create` with no Boards shows no dialog and replaces the URL with `/`. Board, Board Settings, and Project settings views have no URL.
 
 ### Deletion
 
@@ -336,7 +339,7 @@ Stage `model` is frontmatter in `stages/<id>.md`; its body is the prompt and met
 
 `model` is reserved in schema validation/editor. Legacy custom-field definitions/data remain readable and preserved; report a conflict requiring the field and its data to be renamed before schema changes or built-in model writes. Non-string legacy metadata is never used as a Worker model.
 
-Project settings are reachable from the sidebar; Board Settings has a Worker tab with model/catalog controls. Stage Prompts settings expose model selectors for every Stage, including Backlog/Done with prompt controls disabled. Story create/edit always exposes the built-in selector even with an empty schema, using the chosen Stage for creates and actual current Stage for edits. Selectors show labels/slugs, inheritance and effective model/source; live refresh displays persisted values.
+Project settings are reachable from the sidebar; Board Settings has a secondary sidebar with Worker, Stages, Custom Fields, and Stage Prompts sections (a compact section selector at narrow widths). The Worker section contains model/catalog controls. Back to board sits at the right of the application header. In Stages, left-hand handles reorder movable Stages with pointer/touch input or Space/Enter, arrow keys, and Space/Enter to save; Escape cancels. Backlog and Done remain fixed. Reorders save immediately through the existing Stage operation, and failed saves retain the saved order. Stage Prompts settings expose model selectors for every Stage, including Backlog/Done with prompt controls disabled. Story create/edit always exposes the built-in selector even with an empty schema, using the chosen Stage for creates and actual current Stage for edits. Selectors show labels/slugs, inheritance and effective model/source; live refresh displays persisted values.
 
 CLI: `sf project show|set`, `sf board show|set <board>`, `sf stage set`, and Story create/update support `--model <slug>` (`""` clears). Project/Board set support repeatable additive `--model-option <slug>`. Show output and Stage set expose effective model/source/catalogs as JSON; human output identifies the effective model/source. Typed API operations use GET/PATCH `/api/project/settings`, PATCH `/api/boards/:board`, Stage PATCH, and Story POST/PATCH. JSON model patches merge unrelated nested settings. Commands work online/offline.
 

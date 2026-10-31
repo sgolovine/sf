@@ -64,6 +64,27 @@ test("a Move over HTTP spawns; next hands out worker.spawn with its worktree; do
     code: "claim_gone",
     message: "claim is gone",
   });
+  // Force-release proves nothing about the thread: sf asks the Supervisor, never relaunches.
+  const executionId = record.command.execution!.id;
+  assert.equal((await call<StoryDetails>("GET", routes.story("DEV-1"))).execution?.status, "unknown");
+  const lookup = await call<CommandRecord>("GET", `${routes.nextCommand}?wait=1`);
+  assert.equal(lookup.command.type, "execution.reconcile");
+  if (lookup.command.type !== "execution.reconcile") return;
+  assert.equal(lookup.command.execution.id, executionId);
+  assert.equal(lookup.command.label, "thread-123");
+  await assert.rejects(
+    call("POST", routes.commandResult(lookup.id), {
+      ok: true,
+      execution: { status: "terminal", outcome: "completed", evidence: "idle", executionId: "x-other" },
+    }),
+    { code: "invalid" },
+  );
+  await call("POST", routes.commandResult(lookup.id), {
+    ok: true,
+    execution: { status: "terminal", outcome: "completed", evidence: "thread idle", threadId: "thread-123" },
+  });
+  const ended = await call<import("#model/api").ExecutionView>("GET", routes.execution(executionId));
+  assert.deepEqual([ended.status, ended.outcome, ended.threadId], ["terminal", "completed", "thread-123"]);
 });
 
 test("a spawn whose Claim is gone is cancelled, not handed out", async () => {
@@ -314,4 +335,57 @@ test("Board creation initializes an empty Project and duplicate failures allow r
   } finally {
     boardHttp.close();
   }
+});
+
+test("online CLI reports structured launch and terminal evidence; Claim end keeps the slot", async () => {
+  const runtime = path.join(root, ".sf/runtime");
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.writeFileSync(path.join(runtime, "server.json"), JSON.stringify(server));
+  const run = async (...args: string[]) =>
+    (
+      await promisify(execFile)(process.execPath, [
+        "--import",
+        "tsx",
+        path.resolve("src/cli/main.ts"),
+        ...args,
+        "--project",
+        root,
+      ])
+    ).stdout;
+  await call("POST", routes.boards, { name: "Executions", key: "EXE" });
+  await call("PATCH", routes.stage("EXE", "todo"), { promptEnabled: true, prompt: "Plan it." });
+  await call("PATCH", routes.stage("EXE", "in_progress"), { promptEnabled: true, prompt: "Build it." });
+  const story = await call<StoryDetails>("POST", routes.stories, { board: "EXE", title: "Evidence", stage: "todo" });
+  let record: CommandRecord;
+  do record = await call<CommandRecord>("GET", `${routes.nextCommand}?wait=1`);
+  while (record.command.type !== "worker.spawn" || record.command.storyKey !== story.key);
+  const { workerId, execution } = record.command;
+  await assert.rejects(run("done", record.id, "--task", "t-1"), /needs --status/);
+  await run("done", record.id, "--status", "running", "--task", "t-1", "--thread", "th-1");
+  assert.equal(store.state.commands.find((c) => c.id === record.id)?.execution?.taskId, "t-1");
+  const listed = JSON.parse(await run("execution", "list", "--json")) as import("#model/api").ExecutionsResponse;
+  const mine = listed.executions.find((e) => e.id === execution!.id)!;
+  assert.deepEqual([mine.status, mine.taskId, mine.threadId, mine.claimLive], ["running", "t-1", "th-1", true]);
+  assert.equal(listed.support.remote, (await import("#model/execution")).REMOTE_UNSUPPORTED);
+  // A duplicate result is recorded as late evidence without changing the outcome.
+  await run("fail", record.id, "--error", "late");
+  assert.equal(store.state.commands.find((c) => c.id === record.id)?.status, "done");
+  await call("POST", routes.storyMove(story.key), { stage: "in_progress", worker: workerId });
+  const waiting = await call<StoryDetails>("GET", routes.story(story.key));
+  assert.deepEqual(waiting.wait?.reasons, [{ code: "branch-occupied", executionId: execution!.id }]);
+  assert.match(await run("execution", "show", execution!.id), /waiting for evidence that the execution ended/);
+  await run(
+    "execution",
+    "report",
+    execution!.id,
+    "--status",
+    "terminal",
+    "--outcome",
+    "completed",
+    "--evidence",
+    "subagent finished",
+  );
+  const next = await call<StoryDetails>("GET", routes.story(story.key));
+  assert.equal(next.claim?.stageId, "in_progress");
+  assert.notEqual(next.claim?.executionId, execution!.id);
 });

@@ -2,10 +2,21 @@
 // agent thread running the sf skill).
 //
 // Flow: the server enqueues a SupervisorCommand (a `worker.spawn` when a Story
-// Moves into a Stage with an enabled Stage Prompt, or a `supervisor.instruct`
-// from the UI) → the Supervisor claims it with `sf next` → does the
-// work and reports back with `sf done|fail`. The Supervisor can also
-// push SupervisorMessages to the UI with `sf say`.
+// Moves into a Stage with an enabled Stage Prompt, `execution.reconcile` or
+// `execution.cancel` about an earlier launch, or a `supervisor.instruct` from
+// the UI) → the Supervisor claims it with `sf next` → does the work and reports
+// back with `sf done|fail`. The Supervisor can also push SupervisorMessages to
+// the UI with `sf say`.
+
+import type { ExecutionReport } from "./execution.ts";
+
+/** The launch generation a command is about. */
+export type ExecutionRef = {
+  id: string;
+  machineId: string;
+  environmentId: string;
+  projectId: string;
+};
 
 /** Start a Worker for one Story in one Stage. Queued by the server, never by the UI. */
 export type WorkerSpawnCommand = {
@@ -23,7 +34,26 @@ export type WorkerSpawnCommand = {
   worktree: { path: string; branch: string };
   /** The Worker Brief: the full prompt for the Worker. */
   brief: string;
+  /** Durable launch identity; use `execution.id` as the launch request key where a tool takes one. */
+  execution?: ExecutionRef;
 };
+
+/** Ask the Supervisor what happened to an earlier launch. Never a request to launch again. */
+export type ExecutionReconcileCommand = {
+  type: "execution.reconcile";
+  execution: ExecutionRef;
+  attemptId: string;
+  workerId: string;
+  storyKey: string;
+  mode: "thread" | "subagent";
+  worktree: { path: string; branch: string };
+  taskId?: string;
+  threadId?: string;
+  label?: string;
+};
+
+/** Ask the Supervisor to stop an execution. Acknowledgement alone is not termination. */
+export type ExecutionCancelCommand = Omit<ExecutionReconcileCommand, "type"> & { type: "execution.cancel" };
 
 export type SupervisorInstructCommand = {
   type: "supervisor.instruct";
@@ -31,11 +61,18 @@ export type SupervisorInstructCommand = {
   text: string;
 };
 
-export type SupervisorCommand = WorkerSpawnCommand | SupervisorInstructCommand;
+export type SupervisorCommand =
+  | WorkerSpawnCommand
+  | ExecutionReconcileCommand
+  | ExecutionCancelCommand
+  | SupervisorInstructCommand;
 export type SupervisorCommandType = SupervisorCommand["type"];
 
-/** `cancelled`: a `worker.spawn` whose Claim ended before the Supervisor claimed it. */
-export type CommandStatus = "pending" | "claimed" | "done" | "failed" | "cancelled";
+/**
+ * `cancelled`: withdrawn before the Supervisor received it. `interrupted`: the
+ * server restarted while the Supervisor held it; it is never delivered again.
+ */
+export type CommandStatus = "pending" | "claimed" | "done" | "failed" | "cancelled" | "interrupted";
 
 export type CommandRecord = {
   id: string;
@@ -47,6 +84,12 @@ export type CommandRecord = {
   /** Free-form result the Supervisor reported, e.g. the new thread id. */
   result?: string;
   error?: string;
+  /** Structured execution evidence from the result. */
+  execution?: ExecutionReport;
+  /** Publication key: one record per launch generation or attempt. */
+  key?: string;
+  /** Results reported after the command was cancelled or interrupted; kept as evidence. */
+  late?: { at: number; ok: boolean; result?: string; error?: string; execution?: ExecutionReport }[];
 };
 
 /** Builders for the commands the UI can send to the Supervisor. */

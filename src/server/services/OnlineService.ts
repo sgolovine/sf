@@ -1,15 +1,22 @@
+import { supportFor } from "#model/execution";
 import { createService, type Service, type ServiceOptions } from "../project/service.ts";
 import { type Store, StoreService } from "./StoreService.ts";
 
 /**
- * The online Story service: spawns become `worker.spawn` commands in the Store,
- * and every change refreshes the Project snapshot the UI sees.
+ * The online Story service: spawns and execution lookups become commands in the
+ * Store (the Supervisor boundary), and every change refreshes the Project
+ * snapshot the UI sees. sf schedules reconciliation on every mutation, so
+ * startup, reconnect, results and the periodic sweep all issue due lookups.
  */
 function create(store: Store, options: Pick<ServiceOptions, "root" | "sf" | "git" | "now">) {
   const service = createService({
     ...options,
     online: true,
-    onSpawn: (request) => StoreService.enqueue(store, { type: "worker.spawn", ...request }).id,
+    execution: {
+      support: () => supportFor(store.state.supervisor.capabilities),
+      publish: (command, key) => StoreService.enqueue(store, command, key).id,
+      commandState: (id) => StoreService.commandStatus(store, id),
+    },
     spawnMode: () => (store.state.supervisor.capabilities?.canSpawnThreads ? "thread" : "subagent"),
     onChange: () => refreshProject(store, service),
   });
