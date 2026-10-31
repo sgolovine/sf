@@ -174,6 +174,7 @@ export function App() {
             />
             <span className="truncate">{supervisorText}</span>
           </span>
+          <span className="ml-auto shrink-0">sf v{session.version}</span>
         </footer>
 
         {!creating && editing && (
