@@ -118,7 +118,7 @@ export function validatePlacement(value: unknown, scheduling?: SchedulingConfig)
 
 export type PlacementPolicy = { machines: Record<string, { capacity: number; enabled: boolean }>; order: string[] };
 
-/** Scheduling replaces the legacy total only for consumers of this policy. Dispatch activation is deferred. */
+/** With scheduling, per-machine caps replace the legacy total; dispatch reserves against this policy. */
 export function normalizePlacementPolicy(
   config: Pick<ProjectConfig, "scheduling" | "maxConcurrentWorkers">,
 ): PlacementPolicy {
