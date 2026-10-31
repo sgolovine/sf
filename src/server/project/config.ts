@@ -9,6 +9,7 @@ import {
   type StageConfig,
 } from "#model/config";
 import { type ModelOption, resolveModel } from "#model/models";
+import { validateScheduling } from "#model/placement";
 import { SfError } from "./errors.ts";
 import { readJson, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";
@@ -29,6 +30,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
 export function loadProjectConfig(root: string): ProjectConfig {
   const raw = readJson<Partial<ProjectConfig>>(sfPaths(root).config);
   if (!raw) throw new SfError("no_project", `no sf Project at ${root} (run \`sf init\`)`);
+  if (Object.hasOwn(raw, "scheduling")) validateScheduling(raw.scheduling);
   const d = DEFAULT_PROJECT_CONFIG;
   return {
     ...d,
@@ -60,7 +62,11 @@ export function loadBoard(root: string, id: string): BoardConfig {
     schema: raw.schema ?? [],
     overrides: raw.overrides ?? {},
   };
+  if (board.schema.some((f) => f.id === "placement"))
+    invalid('"placement" is reserved; rename the legacy custom field and its Story data before loading this Board');
+  validateOverrides(board.overrides);
   for (const stage of board.stages) {
+    if ("scheduling" in stage) invalid("scheduling is Project-wide and cannot be set per Stage");
     const { metadata } = readStage(path.join(sfPaths(root).stages(id), `${stage.id}.md`));
     if (Object.hasOwn(metadata, "model")) {
       validateModel(metadata.model);
@@ -133,6 +139,7 @@ export function validateBoard(board: BoardConfig) {
   if (ids[0] !== BACKLOG || ids.at(-1) !== DONE) invalid("Backlog must be the first Stage and Done the last");
   if (new Set(ids).size !== ids.length) invalid("Stage ids must be unique");
   for (const s of board.stages) {
+    if ("scheduling" in s) invalid("scheduling is Project-wide and cannot be set per Stage");
     if (!s.id || !s.name.trim()) invalid("every Stage needs an id and a name");
     if (isFixedStage(s.id) && s.promptEnabled) invalid(`${s.name} cannot have a Stage Prompt`);
   }
@@ -150,7 +157,8 @@ export function validateSchema(schema: FieldDef[]) {
   for (const f of schema) {
     if (!f || typeof f.id !== "string" || !/^[a-z][a-z0-9_]*$/.test(f.id))
       invalid(`field id must be lowercase letters, digits, and _, got "${f?.id}"`);
-    if (["title", "stage", "branch", "model", "dependsOn"].includes(f.id)) invalid(`"${f.id}" is a reserved field id`);
+    if (["title", "stage", "branch", "model", "dependsOn", "placement"].includes(f.id))
+      invalid(`"${f.id}" is a reserved field id`);
     if (seen.has(f.id)) invalid(`duplicate field id "${f.id}"`);
     seen.add(f.id);
     if (typeof f.name !== "string" || !f.name.trim()) invalid(`field ${f.id} needs a name`);
@@ -176,6 +184,7 @@ function validateHil(board: BoardConfig, stage: StageConfig) {
 export function validateOverrides(overrides: BoardOverrides) {
   if (!overrides || typeof overrides !== "object") invalid("overrides must be an object");
   if ("maxConcurrentWorkers" in overrides) invalid("maxConcurrentWorkers is Project-wide and cannot be set per Board");
+  if ("scheduling" in overrides) invalid("scheduling is Project-wide and cannot be set per Board");
   const t = overrides.claimTimeoutMinutes;
   if (t !== undefined && !(typeof t === "number" && t > 0)) invalid("claimTimeoutMinutes must be a positive number");
 }
