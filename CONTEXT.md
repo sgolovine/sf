@@ -34,7 +34,7 @@ The sf data root: the `.sf` directory in the repository where sf runs. Committed
 _Avoid_: Workspace, factory
 
 **Board**:
-A set of Stages and the Stories on them, with its own Story schema (custom fields). A Project holds one or more Boards.
+A set of Stages and the Stories on them, with its own Story schema (custom fields). A Project holds one or more Boards. New Board opens a dismissible modal over the current screen; an empty Project opens it initially and keeps a New Board action after dismissal.
 _Avoid_: Kanban, column set
 
 **Stage**:
