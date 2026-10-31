@@ -32,22 +32,31 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, sfApi } from "../api/client.ts";
+import { DependencyPicker } from "./DependencyPicker.tsx";
 import type { Act } from "./ErrorBanner.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { ModelSelector } from "./ModelSelector.tsx";
 import { encodeAttachments, StoryAttachments } from "./StoryAttachments.tsx";
 
-type Props = { project: ProjectConfig; board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
+type Props = {
+  project: ProjectConfig;
+  board: BoardSnapshot;
+  /** Every Board in the Project, for cross-Board dependency candidates. */
+  boards: BoardSnapshot[];
+  story: StoryView | null;
+  act: Act;
+  onClose: () => void;
+};
 
 /** Radix Select items cannot have an empty value; this one stands for "no value". */
 const NONE = "__none__";
 
 /** Create or edit a Story. Custom field inputs follow the Board's Story schema. */
-export function StoryEditor({ project, board, story, act, onClose }: Props) {
+export function StoryEditor({ project, board, boards, story, act, onClose }: Props) {
   const id = useId();
   const [title, setTitle] = useState(story?.title ?? "");
   const [stage, setStage] = useState(story?.stage ?? "backlog");
-  const [dependsOn, setDependsOn] = useState(story?.dependsOn?.join(", ") ?? "");
+  const [dependsOn, setDependsOn] = useState<string[]>(story?.dependsOn ?? []);
   const [model, setModel] = useState(story?.model ?? "");
   const legacyModel = board.config.schema.some((f) => f.id === "model");
   useEffect(() => {
@@ -90,7 +99,7 @@ export function StoryEditor({ project, board, story, act, onClose }: Props) {
         title,
         stage,
         body,
-        dependsOn: dependsOn.split(/[\s,]+/).filter(Boolean),
+        dependsOn,
         fields: values,
         ...(!legacyModel ? { model: model || null } : {}),
         attachments: await encodeAttachments(pending),
@@ -206,15 +215,17 @@ export function StoryEditor({ project, board, story, act, onClose }: Props) {
                 )}
                 <div className="grid gap-2">
                   <Label htmlFor={`${id}-dependencies`}>Depends on</Label>
-                  <Input
+                  <DependencyPicker
                     id={`${id}-dependencies`}
                     value={dependsOn}
-                    onChange={(e) => setDependsOn(e.target.value)}
-                    placeholder="DEV-7, DEV-8"
+                    onChange={setDependsOn}
+                    boards={boards}
+                    boardId={board.id}
+                    selfKey={story?.key}
+                    disabled={submitting || deleting || retryOnly}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Story keys in this Project, separated by commas. Clear to remove dependencies. Workers wait until
-                    all are Done.
+                    Stories in this Project. Workers wait until all are Done.
                   </p>
                 </div>
                 <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">

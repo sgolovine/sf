@@ -181,6 +181,7 @@ export function App() {
             key={editing.key ?? "new"}
             project={project!.config}
             board={board}
+            boards={boards}
             story={board.stories.find((s) => s.key === editing.key) ?? null}
             act={act}
             onClose={() => setEditing(null)}
