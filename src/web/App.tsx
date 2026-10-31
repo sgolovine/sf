@@ -294,6 +294,7 @@ export function App() {
             key={editingStory?.key ?? "new"}
             project={project!.config}
             board={board}
+            boards={boards}
             story={editingStory ?? null}
             initialStage={editingStory ? undefined : createStage}
             act={act}
