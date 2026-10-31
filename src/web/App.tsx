@@ -13,20 +13,23 @@ import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
 import { ModelSettings } from "./components/ModelSettings.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
+import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
 
-/** What the main area shows. Navigation is plain state: the URL hash carries the auth token. */
+/**
+ * What the main area shows. Views are plain state; only the Story dialog has a URL path
+ * (see storyRoute.ts). The URL hash carries the auth token.
+ */
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
   | { kind: "project-settings" };
 
-/** The Story being edited in the dialog; key null means a new Story. */
-type Editing = { key: string | null; initialStage?: string } | null;
-
 export function App() {
   const { data: session, error } = useSession();
   const [view, setView] = useState<View>({ kind: "board", boardId: null });
-  const [editing, setEditing] = useState<Editing>(null);
+  const [route, setRoute] = useState<StoryRoute>(() => parseStoryPath(location.pathname));
+  /** The Stage a new Story starts in when created from a Stage column; not part of the URL. */
+  const [createStage, setCreateStage] = useState<string>();
   const [creating, setCreating] = useState(false);
   const initialized = useRef(false);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -37,12 +40,56 @@ export function App() {
       setCreating(!session.project?.boards.length);
     }
   }, [session]);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  /** Opening or closing the dialog pushes a history entry; `replace` corrects the current one. */
+  const navigate = (next: StoryRoute, replace = false) => {
+    if (replace) history.replaceState(null, "", storyPath(next));
+    else history.pushState(null, "", storyPath(next));
+    setRoute(next);
+  };
+  const closeStory = () => {
+    if (route.kind !== "none") navigate(NO_STORY);
+  };
+  const openCreateStory = (initialStage?: string) => {
+    setCreateStage(initialStage);
+    navigate({ kind: "create" });
+  };
   const openCreateBoard = () => {
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setCreating(true);
-    setEditing(null);
+    closeStory();
   };
-  const [failure, setFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Back/Forward onto a Story path leaves Create a Board, so only one dialog is ever open.
+    const sync = () => {
+      const next = parseStoryPath(location.pathname);
+      if (next.kind !== "none") setCreating(false);
+      setRoute(next);
+    };
+    addEventListener("popstate", sync);
+    return () => removeEventListener("popstate", sync);
+  }, []);
+
+  // Once the session has loaded, show the Board the route needs, or replace a path that names
+  // nothing (an unknown path or key, a deleted Story, `/create` with no Boards) with `/`.
+  useEffect(() => {
+    if (!session) return;
+    const boards = session.project?.boards ?? [];
+    const boardId = view.kind === "project-settings" ? null : view.boardId;
+    if (route.kind === "edit") {
+      const owner = boards.find((b) => b.stories.some((s) => s.key === route.key));
+      if (!owner) navigate(NO_STORY, true);
+      else if (view.kind !== "board" || (boardId ?? boards[0]?.id) !== owner.id)
+        setView({ kind: "board", boardId: owner.id });
+    } else if (route.kind === "create") {
+      if (boards.length === 0) navigate(NO_STORY, true);
+      else if (view.kind !== "board") setView({ kind: "board", boardId });
+    } else if (location.pathname !== "/") {
+      navigate(NO_STORY, true);
+    }
+  });
 
   const act: Act = async (fn) => {
     try {
@@ -67,14 +114,14 @@ export function App() {
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
     ` · ${listening ? "listening" : "busy or away"}`;
-  const openBoard = (boardId: string) => {
-    setView({ kind: "board", boardId });
-    setEditing(null);
+  // Never fall back to a new Story for a key that is not (yet) on the shown Board.
+  const editingStory = route.kind === "edit" ? board?.stories.find((s) => s.key === route.key) : undefined;
+  const openView = (next: View) => {
+    setView(next);
+    closeStory();
   };
-  const openSettings = (boardId: string, tab: SettingsTab) => {
-    setView({ kind: "settings", boardId, tab });
-    setEditing(null);
-  };
+  const openBoard = (boardId: string) => openView({ kind: "board", boardId });
+  const openSettings = (boardId: string, tab: SettingsTab) => openView({ kind: "settings", boardId, tab });
 
   return (
     <SidebarProvider>
@@ -83,10 +130,7 @@ export function App() {
         title={board?.config.name}
         activeId={board?.id}
         creating={creating}
-        onProjectSettings={() => {
-          setView({ kind: "project-settings" });
-          setEditing(null);
-        }}
+        onProjectSettings={() => openView({ kind: "project-settings" })}
         onSelect={openBoard}
         onNewBoard={openCreateBoard}
       />
@@ -123,7 +167,7 @@ export function App() {
           {!settings && <span className="flex-1" />}
           {board && !settings && view.kind !== "project-settings" && (
             <>
-              <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
+              <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
                 <Plus />
                 <span className="hidden @md/header:inline">New Story</span>
               </Button>
@@ -172,8 +216,8 @@ export function App() {
               board={board}
               runtime={project!.runtime}
               act={act}
-              onOpenStory={(key) => setEditing({ key })}
-              onCreateStory={(initialStage) => setEditing({ key: null, initialStage })}
+              onOpenStory={(key) => navigate({ kind: "edit", key })}
+              onCreateStory={openCreateStory}
               onOpenStages={() => openSettings(board.id, "stages")}
             />
           )}
@@ -209,15 +253,15 @@ export function App() {
             }}
           />
         )}
-        {board && editing && (
+        {board && (route.kind === "create" || editingStory) && (
           <StoryEditor
-            key={editing.key ?? "new"}
+            key={editingStory?.key ?? "new"}
             project={project!.config}
             board={board}
-            story={board.stories.find((s) => s.key === editing.key) ?? null}
-            initialStage={editing.initialStage}
+            story={editingStory ?? null}
+            initialStage={editingStory ? undefined : createStage}
             act={act}
-            onClose={() => setEditing(null)}
+            onClose={closeStory}
           />
         )}
       </SidebarInset>
