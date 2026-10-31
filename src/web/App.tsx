@@ -22,7 +22,7 @@ type View =
   | { kind: "project-settings" };
 
 /** The Story being edited in the dialog; key null means a new Story. */
-type Editing = { key: string | null } | null;
+type Editing = { key: string | null; initialStage?: string } | null;
 
 export function App() {
   const { data: session, error } = useSession();
@@ -158,6 +158,7 @@ export function App() {
               runtime={project!.runtime}
               act={act}
               onOpenStory={(key) => setEditing({ key })}
+              onCreateStory={(initialStage) => setEditing({ key: null, initialStage })}
               onOpenStages={() => openSettings(board.id, "stages")}
             />
           )}
@@ -184,6 +185,7 @@ export function App() {
             project={project!.config}
             board={board}
             story={board.stories.find((s) => s.key === editing.key) ?? null}
+            initialStage={editing.initialStage}
             act={act}
             onClose={() => setEditing(null)}
           />
