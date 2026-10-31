@@ -54,7 +54,151 @@ Attachments belong to the Supervisor's Project, outside runtime and Story Worktr
 | Worktree base branch (default `main`/`master`) | yes | no |
 | Claim timeout (default 2h) | yes | no |
 | Extra preamble text for Worker Briefs | yes | no |
-| Max concurrent Workers (Project-wide total) | **no** | no |
+| Max concurrent Workers (legacy Project-wide total, default 3) | **no** | no |
+| Optional machine scheduling policy | **no** | no |
+
+### Machine scheduling policy (DEV-9; dispatch activation deferred)
+
+Optional Project-only `scheduling` is validated and persisted policy data. It does **not** activate
+remote launches or change `requestSpawn`/`drainQueue` in DEV-9: those still dispatch locally using
+`maxConcurrentWorkers` (default 3), even when scheduling or a Story override is present.
+DEV-10 integrates policy with reservations/dispatch; DEV-11 requires a positively verified adapter
+and authoritative remote Worker commands. See [the compatibility report](../remote-workers.md)
+and [ADR 0003](../adr/0003-remote-worker-boundaries.md). Configured mappings alone prove no capability.
+
+Complete example `.sf/sf.config.json` (IDs are illustrative catalog values):
+
+```json
+{
+  "version": 1,
+  "worker": { "agent": null, "model": null },
+  "worktree": { "baseBranch": "main" },
+  "claimTimeoutMinutes": 120,
+  "briefPreamble": "",
+  "maxConcurrentWorkers": 3,
+  "scheduling": {
+    "local": { "capacity": 2 },
+    "remotes": [
+      {
+        "id": "build-server",
+        "name": "Build server",
+        "environmentId": "env-build",
+        "project": { "projectId": "project-build", "repository": "github.com/sgolovine/sf" },
+        "enabled": true,
+        "capacity": 4
+      },
+      {
+        "id": "spare-server",
+        "name": "Spare server",
+        "environmentId": "env-spare",
+        "project": { "projectId": "project-spare", "repository": "github.com/sgolovine/sf" },
+        "enabled": true,
+        "capacity": 2
+      }
+    ],
+    "order": ["build-server", "spare-server", "local"]
+  }
+}
+```
+
+Every scheduling field shown is required, with no invented defaults or coercion. Capacities are
+finite nonnegative safe integers; zero prevents new selections. `remotes` and `order` are arrays
+and may be empty. `enabled` is a boolean. Remote IDs match `[a-z][a-z0-9_-]*`, are unique and cannot
+be the reserved ID `local`. Display names, environment IDs and project IDs are nonblank strings
+without surrounding whitespace. IDs are opaque canonical catalog values, with no UUID-only
+restriction; URLs, whitespace and filesystem paths are rejected. No route, credential or transport
+fields are accepted. Unknown scheduling fields are rejected rather than silently ignored.
+
+`project.repository` is the exact public project catalog `repositoryIdentity.canonicalKey`, such as
+`github.com/sgolovine/sf`: host followed by nonempty repository path segments, without a scheme,
+credentials, query, fragment, whitespace, empty/dot segments or leading/trailing slash. Clone URLs
+and checkout paths are invalid; sf never guesses or normalizes them. This schema adopts DEV-7's
+observed local identity representation as policy data. The future adapter must compare this value
+with the **target** project catalog identity and positively establish mapping and other eligibility.
+Syntactic validity is never eligibility evidence.
+
+Order entries must be known, unique machine IDs. Local participates only when explicitly listed;
+it is never appended automatically. An empty order makes inherited placement wait. Required or
+preferred remotes may be configured outside the automatic order. Exact duplicate environment IDs
+are rejected even when an alias is disabled, so aliases cannot multiply capacity. Operators must
+configure one T3 environment per physical machine. Limits belong to this sf Project across all its
+Boards, not to the host: independent environments on one host and independent sf Projects cannot
+share a limit. Physical host equivalence, CPU balancing and host-wide quotas are outside this schema.
+Scheduling cannot be set in Board overrides or Stage configuration/frontmatter.
+
+The pure `normalizePlacementPolicy` presents local alone at the legacy capacity/default 3 when
+scheduling is absent. When scheduling is present, **only** per-machine capacities apply in the policy;
+even an explicitly stored legacy `maxConcurrentWorkers` is ignored and preserved for compatibility.
+There is no additional overall cap in v1. This precedence applies to the policy now and to future
+dispatch integration; current dispatch retains the legacy limit until DEV-10.
+
+### Story placement
+
+`placement` is optional built-in frontmatter, separate from custom fields. Its complete forms are
+`{ mode: "inherit" }`, `{ mode: "local-only" }`, `{ mode: "required", machineId: "build-server" }`
+and `{ mode: "preferred", machineId: "build-server" }`. No extra keys/target combinations are accepted.
+Example Story (all frontmatter modes above use the same shape in HTTP JSON):
+
+```yaml
+---
+title: Build release artifacts
+stage: backlog
+placement:
+  mode: preferred
+  machineId: build-server
+priority: high
+---
+Build and verify the published artifacts.
+```
+
+Missing placement means inherit. Shared service create/update and HTTP requests accept `placement`;
+patch omission preserves it, while `null` or explicit inherit clears the persisted property.
+New required/preferred targets must identify a configured remote (disabled is permitted);
+`local` uses local-only instead. Without scheduling, only inherit/local-only are valid new values.
+Snapshots, Story details, edits and Moves preserve placement through reload. Unknown custom keys
+keep their existing behavior. `placement` is reserved in Board schemas and custom-field payloads;
+a legacy custom field with this name is a migration conflict: rename its schema ID and Story data
+before loading the Board, rather than silently discarding its values. Built-in fields cannot be
+supplied through custom fields to overwrite serialized metadata (the existing legacy `model`
+migration remains supported). CLI/editor placement controls are deferred to DEV-12.
+
+Removing a configured remote does not destroy old overrides. Their structure is read separately
+from target validation, so unrelated edits and clearing still work. Explicitly resupplying an unknown
+target is rejected with a correction; the selector returns `missing-target` for the stale reference.
+
+### Pure placement selection contract
+
+`selectPlacement(policy, placement, eligibility, usage)` takes normalized policy, Story placement,
+per-target eligibility evidence for the **resolved Stage agent/model**, and occupied reservation counts.
+It performs no filesystem/network/T3/clock operation, input mutation, reservation or launch.
+Candidate order is:
+
+- inherit: Project order;
+- local-only: local alone;
+- required: that remote alone, with no fallback;
+- preferred: that remote then Project order with stable deduplication.
+
+For each candidate it checks eligibility before capacity and selects the first eligible target whose
+usage is below capacity. Equal/above capacity (including after a cap reduction) waits; existing work
+is never terminated or rebalanced. Absent usage is zero; every supplied usage value must be a finite
+nonnegative safe integer, including values for targets outside the candidate list.
+
+Eligibility is supplied explicitly as `{ failures: [] }` for verified eligibility or
+`{ failures: ["unreachable", ...], detail?: "..." }` for failures. Missing evidence yields
+`incompatible` with an explanation that eligibility is unverified, including for local. The selector
+never assumes a target is available. Configured disabled targets and absent target IDs are checked
+independently of evidence. One failure is emitted per failed candidate in this exact priority:
+`missing-target`, `disabled`, `incompatible`, `unreachable`, `unauthorized`, `unmapped`,
+`agent-ineligible`, `model-ineligible`, then `capacity`. Multiple failures never let free capacity
+make a target eligible. Candidate reasons remain in candidate order.
+
+Results are `{ kind: "selected", machineId: "build-server" }` or
+`{ kind: "wait", reasons: [{ machineId: "build-server", code: "capacity" }, ...] }`, with optional
+reason `detail`. With no candidates, the only reason is `{ code: "no-candidates" }` (no machine ID).
+Malformed Project configuration is rejected as `SfError("invalid", ...)` at shared load/validation,
+not disguised as a wait. Tests simulate caller-owned usage to produce four build-server selections,
+two spare-server selections, two local selections, then wait regardless of legacy cap 3. This is
+policy evidence, not a claim that current runtime dispatch performs remote 4+2+2 allocation.
 
 ### Shared Worker instructions
 
@@ -76,7 +220,7 @@ sf reads these files from the service's Project root in the Supervisor's checkou
 
 ### Story file
 
-A Markdown file named `<Story Key>.md`. YAML frontmatter holds `title`, `stage` (a Stage id), optional `branch`, the built-in optional `model`, and the custom field values. The body is the Story description. Story numbers increment per Board.
+A Markdown file named `<Story Key>.md`. YAML frontmatter holds `title`, `stage` (a Stage id), optional `branch`, the built-in optional `model`, `placement`, and `dependsOn`, and the custom field values. The body is the Story description. Story numbers increment per Board.
 
 ## SF Concepts
 
@@ -124,7 +268,7 @@ Any other Stage can have a Stage Prompt, with an enabled/disabled flag. If a Sto
 
 A Story describes a unit of work. The user, the Supervisor, and Workers can create Stories in any Stage. Creating a Story in a Stage counts as a Move into it.
 
-New Story and Edit Story open on a **Details** tab with Title, Stage, and Description. Creation allows choosing a Stage (Backlog by default); editing shows the current Stage read-only. A **Custom Fields** tab contains the Board schema fields in order, or “No custom fields.” when the schema is empty. Switching tabs preserves unsaved values and the Description Write/Preview mode. Dialog metadata, any active HIL notice, and Cancel/Save actions are shared across tabs.
+New Story and Edit Story open on a **Details** tab with Title, Stage, and Description. Each configured Stage has a New Story button after its cards, including empty Stages, Backlog, and Done. It opens the dialog with that Stage selected; the header New Story button defaults to Backlog. The synthetic Unknown Stage group has no create button. Creation allows changing the selected Stage, with Worker model inheritance following that selection; editing shows the current Stage read-only. Each creation starts a fresh form on Details. A **Custom Fields** tab contains the Board schema fields in order, or “No custom fields.” when the schema is empty. Switching tabs preserves unsaved values and the Description Write/Preview mode. Dialog metadata, any active HIL notice, and Cancel/Save actions are shared across tabs.
 
 ### Deletion
 

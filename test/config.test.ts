@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BoardConfig, FieldDef, StageConfig } from "#model/config";
+import { validateScheduling } from "#model/placement";
 import {
   DEFAULT_PROJECT_CONFIG,
   defaultBoard,
@@ -9,6 +10,8 @@ import {
   uniqueId,
   validateBoard,
 } from "../src/server/project/config.ts";
+import { SfError } from "../src/server/project/errors.ts";
+import { scheduling } from "./scheduling-fixture.ts";
 
 test("default Board has the five Stages", () => {
   const board = defaultBoard("Development", "DEV");
@@ -86,4 +89,79 @@ test("validateBoard checks Stage HIL fields", () => {
   assert.throws(() => validateBoard(withHil("todo", { comment: "note" })), /needs a flag field/);
   assert.throws(() => validateBoard(withHil("backlog", { flag: "hil" })), /Backlog cannot have HIL fields/);
   assert.throws(() => validateBoard(withHil("done", { flag: "hil" })), /Done cannot have HIL fields/);
+});
+
+test("scheduling validates complete shapes and canonical mapping identities", () => {
+  validateScheduling(scheduling());
+  validateScheduling({ ...scheduling(), order: [] });
+  const cases: unknown[] = [
+    null,
+    [],
+    {},
+    { ...scheduling(), local: null },
+    { ...scheduling(), remotes: {} },
+    { ...scheduling(), order: null },
+    { ...scheduling(), order: ["missing"] },
+    { ...scheduling(), order: ["local", "local"] },
+    { ...scheduling(), extra: true },
+  ];
+  for (const capacity of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "2", null, undefined]) {
+    cases.push({ ...scheduling(), local: { capacity } });
+    const config = scheduling();
+    config.remotes[0]!.capacity = capacity as number;
+    cases.push(config);
+  }
+  for (const patch of [
+    { id: "local" },
+    { id: "b" },
+    { id: "Bad" },
+    { name: " " },
+    { name: " a" },
+    { environmentId: "env-b" },
+    { environmentId: "https://host/id" },
+    { environmentId: "/tmp/id" },
+    { enabled: "true" },
+    { project: null },
+    { project: { projectId: "../path", repository: "github.com/o/r" } },
+  ]) {
+    const config = scheduling();
+    Object.assign(config.remotes[0]!, patch);
+    cases.push(config);
+  }
+  for (const repository of [
+    "https://github.com/o/r",
+    "git@github.com:o/r",
+    "/tmp/repo",
+    "./repo",
+    "github.com/o//r",
+    "github.com/o/../r",
+    "github.com/o/r/",
+    "github.com/o/r?q",
+    "github.com/o/r#f",
+    "github.com/o/ r",
+    "github.com",
+  ]) {
+    const config = scheduling();
+    config.remotes[0]!.project.repository = repository;
+    cases.push(config);
+  }
+  const alias = scheduling();
+  alias.remotes[0]!.enabled = false;
+  alias.remotes[0]!.environmentId = "env-b";
+  cases.push(alias);
+  for (const config of cases)
+    assert.throws(
+      () => validateScheduling(config),
+      (error: unknown) => error instanceof SfError && error.code === "invalid" && /scheduling/.test(error.message),
+    );
+  const board = defaultBoard("Dev", "DEV");
+  assert.throws(() => validateBoard({ ...board, overrides: { scheduling: scheduling() } as never }), /Project-wide/);
+  assert.throws(
+    () => validateBoard({ ...board, stages: board.stages.map((s) => ({ ...s, scheduling: {} })) }),
+    /per Stage/,
+  );
+  assert.throws(
+    () => validateBoard({ ...board, schema: [{ id: "placement", name: "Old", type: "text" }] }),
+    /reserved/,
+  );
 });

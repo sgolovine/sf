@@ -21,9 +21,23 @@ export type StageHil = { flag: string; comment?: string };
 
 export type WorkerSettings = { agent: string | null; model: string | null };
 
+export type SchedulingConfig = {
+  local: { capacity: number };
+  remotes: {
+    id: string;
+    name: string;
+    environmentId: string;
+    project: { projectId: string; repository: string };
+    enabled: boolean;
+    capacity: number;
+  }[];
+  order: string[];
+};
+
 /** `.sf/sf.config.json`. */
 export type ProjectConfig = {
   version: 1;
+  scheduling?: SchedulingConfig;
   modelOptions?: ModelOption[];
   worker: WorkerSettings;
   worktree: { baseBranch: string | null };
