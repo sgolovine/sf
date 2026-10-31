@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { type ExecutionsResponse, type ExecutionView, type FileChangesResponse, routes } from "#model/api";
 import type { CommandRecord } from "#model/commands";
 import { type ExecutionReport, validateExecutionReport } from "#model/execution";
+import { machineUsage } from "#model/placement";
 import type { SessionState } from "#model/session";
 import type { SupervisorMessage } from "#model/supervisor";
 import pkg from "../../package.json" with { type: "json" };
@@ -35,7 +36,7 @@ Project (.sf).
   sf execution reconcile <id> | cancel <id>   ask the Supervisor to look it up or stop it
   sf say "<text>" [--level warn]    post a message to the UI
   sf changes [--since <ms>]         list file changes seen by the watcher
-  sf status | url | stop
+  sf status [--json] | url | stop      status lists used/max Workers per machine
   sf --version | --help
 
 Capability flags: --agent, --model, --app, --can-spawn-threads <bool>,
@@ -136,12 +137,29 @@ async function main() {
       const state = await ClientService.api<SessionState>(server, "GET", routes.state);
       const count = (s: string) => state.commands.filter((c) => c.status === s).length;
       const runtime = state.project?.runtime;
+      const executions = Object.values(runtime?.executions ?? {});
+      const status = {
+        server: { url: ClientService.uiUrl(server), agent: state.supervisor.capabilities?.agent ?? null },
+        commands: {
+          pending: count("pending"),
+          claimed: count("claimed"),
+          done: count("done"),
+          failed: count("failed"),
+        },
+        claims: Object.keys(runtime?.claims ?? {}).length,
+        occupying: executions.filter((e) => e.status !== "terminal").length,
+        waiting: runtime?.queue.length ?? 0,
+        machines: state.project ? machineUsage(state.project.config, executions) : [],
+      };
+      if (flags.json) return console.log(JSON.stringify(status, null, 2));
+      const machines = status.machines
+        .map((m) => `${m.id} ${m.used}/${m.capacity ?? "?"}${m.configured && !m.enabled ? " (disabled)" : ""}`)
+        .join(", ");
       return console.log(
-        `running at ${ClientService.uiUrl(server)} | agent: ${state.supervisor.capabilities?.agent ?? "unregistered"} | ` +
-          `pending: ${count("pending")} | claimed: ${count("claimed")} | done: ${count("done")} | failed: ${count("failed")} | ` +
-          `Workers: ${Object.keys(runtime?.claims ?? {}).length} | occupying: ${
-            Object.values(runtime?.executions ?? {}).filter((e) => e.status !== "terminal").length
-          } | waiting: ${runtime?.queue.length ?? 0}`,
+        `running at ${status.server.url} | agent: ${status.server.agent ?? "unregistered"} | ` +
+          `pending: ${status.commands.pending} | claimed: ${status.commands.claimed} | done: ${status.commands.done} | failed: ${status.commands.failed} | ` +
+          `Workers: ${status.claims} | occupying: ${status.occupying} | waiting: ${status.waiting}` +
+          (machines ? ` | machines: ${machines}` : ""),
       );
     }
     case "url":

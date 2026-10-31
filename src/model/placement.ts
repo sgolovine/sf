@@ -137,6 +137,32 @@ export function normalizePlacementPolicy(
   };
 }
 
+export type MachineUsage = { id: string; used: number; capacity: number | null; enabled: boolean; configured: boolean };
+
+/**
+ * Used/max per machine from occupying executions. `used` may exceed a lowered cap; machines that only
+ * hold leftover occupancy (removed by hand) are listed with capacity null.
+ */
+export function machineUsage(
+  config: Pick<ProjectConfig, "scheduling" | "maxConcurrentWorkers">,
+  executions: Iterable<{ machineId: string; status: string }>,
+): MachineUsage[] {
+  const policy = normalizePlacementPolicy(config);
+  const used: Record<string, number> = {};
+  for (const e of executions) if (e.status !== "terminal") used[e.machineId] = (used[e.machineId] ?? 0) + 1;
+  const ids = [...new Set([...Object.keys(policy.machines), ...Object.keys(used)])];
+  return ids.map((id) => {
+    const machine = Object.hasOwn(policy.machines, id) ? policy.machines[id] : undefined;
+    return {
+      id,
+      used: used[id] ?? 0,
+      capacity: machine?.capacity ?? null,
+      enabled: machine?.enabled ?? false,
+      configured: !!machine,
+    };
+  });
+}
+
 export const ELIGIBILITY_REASONS = [
   "missing-target",
   "disabled",
