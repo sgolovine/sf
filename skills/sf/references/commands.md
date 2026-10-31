@@ -89,6 +89,8 @@ sf only requests the machine. Machine handling belongs to your harness:
 - The brief's Project and worktree paths are on your machine, which holds the sf authority. They may not exist on the requested machine. Preparing that machine (repository, Story branch, working directory) and giving the Worker access to sf's Story commands are up to the harness.
 - A machine request is not evidence of where the Worker runs. Report only what the launch tool returned, with the usual `done`, `fail` and `execution report` results.
 
+Users set machines and Story placement with `sf project set --scheduling-file <json>` and `sf story update <KEY> --placement required|preferred --machine <id>` (or `--placement inherit|local-only`), or in the UI. `sf status --json` lists per-machine used/max. A reservation charged to a machine shows as "Requested", not as proof of where the Worker runs.
+
 Without `machine`, launch locally as described above. See the repository's [remote Worker boundary](../../../docs/remote-workers.md) for the full contract and the dated DEV-7 history.
 
 ## `supervisor.instruct`

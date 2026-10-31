@@ -81,4 +81,6 @@ and explicit machine order. Built-in Story `placement` inherits, selects local-o
 or prefers a remote with ordered fallback. DEV-9 persists/validates these and provides a pure selector;
 dispatch uses it to reserve capacity per machine (DEV-10). When it selects a configured remote, sf adds
 a machine request and machine instructions to the Worker launch request; the Supervisor's harness owns
-machine handling (DEV-11). See the core spec for schema, precedence and eligibility reasons.
+machine handling (DEV-11). Users edit both through `sf project set`/`sf story --placement` or the UI;
+sf rejects edits that orphan a placement or remap an occupied machine (DEV-12). See the core spec for
+schema, precedence and eligibility reasons.

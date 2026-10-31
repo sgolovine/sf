@@ -169,6 +169,36 @@ test("the launch request carries required/preferred intent from configured place
   assert.equal(next?.machine, undefined);
 });
 
+test("4+2+2 across Boards under concurrent requests, then local-only queues despite remote room", async () => {
+  const { svc } = await setupProject({ config: { maxConcurrentWorkers: 1 } });
+  await svc.updateProject({ scheduling: scheduling() });
+  await svc.createBoard("Quality", "QA");
+  await svc.updateStage("QA", "todo", { promptEnabled: true, prompt: "Test it." });
+  await Promise.all(
+    Array.from({ length: 10 }, (_, i) =>
+      svc.createStory(i % 2 ? "QA" : "DEV", { title: `S${i}`, stage: "todo" }, user),
+    ),
+  );
+  // Concurrent mutations may publish the same intent twice (the store dedupes by key): count reservations.
+  const count = (machine: string) => occupying(svc).filter((e) => e.machineId === machine).length;
+  assert.deepEqual([count("a"), count("b"), count("local")], [4, 2, 2], "the legacy cap of 1 is ignored");
+  assert.equal(svc.snapshot()!.runtime.queue.length, 2);
+  const settings = await svc.updateProject({});
+  assert.deepEqual(
+    settings.machines.map((m) => `${m.id} ${m.used}/${m.capacity}`),
+    ["local 2/2", "a 4/4", "b 2/2"],
+  );
+  // Free a remote slot: the oldest waiting Story takes it; a local-only Story still waits.
+  const onA = occupying(svc).find((e) => e.machineId === "a")!;
+  await svc.createStory("DEV", { title: "Local", stage: "todo", placement: { mode: "local-only" } }, user);
+  await svc.forceRelease(onA.storyKey);
+  await svc.reportExecution(onA.id, { status: "terminal", outcome: "completed", evidence: "ended" });
+  assert.equal(count("a"), 4);
+  assert.equal(svc.snapshot()!.runtime.queue.length, 2);
+  const local = (await svc.listStories()).find((s) => s.title === "Local")!;
+  assert.deepEqual(local.wait?.reasons, [{ machineId: "local", code: "capacity" }]);
+});
+
 // ---------- CLI ----------
 
 const main = path.resolve(import.meta.dirname, "../src/cli/main.ts");

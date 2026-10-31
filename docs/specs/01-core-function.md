@@ -134,6 +134,30 @@ even an explicitly stored legacy `maxConcurrentWorkers` is ignored and preserved
 There is no additional overall cap in v1. Dispatch applies the same precedence: every non-terminal
 execution across all Boards counts against its machine.
 
+### Editing scheduling (DEV-12)
+
+`PATCH /api/project/settings` (`sf project set`, Project settings → Scheduling) accepts
+`scheduling` and `maxConcurrentWorkers` beside the model settings. Omitted keys are unchanged. A
+supplied `scheduling` replaces the whole value, validated as above; `null` removes it. The write is
+atomic, preserves unrelated config, and drains the queue against the new policy, so a raised cap
+launches queued work and a lowered cap stops only new reservations. In the same mutation sf
+rejects, listing every reference and its resolution:
+
+- removing a remote that any Story's required/preferred placement names, on any Board;
+- removing a remote, or changing its `environmentId`, `project.projectId` or `project.repository`,
+  while an occupying execution holds it;
+- `scheduling: null` while either applies.
+
+Renames, capacity (including 0 or below current usage), `enabled` and order changes are always
+allowed. A disabled required target makes its Stories wait with reason `disabled`. These checks clear
+no unknown occupancy or branch fence. Hand edits that bypass them still hit the dispatch guards
+(`missing-target`, `unmapped`). The response adds `policy` (`normalizePlacementPolicy`) and
+`machines`: `{ id, used, capacity, enabled, configured }` per machine from occupying executions,
+where `used` may exceed a lowered cap and `capacity` is null for a machine that is no longer
+configured. `sf status --json` returns `{ server, commands, claims, occupying, waiting, machines }`.
+The UI footer shows per-machine used/max, and Story cards and the editor show an occupying
+execution's remote as "Requested: X" with any Supervisor-reported task/thread IDs as plain text.
+
 ### Story placement
 
 `placement` is optional built-in frontmatter, separate from custom fields. Its complete forms are
@@ -162,7 +186,10 @@ keep their existing behavior. `placement` is reserved in Board schemas and custo
 a legacy custom field with this name is a migration conflict: rename its schema ID and Story data
 before loading the Board, rather than silently discarding its values. Built-in fields cannot be
 supplied through custom fields to overwrite serialized metadata (the existing legacy `model`
-migration remains supported). CLI/editor placement controls are deferred to DEV-12.
+migration remains supported). `sf story create|update --placement inherit|local-only|required|preferred
+[--machine <remote-id>]` and the Story editor's Placement control set it; `--placement inherit` sends
+`null`, and an omitted flag preserves the value. The editor sends placement only when it changed, so a
+Story whose target was removed by hand stays editable; it shows that target as unresolved.
 
 Removing a configured remote does not destroy old overrides. Their structure is read separately
 from target validation, so unrelated edits and clearing still work. Explicitly resupplying an unknown
