@@ -8,13 +8,14 @@ export type StoryData = {
   title: string;
   stage: string;
   branch?: string;
+  model?: string | null;
   fields: Record<string, unknown>;
   body: string;
 };
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
-export function parseStory(text: string): StoryData {
+export function parseStory(text: string, legacyModelField = false): StoryData {
   const match = FRONTMATTER.exec(text);
   const data = match ? (parse(match[1]!) ?? {}) : {};
   if (typeof data !== "object" || Array.isArray(data))
@@ -24,7 +25,14 @@ export function parseStory(text: string): StoryData {
     title: title == null ? "" : String(title),
     stage: stage == null ? "" : String(stage),
     ...(branch == null ? {} : { branch: String(branch) }),
-    fields,
+    ...(!legacyModelField && (typeof fields.model === "string" || fields.model === null)
+      ? { model: fields.model as string | null }
+      : {}),
+    fields: Object.fromEntries(
+      Object.entries(fields).filter(
+        ([key, value]) => key !== "model" || legacyModelField || (typeof value !== "string" && value !== null),
+      ),
+    ),
     body: match ? text.slice(match[0].length) : text,
   };
 }
@@ -32,7 +40,8 @@ export function parseStory(text: string): StoryData {
 export function serializeStory(story: StoryData): string {
   const front: Record<string, unknown> = { title: story.title, stage: story.stage };
   if (story.branch) front.branch = story.branch;
-  for (const [k, v] of Object.entries(story.fields)) if (v !== undefined && v !== null) front[k] = v;
+  for (const [k, v] of Object.entries(story.fields)) if (v !== undefined) front[k] = v;
+  if (story.model) front.model = story.model;
   const body = story.body.trim() ? `${story.body.replace(/\s+$/, "")}\n` : "";
   return `---\n${stringify(front).trimEnd()}\n---\n${body}`;
 }

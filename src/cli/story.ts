@@ -2,8 +2,18 @@
 // server's HTTP routes when it is running and the Story service directly when
 // it is not, so every Story change goes through the same library.
 import fs from "node:fs";
-import { type BoardResponse, routes, type StoryDetails, type WorktreeResponse } from "#model/api";
+import path from "node:path";
+import type { ProjectSettingsResponse } from "#model/api";
+import {
+  type BoardResponse,
+  type DeleteStoryResponse,
+  routes,
+  type StoryDetails,
+  type WorktreeResponse,
+} from "#model/api";
+import { ATTACHMENT_LIMIT, type Attachment } from "#model/attachment";
 import type { ProjectConfig, StageConfig } from "#model/config";
+import { modelDescription, type ResolvedModel } from "#model/models";
 import type { ProjectSnapshot } from "#model/project";
 import { SfError } from "../server/project/errors.ts";
 import { type Actor, createService } from "../server/project/service.ts";
@@ -12,22 +22,28 @@ import { ClientService, type ServerInfo } from "../server/services/ClientService
 
 export type Flags = Record<string, string | boolean | string[]>;
 
-export const PROJECT_COMMANDS = new Set(["init", "board", "stage", "story", "worktree"]);
+export const PROJECT_COMMANDS = new Set(["init", "project", "board", "stage", "story", "worktree"]);
 
 export const PROJECT_HELP = `Project commands (all accept --project <dir>, --json; Workers add --worker <id>):
   sf init
+  sf project show | set [--model <slug>] [--model-option <slug>]...
   sf board list | create <name> --key <KEY> | show <board>
+  sf board set <board> [--model <slug>] [--model-option <slug>]...
   sf stage add <board> <name> [--after <stage-id>]
   sf stage set <board> <stage-id> [--name <n>] [--prompt-enabled true|false]
                [--prompt <text> | --prompt-file <path>] [--agent <a>] [--model <m>]
                [--hil-flag <field-id>] [--hil-comment <field-id>]
   sf stage reorder <board> <stage-id> --index <n>
   sf stage remove <board> <stage-id>
-  sf story create <board> --title "<t>" [--stage <id>] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story create <board> --title "<t>" [--stage <id>] [--model <slug>] [--field k=v]... [--body "<md>" | --body-file <p>]
   sf story list [<board>] [--stage <id>]
   sf story show <KEY>
   sf story move <KEY> <stage-id>
-  sf story update <KEY> [--title "<t>"] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story update <KEY> [--title "<t>"] [--model <slug>] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story attachment add <KEY> <path>  (regular file, up to 20 MiB)
+  sf story attachment list <KEY>
+  sf story attachment get <KEY> <attachment-id> --output <path>  (never overwrites)
+  sf story delete <KEY>  # permanent; retains Story Worktree and branch; release any Claim first
   sf story release <KEY>
   sf story force-release <KEY>
   sf story retry <KEY>
@@ -59,7 +75,24 @@ export async function runProjectCommand(
       return out(config, () => `Initialized sf Project at ${root}/.sf`);
     }
 
+    case "project": {
+      if (sub !== "show" && sub !== "set") throw new SfError("invalid", "usage: sf project show|set");
+      const result = await call<ProjectSettingsResponse>(
+        sub === "set" ? "PATCH" : "GET",
+        routes.projectSettings,
+        sub === "set" ? modelPatch(flags) : undefined,
+        () => (sub === "set" ? svc.updateProject(modelPatch(flags)) : svc.showProject()),
+      );
+      return out(result, () => `Project model: ${modelDescription(result.effectiveModel)}`);
+    }
+
     case "board": {
+      if (sub === "set") {
+        const ref = need(args[1], "board set <board>");
+        const patch = modelPatch(flags);
+        const result = await call<BoardResponse>("PATCH", routes.board(ref), patch, () => svc.updateBoard(ref, patch));
+        return out(result, () => formatBoard(result));
+      }
       if (sub === "list") {
         const boards = server
           ? ((await ClientService.api<ProjectSnapshot | null>(server, "GET", routes.project))?.boards ?? [])
@@ -110,14 +143,17 @@ export async function runProjectCommand(
         for (const k of ["agent", "model"]) if (flags[k] !== undefined) patch[k] = str(flags[k]) || null;
         if (flags["hil-flag"] !== undefined) patch.hilFlag = str(flags["hil-flag"]) || null;
         if (flags["hil-comment"] !== undefined) patch.hilComment = str(flags["hil-comment"]) || null;
-        const stage = await call<StageConfig & { prompt: string }>("PATCH", routes.stage(ref, stageId), patch, () =>
-          svc.updateStage(ref, stageId, patch),
+        const stage = await call<StageConfig & { prompt: string; effectiveModel: ResolvedModel }>(
+          "PATCH",
+          routes.stage(ref, stageId),
+          patch,
+          () => svc.updateStage(ref, stageId, patch),
         );
         return out(
           stage,
           () =>
             `Stage ${stage.id}: ${stage.name}, prompt ${stage.promptEnabled ? "enabled" : "disabled"}` +
-            `${stage.prompt.trim() ? "" : " (no prompt text)"}` +
+            `${stage.prompt.trim() ? "" : " (no prompt text)"}, model ${modelDescription(stage.effectiveModel)}` +
             `${stage.hil ? `, HIL ${stage.hil.flag}${stage.hil.comment ? ` / ${stage.hil.comment}` : ""}` : ""}.`,
         );
       }
@@ -138,6 +174,57 @@ export async function runProjectCommand(
     }
 
     case "story": {
+      if (sub === "attachment") {
+        const operation = args[1];
+        const key = need(args[2], "story attachment add|list|get <KEY>");
+        const query = workerId ? `?worker=${encodeURIComponent(workerId)}` : "";
+        if (operation === "list") {
+          const files = await call<Attachment[]>("GET", routes.storyAttachments(key) + query, undefined, () =>
+            svc.listAttachments(key, actor),
+          );
+          return out(files, () =>
+            files.length
+              ? files.map((f) => `${f.id}  ${f.name}  ${f.mediaType}  ${f.size} bytes`).join("\n")
+              : "No attachments.",
+          );
+        }
+        if (operation === "add") {
+          const inputPath = need(args[3], "story attachment add <KEY> <path>");
+          const fd = fs.openSync(inputPath, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+          let bytes: Buffer;
+          try {
+            const stat = fs.fstatSync(fd);
+            if (!stat.isFile()) throw new SfError("invalid", "input must be a regular file");
+            if (stat.size > ATTACHMENT_LIMIT) throw new SfError("invalid", "attachment exceeds 20 MiB");
+            bytes = fs.readFileSync(fd);
+          } finally {
+            fs.closeSync(fd);
+          }
+          const input = { name: path.basename(inputPath), data: bytes.toString("base64") };
+          const file = await call<Attachment>(
+            "POST",
+            routes.storyAttachments(key),
+            { ...input, worker: workerId },
+            () => svc.addAttachment(key, input, actor),
+          );
+          return out(file, () => `Added ${file.id}: ${file.name} (${file.size} bytes).`);
+        }
+        if (operation === "get") {
+          const id = need(args[3], "story attachment get <KEY> <attachment-id> --output <path>");
+          const output = path.resolve(
+            need(str(flags.output), "story attachment get <KEY> <attachment-id> --output <path>"),
+          );
+          if (!fs.statSync(path.dirname(output)).isDirectory())
+            throw new SfError("invalid", "output parent must be a directory");
+          if (fs.existsSync(output)) throw new SfError("invalid", "output already exists");
+          const bytes = server
+            ? await ClientService.download(server, routes.storyAttachment(key, id) + query)
+            : (await svc.getAttachment(key, id, actor)).bytes;
+          fs.writeFileSync(output, bytes, { flag: "wx" });
+          return out({ output, size: bytes.length }, () => `Saved ${output} (${bytes.length} bytes).`);
+        }
+        throw new SfError("invalid", "usage: sf story attachment add|list|get <KEY>");
+      }
       if (sub === "list") {
         const ref = args[1];
         const stage = str(flags.stage);
@@ -154,6 +241,7 @@ export async function runProjectCommand(
           board: ref,
           title: need(str(flags.title), 'story create <board> --title "<t>"'),
           ...(str(flags.stage) ? { stage: str(flags.stage) } : {}),
+          ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
           fields: parseFields(schema, flags.field),
           ...readBody(flags),
           ...(workerId ? { worker: workerId } : {}),
@@ -178,6 +266,7 @@ export async function runProjectCommand(
       if (sub === "update") {
         const boardKey = parseStoryKey(key)?.boardKey ?? key;
         const patch = {
+          ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
           ...(str(flags.title) !== undefined ? { title: str(flags.title) } : {}),
           ...(flags.field ? { fields: parseFields(svc.showBoard(boardKey).config.schema, flags.field) } : {}),
           ...readBody(flags),
@@ -186,6 +275,12 @@ export async function runProjectCommand(
           svc.updateStory(key, patch, actor),
         );
         return out(story, () => `Updated ${key}.`);
+      }
+      if (sub === "delete") {
+        const deleted = await call<DeleteStoryResponse>("DELETE", routes.story(key), worker, () =>
+          svc.deleteStory(key, actor),
+        );
+        return out(deleted, () => `Permanently deleted ${key}. Story Worktree and branch retained.`);
       }
       if (sub === "release") {
         const story = await call<StoryDetails>("POST", routes.storyRelease(key), worker, () =>
@@ -201,7 +296,7 @@ export async function runProjectCommand(
         const story = await call<StoryDetails>("POST", routes.storyRetry(key), {}, () => svc.retry(key));
         return out(story, () => `Retrying ${key} in ${story.stage}.${statusText(story)}`);
       }
-      throw new SfError("invalid", "usage: sf story list|create|show|move|update|release|force-release|retry");
+      throw new SfError("invalid", "usage: sf story list|create|show|move|update|delete|release|force-release|retry");
     }
 
     case "worktree": {
@@ -246,8 +341,9 @@ function formatStages(stages: StageConfig[]) {
     .join("\n");
 }
 
-function formatBoard({ id, config, prompts }: BoardResponse) {
+function formatBoard({ id, config, prompts, effectiveModel }: BoardResponse) {
   const lines = [`${config.name} (key ${config.key}, id ${id})`, "Stages:", formatStages(config.stages)];
+  if (effectiveModel) lines.splice(1, 0, `Model: ${modelDescription(effectiveModel)}`);
   if (config.schema.length) {
     lines.push("Fields:");
     for (const f of config.schema)
@@ -279,6 +375,7 @@ function formatStoryLine(s: StoryDetails) {
 
 function formatStory(s: StoryDetails) {
   const lines = [`${s.key}: ${s.title}`, `stage: ${s.stage}`];
+  if (s.effectiveModel) lines.push(`model: ${modelDescription(s.effectiveModel)}${s.model ? "" : " (inherited)"}`);
   if (s.branch) lines.push(`branch: ${s.branch}`);
   for (const [k, v] of Object.entries(s.fields)) lines.push(`${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`);
   const status = statusText(s).trim();
@@ -314,4 +411,13 @@ function bool(v: Flags[string]) {
   if (v === true || s === "true") return true;
   if (s === "false") return false;
   throw new SfError("invalid", `expected true or false, got ${JSON.stringify(v)}`);
+}
+
+function modelPatch(flags: Flags) {
+  const options = flags["model-option"];
+  const list = options === undefined ? [] : Array.isArray(options) ? options : [String(options)];
+  return {
+    ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
+    ...(list.length ? { addModelOptions: list.map((slug) => ({ slug, label: slug })) } : {}),
+  };
 }

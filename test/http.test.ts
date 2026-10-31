@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import { after, test } from "node:test";
-import { routes, type StoryDetails } from "#model/api";
+import { promisify } from "node:util";
+import { type ErrorResponse, routes, type StoryDetails } from "#model/api";
 import type { CommandRecord } from "#model/commands";
 import { createApp, listen } from "../src/server/server.ts";
 import { ClientService, type ServerInfo } from "../src/server/services/ClientService.ts";
@@ -72,4 +75,105 @@ test("errors map to HTTP codes", async () => {
     body: JSON.stringify({ stage: "in_review", worker: "w-nope" }),
   });
   assert.equal(res.status, 409);
+});
+
+test("model API and online CLI settings persist through all four levels", async () => {
+  const { spawn } = await import("node:child_process");
+  const path = await import("node:path");
+  const cli = (...args: string[]) =>
+    new Promise<StoryDetails>((resolve, reject) => {
+      const proc = spawn(
+        process.execPath,
+        ["--import", "tsx", path.resolve("src/cli/main.ts"), ...args, "--project", root, "--json"],
+        { env: process.env },
+      );
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data) => {
+        stdout += data;
+      });
+      proc.stderr.on("data", (data) => {
+        stderr += data;
+      });
+      proc.on("error", reject);
+      proc.on("exit", (code) => (code === 0 ? resolve(JSON.parse(stdout)) : reject(new Error(stderr))));
+    });
+  // CLI discovery points at this in-process server; async children leave it free to answer HTTP.
+  const { sfPaths } = await import("../src/server/project/paths.ts");
+  fs.writeFileSync(sfPaths(root).serverJson, JSON.stringify({ ...server, pid: process.pid }));
+  await call("POST", routes.boards, { name: "Models", key: "MOD" });
+  await cli("project", "set", "--model", "online-project", "--model-option", "online/custom");
+  const p = await call<import("#model/api").ProjectSettingsResponse>("GET", routes.projectSettings);
+  assert.equal(p.config.worker.model, "online-project");
+  assert.ok(p.config.modelOptions!.some((o) => o.slug === "online/custom"));
+  await cli("board", "set", "MOD", "--model", "online-board", "--model-option", "board/custom");
+  await cli("stage", "set", "MOD", "backlog", "--model", "online-stage");
+  const s = await cli("story", "create", "MOD", "--title", "Online", "--model", "online-story");
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "story");
+  await cli("story", "update", s.key, "--model", "");
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.model, "online-stage");
+  await call("PATCH", routes.stage("MOD", "backlog"), { model: null });
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "board");
+  await call("PATCH", routes.board("MOD"), { model: null });
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "project");
+  await call("PATCH", routes.projectSettings, { model: null });
+  assert.equal((await call<StoryDetails>("GET", routes.story(s.key))).effectiveModel!.source, "supervisor");
+  await assert.rejects(
+    call("PATCH", routes.board("MOD"), { schema: [{ id: "model", name: "Model", type: "text" }] }),
+    /reserved/,
+  );
+});
+
+test("DELETE Story uses service Claim checks, updates live state, and returns 404 on repetition", async () => {
+  await call("POST", routes.boards, { name: "Deletion", key: "DEL" });
+  await call("PATCH", routes.stage("DEL", "todo"), { promptEnabled: true, prompt: "Work" });
+  const claimed = await call<StoryDetails>("POST", routes.stories, { board: "DEL", title: "Claimed", stage: "todo" });
+  const request = (key: string, body?: unknown) =>
+    fetch(`http://127.0.0.1:${server.port}${routes.story(key)}`, {
+      method: "DELETE",
+      headers: { authToken: "t", "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  for (const body of [undefined, { worker: claimed.claim!.workerId }]) {
+    const res = await request(claimed.key, body);
+    assert.equal(res.status, 409);
+    assert.equal(((await res.json()) as ErrorResponse).code, "claimed");
+  }
+  await call("POST", routes.storyForceRelease(claimed.key), {});
+  const stale = await request(claimed.key, { worker: claimed.claim!.workerId });
+  assert.equal(stale.status, 409);
+  assert.equal(((await stale.json()) as ErrorResponse).code, "claim_gone");
+  const res = await request(claimed.key);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { key: claimed.key });
+  assert.equal(store.state.project!.boards.find((b) => b.config.key === "DEL")!.stories.length, 0);
+  for (const key of [claimed.key, "DEL-99"]) {
+    const missing = await request(key);
+    assert.equal(missing.status, 404);
+    assert.equal(((await missing.json()) as ErrorResponse).code, "not_found");
+  }
+});
+
+test("online CLI deletion calls HTTP with Worker credentials and refreshes the server snapshot", async () => {
+  const runtime = path.join(root, ".sf/runtime");
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.writeFileSync(path.join(runtime, "server.json"), JSON.stringify(server));
+  const run = (...args: string[]) =>
+    promisify(execFile)(process.execPath, [
+      "--import",
+      "tsx",
+      path.resolve("src/cli/main.ts"),
+      ...args,
+      "--project",
+      root,
+      "--json",
+    ]);
+  const story = await call<StoryDetails>("POST", routes.stories, { board: "DEL", title: "CLI" });
+  await assert.rejects(run("story", "delete", story.key, "--worker", "stale"), (err: unknown) => {
+    assert.match((err as { stderr: string }).stderr, /claim is gone/);
+    return true;
+  });
+  const deleted = await run("story", "delete", story.key);
+  assert.deepEqual(JSON.parse(deleted.stdout), { key: story.key });
+  assert.equal(store.state.project!.boards.find((b) => b.config.key === "DEL")!.stories.length, 0);
 });

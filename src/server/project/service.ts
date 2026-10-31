@@ -3,10 +3,13 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { StoryDetails } from "#model/api";
+import type { StoryDetails, UpdateProjectRequest } from "#model/api";
+import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
 import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
+import { modelCatalog, resolveModel } from "#model/models";
 import type { ProjectSnapshot, StoryView } from "#model/project";
 import type { RuntimeState, WorkerEndReason } from "#model/runtime";
+import { attachmentStore } from "./attachments.ts";
 import { composeBrief } from "./brief.ts";
 import {
   BACKLOG,
@@ -17,15 +20,20 @@ import {
   listBoardIds,
   loadBoard,
   loadProjectConfig,
+  normalizeModelOptions,
   resolveSettings,
   saveBoard,
   slug,
   uniqueId,
+  validateBoard,
+  validateModel,
+  validateSchema,
 } from "./config.ts";
 import { SfError } from "./errors.ts";
 import { atomicWrite, withLock, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";
 import { loadRuntime, saveRuntime } from "./runtime.ts";
+import { readStage, serializeStage } from "./stage.ts";
 import { nextStoryNumber, parseStory, parseStoryKey, type StoryData, serializeStory, validateFields } from "./story.ts";
 import {
   type CleanupResult,
@@ -68,8 +76,19 @@ export type ServiceOptions = {
   onChange?: () => void;
 };
 
-export type StoryInput = { title: string; stage?: string; fields?: Record<string, unknown>; body?: string };
-export type StoryPatch = { title?: string; fields?: Record<string, unknown>; body?: string };
+export type StoryInput = AttachmentSubmission & {
+  model?: string | null;
+  title: string;
+  stage?: string;
+  fields?: Record<string, unknown>;
+  body?: string;
+};
+export type StoryPatch = AttachmentSubmission & {
+  model?: string | null;
+  title?: string;
+  fields?: Record<string, unknown>;
+  body?: string;
+};
 export type StagePatch = {
   name?: string;
   promptEnabled?: boolean;
@@ -81,7 +100,14 @@ export type StagePatch = {
   /** HIL comment field id; empty or null clears it. */
   hilComment?: string | null;
 };
-export type BoardPatch = { name?: string; schema?: FieldDef[]; overrides?: BoardOverrides };
+export type BoardPatch = {
+  addModelOptions?: import("#model/models").ModelOption[];
+  modelOptions?: import("#model/models").ModelOption[];
+  model?: string | null;
+  name?: string;
+  schema?: FieldDef[];
+  overrides?: BoardOverrides;
+};
 
 type Tx = { rt: RuntimeState; project: ProjectConfig; after: (() => Promise<unknown>)[] };
 
@@ -105,14 +131,6 @@ export function createService(opts: ServiceOptions) {
     throw new SfError("not_found", `no Board "${ref}"`);
   }
 
-  function boardOf(id: string) {
-    try {
-      return loadBoard(root, id);
-    } catch {
-      return null;
-    }
-  }
-
   function storyFile(boardId: string, key: string) {
     return path.join(paths.stories(boardId), `${key}.md`);
   }
@@ -125,7 +143,14 @@ export function createService(opts: ServiceOptions) {
       if (board.key !== parsed.boardKey) continue;
       const file = storyFile(id, key);
       if (!fs.existsSync(file)) break;
-      return { boardId: id, board, story: parseStory(fs.readFileSync(file, "utf8")) };
+      return {
+        boardId: id,
+        board,
+        story: parseStory(
+          fs.readFileSync(file, "utf8"),
+          board.schema.some((f) => f.id === "model"),
+        ),
+      };
     }
     throw new SfError("not_found", `no Story ${key}`);
   }
@@ -144,9 +169,18 @@ export function createService(opts: ServiceOptions) {
 
   function promptText(boardId: string, stageId: string) {
     try {
-      return fs.readFileSync(path.join(paths.stages(boardId), `${stageId}.md`), "utf8");
+      return readStage(path.join(paths.stages(boardId), `${stageId}.md`)).body;
     } catch {
       return "";
+    }
+  }
+
+  function instructionText(file: string) {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw new SfError("invalid", `cannot read Worker instructions at ${file}: ${String(err)}`);
     }
   }
 
@@ -168,18 +202,29 @@ export function createService(opts: ServiceOptions) {
       title: story.title,
       stage: story.stage,
       ...(story.branch ? { branch: story.branch } : {}),
+      ...(story.model ? { model: story.model } : {}),
       fields: story.fields,
       body: story.body,
     };
   }
 
   function details(rt: RuntimeState, v: StoryView): StoryDetails {
-    const d: StoryDetails = { ...v };
+    const board = loadBoard(root, v.board);
+    const project = loadProjectConfig(root);
+    const d: StoryDetails = {
+      ...v,
+      effectiveModel: resolveModel(
+        project,
+        board,
+        board.stages.find((s) => s.id === v.stage),
+        v,
+      ),
+      modelOptions: modelCatalog(project, board, [v.model]),
+    };
     if (rt.claims[v.key]) d.claim = rt.claims[v.key];
     if (rt.queue.some((q) => q.storyKey === v.key)) d.queued = true;
     if (rt.failures[v.key]) d.failure = rt.failures[v.key];
     if (rt.worktreeWarnings[v.key]) d.worktreeWarning = rt.worktreeWarnings[v.key];
-    const board = boardOf(v.board);
     const hil = board && activeHil(board, v);
     if (hil) d.hil = hil;
     return d;
@@ -194,7 +239,14 @@ export function createService(opts: ServiceOptions) {
       .map((f) => {
         const key = f.slice(0, -3);
         try {
-          return view(key, boardId, parseStory(fs.readFileSync(path.join(dir, f), "utf8")));
+          return view(
+            key,
+            boardId,
+            parseStory(
+              fs.readFileSync(path.join(dir, f), "utf8"),
+              loadBoard(root, boardId).schema.some((f) => f.id === "model"),
+            ),
+          );
         } catch (err) {
           return view(key, boardId, {
             title: `(unreadable: ${(err as Error).message})`,
@@ -209,7 +261,7 @@ export function createService(opts: ServiceOptions) {
 
   // ---------- runtime transitions (always inside mutate) ----------
 
-  async function mutate<T>(fn: (tx: Tx) => T): Promise<T> {
+  async function mutate<T>(fn: (tx: Tx) => T, drain = true): Promise<T> {
     loadProjectConfig(root);
     const after: Tx["after"] = [];
     let result: T;
@@ -218,7 +270,7 @@ export function createService(opts: ServiceOptions) {
         const tx: Tx = { rt: loadRuntime(root), project: loadProjectConfig(root), after };
         try {
           sweep(tx);
-          drainQueue(tx);
+          if (drain) drainQueue(tx);
           return fn(tx);
         } finally {
           saveRuntime(root, tx.rt);
@@ -265,7 +317,13 @@ export function createService(opts: ServiceOptions) {
       const found = tryLocate(entry.storyKey);
       if (!found || tx.rt.claims[entry.storyKey] || found.story.stage !== entry.stageId) continue;
       if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) continue;
-      spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
+      try {
+        spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
+      } catch (err) {
+        // Runtime is saved even on error; keep this spawn first for the next drain.
+        tx.rt.queue.unshift(entry);
+        throw err;
+      }
     }
   }
 
@@ -287,7 +345,7 @@ export function createService(opts: ServiceOptions) {
   function spawnNow(tx: Tx, key: string, boardId: string, stageId: string) {
     const { board, story } = locate(key);
     const stage = board.stages.find((s) => s.id === stageId)!;
-    const settings = resolveSettings(tx.project, board, stage);
+    const settings = resolveSettings(tx.project, board, stage, story);
     const workerId = `w-${crypto.randomBytes(4).toString("hex")}`;
     const worktree = { path: worktreePath(root, key), branch: storyBranch(key) };
     const mode = opts.spawnMode?.() ?? "subagent";
@@ -302,7 +360,10 @@ export function createService(opts: ServiceOptions) {
       workerId,
       sf: opts.sf ?? "sf",
       preamble: settings.briefPreamble,
+      projectInstructions: instructionText(paths.instructions),
+      boardInstructions: instructionText(paths.boardInstructions(boardId)),
       prompt: promptText(boardId, stageId),
+      effectiveModel: resolveModel(tx.project, board, stage, story),
     });
     const commandId = opts.onSpawn?.({
       workerId,
@@ -348,9 +409,12 @@ export function createService(opts: ServiceOptions) {
   function enterStage(tx: Tx, key: string, boardId: string, board: BoardConfig, story: StoryData, claimEnded: boolean) {
     const stageId = story.stage;
     if (stageId === DONE) scheduleCleanup(tx, key);
-    // Free capacity goes to the oldest queued spawn before this Story asks for one.
-    if (claimEnded) drainQueue(tx);
-    if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
+    if (claimEnded && online) {
+      // Persist this Story's intent before a drain can fail, behind older spawns.
+      if (spawnsFor(boardId, board, stageId, story))
+        tx.rt.queue.push({ storyKey: key, board: boardId, stageId, queuedAt: now() });
+      drainQueue(tx);
+    } else if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
   }
 
   /** Drops any queued or pending spawn for the Story. */
@@ -371,23 +435,29 @@ export function createService(opts: ServiceOptions) {
 
   /** Removes the Story Worktree; for a Story in Done, also deletes its branch once merged. */
   async function removeWorktree(key: string, force: boolean, onlyIfDone = false): Promise<CleanupResult> {
-    const { board, story } = locate(key);
-    if (onlyIfDone && story.stage !== DONE)
-      return { removed: false, path: worktreePath(root, key), branch: storyBranch(key) };
-    const settings = resolveSettings(loadProjectConfig(root), board);
-    let result: CleanupResult;
-    try {
-      const base = await resolveBaseBranch(git, root, settings.baseBranch);
-      result = await cleanupWorktree(git, root, key, base, { force, deleteBranch: story.stage === DONE });
-    } catch (err) {
-      result = {
-        removed: false,
-        path: worktreePath(root, key),
-        branch: storyBranch(key),
-        reason: (err as Error).message,
-      };
-    }
+    // Serialize the existence check and git operation with deletion. A deferred
+    // Done cleanup must never remove artifacts after its Story has been deleted.
+    const result = await withLock(root, async (): Promise<CleanupResult> => {
+      const found = tryLocate(key);
+      if (!found && onlyIfDone) return { removed: false, path: worktreePath(root, key), branch: storyBranch(key) };
+      const { board, story } = found ?? locate(key);
+      if (onlyIfDone && story.stage !== DONE)
+        return { removed: false, path: worktreePath(root, key), branch: storyBranch(key) };
+      const settings = resolveSettings(loadProjectConfig(root), board);
+      try {
+        const base = await resolveBaseBranch(git, root, settings.baseBranch);
+        return await cleanupWorktree(git, root, key, base, { force, deleteBranch: story.stage === DONE });
+      } catch (err) {
+        return {
+          removed: false,
+          path: worktreePath(root, key),
+          branch: storyBranch(key),
+          reason: (err as Error).message,
+        };
+      }
+    });
     await mutate(({ rt }) => {
+      if (!tryLocate(key)) return;
       if (result.reason)
         rt.worktreeWarnings[key] = { path: result.path, branch: result.branch, reason: result.reason, at: now() };
       else delete rt.worktreeWarnings[key];
@@ -406,6 +476,30 @@ export function createService(opts: ServiceOptions) {
       if (!fs.existsSync(paths.config)) writeJson(paths.config, DEFAULT_PROJECT_CONFIG);
       if (!fs.existsSync(paths.gitignore)) atomicWrite(paths.gitignore, "runtime/\n");
       return loadProjectConfig(root);
+    },
+
+    showProject() {
+      const config = loadProjectConfig(root);
+      return {
+        config,
+        effectiveModel: resolveModel(config),
+        modelOptions: modelCatalog(config, undefined, [config.worker.model]),
+      };
+    },
+
+    async updateProject(patch: UpdateProjectRequest) {
+      return mutate(() => {
+        const config = loadProjectConfig(root);
+        if (patch.model !== undefined) {
+          validateModel(patch.model);
+          config.worker.model = patch.model || null;
+        }
+        if (patch.modelOptions !== undefined) config.modelOptions = normalizeModelOptions(patch.modelOptions);
+        if (patch.addModelOptions !== undefined)
+          config.modelOptions = mergeOptions(config.modelOptions, patch.addModelOptions);
+        writeJson(paths.config, config);
+        return service.showProject();
+      });
     },
 
     hasProject() {
@@ -431,14 +525,35 @@ export function createService(opts: ServiceOptions) {
     async updateBoard(ref: string, patch: BoardPatch) {
       return mutate(() => {
         const { id, config } = boardRef(ref);
+        if (patch.schema !== undefined) {
+          if (config.schema.some((f) => f.id === "model"))
+            throw new SfError(
+              "invalid",
+              "legacy custom field model conflicts with the built-in model; rename it and its Story data before changing the schema",
+            );
+          validateSchema(patch.schema);
+        }
+        validateModel(patch.model);
         const next: BoardConfig = {
           ...config,
           ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
           ...(patch.schema !== undefined ? { schema: patch.schema } : {}),
-          ...(patch.overrides !== undefined ? { overrides: patch.overrides } : {}),
+          overrides: {
+            ...config.overrides,
+            ...patch.overrides,
+            worker: {
+              ...config.overrides.worker,
+              ...patch.overrides?.worker,
+              ...(patch.model !== undefined ? { model: patch.model || null } : {}),
+            },
+            worktree: { ...config.overrides.worktree, ...patch.overrides?.worktree },
+          },
+          ...(patch.modelOptions !== undefined ? { modelOptions: normalizeModelOptions(patch.modelOptions) } : {}),
         };
+        if (patch.addModelOptions !== undefined)
+          next.modelOptions = mergeOptions(next.modelOptions, patch.addModelOptions);
         saveBoard(root, id, next);
-        return { id, config: next };
+        return service.showBoard(id);
       });
     },
 
@@ -469,6 +584,7 @@ export function createService(opts: ServiceOptions) {
       return mutate(() => {
         const { id, config } = boardRef(ref);
         const stage = requireStage(config, stageId);
+        validateModel(patch.model);
         if (isFixedStage(stageId)) {
           if (patch.name !== undefined && patch.name !== stage.name)
             throw new SfError("invalid", `${stage.name} cannot be renamed`);
@@ -490,9 +606,24 @@ export function createService(opts: ServiceOptions) {
           else if (patch.hilComment) throw new SfError("invalid", "a HIL comment field needs a HIL flag field");
           else delete stage.hil;
         }
+        validateModel(stage.model);
+        validateBoard({ ...config, schema: config.schema.filter((f) => f.id !== "model") });
+        const file = path.join(paths.stages(id), `${stageId}.md`);
+        const { metadata, body } = readStage(file);
+        const selection = stage.model;
+        if (selection) metadata.model = selection;
+        else delete metadata.model;
+        delete stage.model;
+        // Remove legacy JSON before writing a cleared Markdown key, preventing resurrection.
         saveBoard(root, id, config);
-        if (patch.prompt !== undefined) atomicWrite(path.join(paths.stages(id), `${stageId}.md`), patch.prompt);
-        return { ...stage, prompt: promptText(id, stageId) };
+        atomicWrite(file, serializeStage(metadata, patch.prompt ?? body));
+        const updated = loadBoard(root, id).stages.find((s) => s.id === stageId)!;
+        return {
+          ...updated,
+          prompt: promptText(id, stageId),
+          effectiveModel: resolveModel(loadProjectConfig(root), config, { ...stage, model: selection }),
+          modelOptions: modelCatalog(loadProjectConfig(root), config, [selection]),
+        };
       });
     },
 
@@ -532,24 +663,82 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         if (actor.kind === "worker") checkWorker(tx, actor.id);
         const { id, config } = boardRef(ref);
+        if (input.submissionId) {
+          for (const existing of storyViews(id)) {
+            if (attachmentStore(paths.attachments(id, existing.key)).hasSubmission(input.submissionId))
+              return details(tx.rt, existing);
+          }
+        }
         const stageId = input.stage ?? BACKLOG;
         requireStage(config, stageId);
         const title = input.title?.trim();
         if (!title) throw new SfError("invalid", "a Story needs a title");
+        validateModel(input.model);
+        checkStoryModel(config, input.model, input.fields);
         const fields = cleanFields(input.fields ?? {});
         validateFields(config.schema, fields);
-        const key = `${config.key}-${nextStoryNumber(paths.stories(id), config.key)}`;
-        const story: StoryData = { title, stage: stageId, fields, body: input.body ?? "" };
-        writeStory(id, key, story);
+        const number = Math.max(config.storyNumber ?? 0, nextStoryNumber(paths.stories(id), config.key) - 1) + 1;
+        config.storyNumber = number;
+        // Reserve the Key before writing: a failed write may leave a gap, never a reused Key.
+        saveBoard(root, id, config);
+        const key = `${config.key}-${number}`;
+        const story: StoryData = {
+          title,
+          stage: stageId,
+          ...(input.model ? { model: input.model } : {}),
+          fields,
+          body: input.body ?? "",
+        };
+        const storage = attachmentStore(paths.attachments(id, key));
+        storage.hasSubmission(input.submissionId);
+        storage.commit(
+          input.attachments,
+          input.submissionId,
+          () => writeStory(id, key, story),
+          () => fs.rmSync(storyFile(id, key), { force: true }),
+        );
         enterStage(tx, key, id, config, story, false);
         return details(tx.rt, view(key, id, story));
       });
+    },
+
+    async deleteStory(key: string, actor: Actor) {
+      // Do not drain first: a queued Story must remain deletable when capacity opens.
+      return mutate((tx) => {
+        if (actor.kind === "worker") checkWorker(tx, actor.id);
+        const { boardId, board } = locate(key);
+        const claim = tx.rt.claims[key];
+        if (claim)
+          throw new SfError(
+            "claimed",
+            `${key} is claimed by Worker ${claim.workerId}; release the Claim before deletion`,
+          );
+        // Migrate older Boards before removing any file, including their highest Story.
+        board.storyNumber = Math.max(board.storyNumber ?? 0, nextStoryNumber(paths.stories(boardId), board.key) - 1);
+        saveBoard(root, boardId, board);
+        fs.unlinkSync(storyFile(boardId, key));
+        dropSpawn(tx, key);
+        tx.rt.pendingTriggers = tx.rt.pendingTriggers.filter((t) => t.storyKey !== key);
+        delete tx.rt.failures[key];
+        delete tx.rt.worktreeWarnings[key];
+        drainQueue(tx);
+        return { key };
+      }, false);
     },
 
     async updateStory(key: string, patch: StoryPatch, actor: Actor): Promise<StoryDetails> {
       return mutate((tx) => {
         if (actor.kind === "worker") checkWorker(tx, actor.id);
         const { boardId, board, story } = locate(key);
+        const storage = attachmentStore(paths.attachments(boardId, key));
+        if (storage.hasSubmission(patch.submissionId)) return details(tx.rt, view(key, boardId, story));
+        validateModel(patch.model);
+        checkStoryModel(board, patch.model, patch.fields);
+        if (patch.model !== undefined && Object.hasOwn(story.fields, "model"))
+          throw new SfError(
+            "invalid",
+            "existing model metadata conflicts with the built-in model; rename it and its data first",
+          );
         const fields = { ...story.fields };
         for (const [k, v] of Object.entries(patch.fields ?? {})) {
           if (v === null || v === undefined) delete fields[k];
@@ -560,10 +749,16 @@ export function createService(opts: ServiceOptions) {
         const next: StoryData = {
           ...story,
           title: patch.title?.trim() ?? story.title,
+          ...(patch.model !== undefined ? { model: patch.model || undefined } : {}),
           fields,
           body: patch.body ?? story.body,
         };
-        writeStory(boardId, key, next);
+        storage.commit(
+          patch.attachments,
+          patch.submissionId,
+          () => writeStory(boardId, key, next),
+          () => writeStory(boardId, key, story),
+        );
         // Hold: a Story whose HIL flag is set waits. Wake: clearing the flag spawns as if the Story had just entered.
         const wasHeld = Boolean(activeHil(board, story));
         const held = Boolean(activeHil(board, next));
@@ -571,6 +766,33 @@ export function createService(opts: ServiceOptions) {
         if (wasHeld && !held && !tx.rt.claims[key] && stageSpawns(boardId, board, next.stage))
           requestSpawn(tx, key, boardId, next.stage);
         return details(tx.rt, view(key, boardId, next));
+      });
+    },
+
+    async listAttachments(key: string, actor: Actor) {
+      return mutate((tx) => {
+        if (actor.kind === "worker") checkWorker(tx, actor.id);
+        const { boardId } = locate(key);
+        return attachmentStore(paths.attachments(boardId, key)).list();
+      });
+    },
+    async getAttachment(key: string, id: string, actor: Actor) {
+      return mutate((tx) => {
+        if (actor.kind === "worker") checkWorker(tx, actor.id);
+        const { boardId } = locate(key);
+        return attachmentStore(paths.attachments(boardId, key)).get(id);
+      });
+    },
+    async addAttachment(key: string, input: AttachmentInput, actor: Actor) {
+      return mutate((tx) => {
+        if (actor.kind === "worker") checkWorker(tx, actor.id);
+        const { boardId } = locate(key);
+        return attachmentStore(paths.attachments(boardId, key)).commit(
+          [input],
+          undefined,
+          () => {},
+          () => {},
+        )[0]!;
       });
     },
 
@@ -661,7 +883,17 @@ export function createService(opts: ServiceOptions) {
     showBoard(ref: string) {
       const { id, config } = boardRef(ref);
       const prompts = Object.fromEntries(config.stages.map((s) => [s.id, promptText(id, s.id)]));
-      return { id, config, prompts };
+      const project = loadProjectConfig(root);
+      return {
+        id,
+        config,
+        prompts,
+        effectiveModel: resolveModel(project, config),
+        modelOptions: modelCatalog(project, config, [
+          config.overrides.worker?.model,
+          ...config.stages.map((s) => s.model),
+        ]),
+      };
     },
 
     /** Ends timed-out Claims and drains the queue. */
@@ -674,16 +906,25 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         const triggers = tx.rt.pendingTriggers;
         tx.rt.pendingTriggers = [];
-        for (const t of triggers) {
-          const found = tryLocate(t.storyKey);
-          if (!found) continue;
-          if (t.type === "cleanup") scheduleCleanup(tx, t.storyKey);
-          else if (
-            found.story.stage === t.stageId &&
-            !tx.rt.claims[t.storyKey] &&
-            spawnsFor(found.boardId, found.board, t.stageId, found.story)
-          )
-            requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
+        let index = 0;
+        try {
+          for (; index < triggers.length; index++) {
+            const t = triggers[index]!;
+            const found = tryLocate(t.storyKey);
+            if (!found) continue;
+            if (t.type === "cleanup") scheduleCleanup(tx, t.storyKey);
+            else if (
+              found.story.stage === t.stageId &&
+              !tx.rt.claims[t.storyKey] &&
+              spawnsFor(found.boardId, found.board, t.stageId, found.story)
+            )
+              requestSpawn(tx, t.storyKey, found.boardId, t.stageId);
+          }
+        } catch (err) {
+          // Keep unfinished triggers and cleanups whose after-tasks cannot run on error.
+          // Completed spawns must not be replayed after their Claims end.
+          tx.rt.pendingTriggers.unshift(...triggers.filter((t, i) => i >= index || t.type === "cleanup"));
+          throw err;
         }
       });
     },
@@ -753,4 +994,18 @@ export function createService(opts: ServiceOptions) {
     const { boardId, story } = locate(key);
     return view(key, boardId, story);
   }
+}
+
+function mergeOptions(existing: import("#model/models").ModelOption[] | undefined, additions: unknown) {
+  return [...new Map([...(existing ?? []), ...normalizeModelOptions(additions)].map((o) => [o.slug, o])).values()];
+}
+
+function checkStoryModel(board: BoardConfig, model: unknown, fields?: Record<string, unknown>) {
+  if (model !== undefined && board.schema.some((f) => f.id === "model"))
+    throw new SfError(
+      "invalid",
+      "legacy custom field model conflicts with the built-in model; rename it and its data first",
+    );
+  if (fields && Object.hasOwn(fields, "model"))
+    throw new SfError("invalid", "model is a built-in property; use --model instead of custom fields");
 }

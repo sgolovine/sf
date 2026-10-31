@@ -35,6 +35,16 @@ Run `sf capabilities`. It detects the agent and app from the environment. It can
 - `canSpawnThreads`: true only if you have a tool that starts new top-level threads (for example T3 Code `t3_thread_launch`). Workers then run as threads.
 - `canSpawnSubagents`: true only if you have a tool that runs child agents (for example the Claude Code Agent tool or T3 Code `delegate_task`). Workers run as subagents when you cannot spawn threads.
 
+These flags describe local launch ability; they do not establish remote support. Before any future
+remote dispatch, follow the [remote preflight](references/commands.md#remote-dispatch-preflight).
+Current sf commands and Worker Briefs support local execution only.
+
+Before starting sf, check the current harness/app's available tools and documentation for a supported way to rename the current conversation. If available, use it once to set this Supervisor conversation's title to exactly `SF Supervisor`. Rename support is independent of the agent name and thread-spawning capabilities; do not create or rename another thread.
+
+For example, when T3 Code exposes `t3_thread_update`, call it with `{"action":"rename","title":"SF Supervisor"}`. Omit `threadId` to target the calling conversation. Other harnesses may use their own documented equivalent; do not invent tools or commands.
+
+If no supported rename operation is available, keep the existing/default title and continue startup without asking the user or installing tools. A rejected or failed rename is also nonblocking: continue without retrying. Do not enforce the title again after startup.
+
 ## 3. Start sf
 
 Start sf the way a person does in a terminal, as a long-running background process of this thread:
@@ -63,7 +73,7 @@ If the Project has no Board yet, the user can create one in the interface, or as
 Run these as separate commands, not in the `sf start` session. Repeat until the user tells you to stop:
 
 1. Run `sf next` with a shell timeout of at least 10 minutes. It blocks until there is a command and prints it. Exit `2` means no command arrived; run it again.
-2. Carry out the command. See [commands.md](references/commands.md). For `worker.spawn`, start the Worker and report right away; do not wait for the Worker to finish, and never do the Worker's work yourself.
+2. Carry out the command. Honor an explicit Worker `model` slug unchanged through a supported spawn tool; report unsupported selections or spawn failures with `sf fail` and `sf say --level warn`, never silently substitute a default. An omitted model uses the Supervisor default. See [commands.md](references/commands.md). For `worker.spawn`, start the Worker and report right away; do not wait for the Worker to finish, and never do the Worker's work yourself.
 3. Report the outcome: `sf done <id> --result "<outcome>"`, or `sf fail <id> --error "<reason>"`.
 
 Use `sf say "<text>"` to post progress to the interface. Use `sf changes --since <cursor>` to see files changed since the last check. `sf status` shows the number of Workers holding Claims and Stories waiting for a Worker. Always close a claimed command with `done` or `fail`.

@@ -17,8 +17,15 @@ The hold an active Worker has on its Story. While a Story is claimed, no one els
 _Avoid_: Lock, lease
 
 **Worker Brief**:
-What a Worker receives: an sf preamble (Story key, Board, Stages, and the sf commands), then the Stage Prompt, then the Story.
+What a Worker receives: an sf preamble (Story key, Board, Stages, and the sf commands), the resolved configured `briefPreamble` when present, optional `## SF.md` and `## BOARD.md` sections, then `## Stage Prompt` and `## Story`.
 _Avoid_: Handoff, payload
+
+**SF.md and BOARD.md**:
+Project owners can maintain optional, case-sensitive Markdown files at `.sf/SF.md` (shared by every Board's Workers) and `.sf/boards/<board-id>/BOARD.md` (shared by that Board's Workers across Stages). The Board id determines the path, not its display name or Story key prefix. These files supplement the existing resolved `briefPreamble`; sf does not expand templates or interpret instruction conflicts.
+
+Worker Briefs contain, in order: the sf operational preamble (including commands and HIL guidance), the resolved `briefPreamble` when present, `## SF.md`, `## BOARD.md`, `## Stage Prompt`, and `## Story`. Each instruction section appears only when its file contains nonblank text, with only surrounding whitespace trimmed. Missing, empty, or whitespace-only files are omitted independently; other read errors report the failing path. Existing Projects need no migration or generated files.
+
+sf reads these files from the service's Project root in the Supervisor's checkout each time it composes a brief, including when concurrency-queued spawns or offline pending triggers are drained. Creation, edits, and deletion take effect on the next composition without a restart. Already composed/dispatched briefs and running Workers are unchanged. The files do not instruct the Supervisor or enable Stages, start Workers, or change Claims and HIL behavior; an enabled, nonblank Stage Prompt is still required.
 
 ## Work
 
@@ -39,7 +46,7 @@ The optional, toggleable instructions attached to a Stage. When enabled, a Story
 _Avoid_: Column prompt, stage instructions
 
 **Story**:
-A unit of work on a Board, stored as one Markdown file whose frontmatter records its Stage and custom fields.
+A unit of work on a Board, stored as one Markdown file whose frontmatter records its Stage, optional built-in Worker model, and custom fields. Worker models inherit Story → current Stage → Board → Project → Supervisor default.
 _Avoid_: Ticket, card, issue, task
 
 **Story Worktree**:
@@ -57,3 +64,6 @@ _Avoid_: Story id, slug
 **Move**:
 Changing a Story's Stage to any other Stage through the UI or an sf command, by the user, a Worker, or the Supervisor. Creating a Story in a Stage counts as a Move into it. A Move triggers a Worker, and so does a human clearing a Story's HIL; editing the Stage in the file by hand does not.
 _Avoid_: Transition, drag
+
+**Attachment**:
+A file belonging to a Story, stored with display metadata under the Supervisor’s Project. Users stage files in the Story editor until Save/Create; Workers upload, list, and retrieve them with `sf story attachment ...`. Attachments persist across Moves and Story Worktree cleanup.

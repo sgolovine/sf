@@ -1,5 +1,7 @@
+import type { AttachmentSubmission } from "./attachment.ts";
 import type { CommandRecord, SupervisorCommand } from "./commands.ts";
-import type { BoardConfig, BoardOverrides, FieldDef } from "./config.ts";
+import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig } from "./config.ts";
+import type { ModelOption, ResolvedModel } from "./models.ts";
 import type { StoryView } from "./project.ts";
 import type { Claim, RuntimeState } from "./runtime.ts";
 import type { FileChange } from "./session.ts";
@@ -20,6 +22,7 @@ export const routes = {
   fileChanges: "/api/files/changes",
   stop: "/api/stop",
   project: "/api/project",
+  projectSettings: "/api/project/settings",
   projectInit: "/api/project/init",
   boards: "/api/boards",
   board: (board: string) => `/api/boards/${enc(board)}`,
@@ -28,6 +31,8 @@ export const routes = {
   stageReorder: (board: string, stage: string) => `/api/boards/${enc(board)}/stages/${enc(stage)}/reorder`,
   stories: "/api/stories",
   story: (key: string) => `/api/stories/${enc(key)}`,
+  storyAttachments: (key: string) => `/api/stories/${enc(key)}/attachments`,
+  storyAttachment: (key: string, id: string) => `/api/stories/${enc(key)}/attachments/${enc(id)}`,
   storyMove: (key: string) => `/api/stories/${enc(key)}/move`,
   storyRelease: (key: string) => `/api/stories/${enc(key)}/release`,
   storyForceRelease: (key: string) => `/api/stories/${enc(key)}/force-release`,
@@ -47,8 +52,31 @@ export type FileChangesResponse = { changes: FileChange[] };
 export type ErrorResponse = { error: string; code?: SfErrorCode };
 
 export type CreateBoardRequest = { name: string; key: string };
-export type UpdateBoardRequest = { name?: string; schema?: FieldDef[]; overrides?: BoardOverrides };
-export type BoardResponse = { id: string; config: BoardConfig; prompts?: Record<string, string> };
+export type UpdateProjectRequest = {
+  model?: string | null;
+  modelOptions?: ModelOption[];
+  addModelOptions?: ModelOption[];
+};
+export type ProjectSettingsResponse = {
+  config: ProjectConfig;
+  effectiveModel: ResolvedModel;
+  modelOptions: ModelOption[];
+};
+export type UpdateBoardRequest = {
+  addModelOptions?: ModelOption[];
+  model?: string | null;
+  modelOptions?: ModelOption[];
+  name?: string;
+  schema?: FieldDef[];
+  overrides?: BoardOverrides;
+};
+export type BoardResponse = {
+  id: string;
+  config: BoardConfig;
+  prompts?: Record<string, string>;
+  effectiveModel?: ResolvedModel;
+  modelOptions?: ModelOption[];
+};
 export type AddStageRequest = { name: string; after?: string };
 export type UpdateStageRequest = {
   name?: string;
@@ -60,17 +88,26 @@ export type UpdateStageRequest = {
   hilComment?: string | null;
 };
 export type ReorderStageRequest = { index: number };
-export type CreateStoryRequest = {
+export type CreateStoryRequest = AttachmentSubmission & {
   board: string;
   title: string;
+  model?: string | null;
   stage?: string;
   fields?: Record<string, unknown>;
   body?: string;
   worker?: string;
 };
 /** A null field value clears the field. */
-export type UpdateStoryRequest = { title?: string; fields?: Record<string, unknown>; body?: string; worker?: string };
+export type UpdateStoryRequest = AttachmentSubmission & {
+  model?: string | null;
+  title?: string;
+  fields?: Record<string, unknown>;
+  body?: string;
+  worker?: string;
+};
 export type MoveStoryRequest = { stage: string; worker?: string };
+export type DeleteStoryRequest = { worker?: string };
+export type DeleteStoryResponse = { key: string };
 export type ReleaseStoryRequest = { worker: string };
 export type WorktreeRequest = { action: "ensure" | "remove"; force?: boolean };
 export type WorktreeResponse = {
@@ -86,6 +123,8 @@ export type SfErrorCode = "claim_gone" | "claimed" | "invalid" | "not_found" | "
 
 /** A Story with its runtime status, as returned by the story routes. */
 export type StoryDetails = StoryView & {
+  effectiveModel?: ResolvedModel;
+  modelOptions?: ModelOption[];
   claim?: Claim;
   /** True while the Story waits for a Worker slot. */
   queued?: boolean;

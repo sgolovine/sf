@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { composeBrief, shellQuote } from "../src/server/project/brief.ts";
+import { type BriefInput, composeBrief, shellQuote } from "../src/server/project/brief.ts";
 import { defaultBoard } from "../src/server/project/config.ts";
 
 test("brief sections are sf preamble, configured preamble, Stage Prompt, Story", () => {
@@ -39,6 +39,8 @@ test("brief sections are sf preamble, configured preamble, Stage Prompt, Story",
     positions,
   );
   assert.match(brief, /node \/abs\/sf\.mjs story move DEV-3 <stage-id> --worker w-1a2b --project '\/abs\/my repo'/);
+  for (const command of ["list DEV-3", "add DEV-3 <path>", "get DEV-3 <attachment-id> --output <path>"])
+    assert.ok(brief.includes(`story attachment ${command} --worker w-1a2b --project '/abs/my repo'`));
   assert.match(brief, /story release DEV-3 --worker w-1a2b/);
   assert.match(brief, /`todo`: TODO \(current\)/);
   assert.match(brief, /Never edit files under `\.sf`/);
@@ -74,4 +76,63 @@ test("the sf preamble tells the Worker how to ask for a human when its Stage has
   assert.ok(brief("in_progress").includes(line));
   assert.ok(brief("in_progress").indexOf(line) < brief("in_progress").indexOf("## Stage Prompt"));
   assert.ok(!brief("todo").includes("dev_hil"));
+});
+
+const instructionBrief: BriefInput = {
+  storyKey: "DEV-1",
+  story: { title: "Instructions", stage: "todo", fields: {}, body: "Story body" },
+  boardId: "development",
+  board: defaultBoard("Development", "DEV"),
+  stageId: "todo",
+  root: "/project",
+  worktree: { path: "/worktree", branch: "sf/DEV-1" },
+  workerId: "w-1",
+  sf: "sf",
+  preamble: "Configured preamble",
+  prompt: "Stage instructions",
+};
+
+test("instruction sections preserve Markdown and literal placeholders in order", () => {
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: instruction files must preserve literal placeholders.
+  const projectInstructions = "# Shared\n\n  - Keep indent\n{{storyKey}} ${board}";
+  const boardInstructions = "**Board only**\n\n```ts\nconst x = 1;\n```";
+  const brief = composeBrief({
+    ...instructionBrief,
+    projectInstructions: ` \n${projectInstructions}\n`,
+    boardInstructions,
+  });
+  const sections = [
+    "Configured preamble",
+    `## SF.md\n\n${projectInstructions}`,
+    `## BOARD.md\n\n${boardInstructions}`,
+    "## Stage Prompt",
+    "## Story",
+  ];
+  let previous = -1;
+  for (const section of sections) {
+    const position = brief.indexOf(section);
+    assert.ok(position > previous, section);
+    previous = position;
+  }
+});
+
+test("instruction files are independently optional and blank sections preserve the existing brief", () => {
+  const original = composeBrief(instructionBrief);
+  for (const projectInstructions of [undefined, "", " \n\t"]) {
+    for (const boardInstructions of [undefined, "", " \n\t"]) {
+      assert.equal(composeBrief({ ...instructionBrief, projectInstructions, boardInstructions }), original);
+    }
+    const boardOnly = composeBrief({ ...instructionBrief, projectInstructions, boardInstructions: "Board guidance" });
+    assert.ok(!boardOnly.includes("## SF.md"));
+    assert.ok(boardOnly.includes("## BOARD.md\n\nBoard guidance"));
+  }
+  for (const boardInstructions of [undefined, "", " \n\t"]) {
+    const projectOnly = composeBrief({
+      ...instructionBrief,
+      projectInstructions: "Shared guidance",
+      boardInstructions,
+    });
+    assert.ok(projectOnly.includes("## SF.md\n\nShared guidance"));
+    assert.ok(!projectOnly.includes("## BOARD.md"));
+  }
 });

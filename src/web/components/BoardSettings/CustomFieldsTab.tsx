@@ -46,6 +46,15 @@ export function CustomFieldsTab({ board, act }: { board: BoardSnapshot; act: Act
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Worker model is built in and cannot be defined as a custom field.
+        </p>
+        {board.config.schema.some((f) => f.id === "model") && (
+          <p role="alert">
+            Legacy custom field “model” conflicts with the built-in model. Rename it and its Story data on disk before
+            changing this schema.
+          </p>
+        )}
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No custom fields.</p>
         ) : (
@@ -122,7 +131,12 @@ export function CustomFieldsTab({ board, act }: { board: BoardSnapshot; act: Act
         <Button variant="outline" onClick={() => setRows([...rows, { id: "", name: "", type: "text", options: "" }])}>
           <Plus /> Add field
         </Button>
-        <Button onClick={save}>Save fields</Button>
+        <Button
+          disabled={rows.some((r) => r.id.trim() === "model") || board.config.schema.some((f) => f.id === "model")}
+          onClick={save}
+        >
+          Save fields
+        </Button>
       </CardFooter>
     </Card>
   );

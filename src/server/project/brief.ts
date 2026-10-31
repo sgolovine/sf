@@ -1,7 +1,9 @@
 import type { BoardConfig, FieldDef } from "#model/config";
+import { modelDescription, type ResolvedModel } from "#model/models";
 import type { StoryData } from "./story.ts";
 
 export type BriefInput = {
+  effectiveModel?: ResolvedModel;
   storyKey: string;
   story: StoryData;
   boardId: string;
@@ -14,9 +16,11 @@ export type BriefInput = {
   sf: string;
   preamble: string;
   prompt: string;
+  projectInstructions?: string;
+  boardInstructions?: string;
 };
 
-/** The Worker Brief: sf preamble, then the configured preamble, then the Stage Prompt, then the Story. */
+/** The Worker Brief: sf/configured preambles, project/board instructions, Stage Prompt, Story. */
 export function composeBrief(b: BriefInput): string {
   const tail = `--worker ${b.workerId} --project ${shellQuote(b.root)}`;
   const stages = b.board.stages
@@ -31,6 +35,7 @@ export function composeBrief(b: BriefInput): string {
 You are an sf Worker for Story ${b.storyKey} on Board "${b.board.name}" (key ${b.board.key}, id ${b.boardId}).
 Your worker id is ${b.workerId}. You hold the Claim on ${b.storyKey}: no one else can Move it until you Move or release it.
 
+- Worker model: ${modelDescription(b.effectiveModel ?? { model: null, source: "supervisor" })}
 - Project (the Supervisor's checkout): ${b.root}
 - Your Story Worktree: ${b.worktree.path} (branch ${b.worktree.branch}). Do all work there.
 
@@ -47,6 +52,12 @@ Change Stories only with these commands. Never edit files under \`.sf\` in your 
   ${b.sf} story create ${b.board.key} --title "<t>" [--stage <stage-id>] [--field <id>=<value>]... [--body-file <path>] ${tail}
 - Show this Story:
   ${b.sf} story show ${b.storyKey} ${tail}
+- List this Story's attachments:
+  ${b.sf} story attachment list ${b.storyKey} ${tail}
+- Upload one local file (up to 20 MiB):
+  ${b.sf} story attachment add ${b.storyKey} <path> ${tail}
+- Retrieve an attachment to a new file:
+  ${b.sf} story attachment get ${b.storyKey} <attachment-id> --output <path> ${tail}
 - Release the Claim if you finish without Moving the Story:
   ${b.sf} story release ${b.storyKey} ${tail}
 
@@ -59,6 +70,8 @@ Every command refreshes your Claim. If a command fails with "claim is gone", sto
       `\n\nIf you need a human, set this Stage's HIL flag${hil.comment ? " and comment" : ""}, then release the Story; no Worker runs on it here until a human clears the flag:\n` +
       `  ${b.sf} story update ${b.storyKey} --field ${hil.flag}=true${hil.comment ? ` --field "${hil.comment}=<what you need>"` : ""} ${tail}`;
   if (b.preamble.trim()) sections.push(b.preamble.trim());
+  if (b.projectInstructions?.trim()) sections.push(`## SF.md\n\n${b.projectInstructions.trim()}`);
+  if (b.boardInstructions?.trim()) sections.push(`## BOARD.md\n\n${b.boardInstructions.trim()}`);
   sections.push(`## Stage Prompt\n\n${b.prompt.trim()}`);
   sections.push(`## Story\n\n${storyText(b.storyKey, b.story, b.board.schema)}`);
   return `${sections.join("\n\n")}\n`;

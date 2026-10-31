@@ -11,13 +11,15 @@ import { BoardSettings, type SettingsTab } from "./components/BoardSettings/Boar
 import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
+import { ModelSettings } from "./components/ModelSettings.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
 
 /** What the main area shows. Navigation is plain state: the URL hash carries the auth token. */
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
-  | { kind: "create-board" };
+  | { kind: "create-board" }
+  | { kind: "project-settings" };
 
 /** The Story being edited in the dialog; key null means a new Story. */
 type Editing = { key: string | null } | null;
@@ -45,7 +47,7 @@ export function App() {
   const { capabilities, listening } = session.supervisor;
   const project = session.project;
   const boards = project?.boards ?? [];
-  const selectedId = view.kind === "create-board" ? null : view.boardId;
+  const selectedId = view.kind === "create-board" || view.kind === "project-settings" ? null : view.boardId;
   const board = boards.find((b) => b.id === selectedId) ?? boards[0];
   const creating = view.kind === "create-board" || !board;
   const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
@@ -68,6 +70,10 @@ export function App() {
         title={board?.config.name}
         activeId={board?.id}
         creating={creating}
+        onProjectSettings={() => {
+          setView({ kind: "project-settings" });
+          setEditing(null);
+        }}
         onSelect={openBoard}
         onNewBoard={() => {
           setView({ kind: "create-board" });
@@ -84,7 +90,13 @@ export function App() {
             <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           )}
           <h1 className={cn("min-w-0 truncate font-medium", !creating && !settings && "sr-only")}>
-            {creating ? "New Board" : settings ? "Board Settings" : board.config.name}
+            {view.kind === "project-settings"
+              ? "Project settings"
+              : creating
+                ? "New Board"
+                : settings
+                  ? "Board Settings"
+                  : board.config.name}
           </h1>
           {!creating && settings && (
             <Button
@@ -99,7 +111,7 @@ export function App() {
             </Button>
           )}
           <span className="flex-1" />
-          {!creating && !settings && (
+          {!creating && !settings && view.kind !== "project-settings" && (
             <>
               <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
                 <Plus />
@@ -126,10 +138,18 @@ export function App() {
         <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
 
-          {creating ? (
+          {view.kind === "project-settings" && project ? (
+            <ModelSettings key={JSON.stringify(project.config)} project={project.config} act={act} />
+          ) : creating ? (
             <CreateBoard act={act} onCreated={openBoard} onCancel={board ? () => openBoard(board.id) : undefined} />
           ) : settings ? (
-            <BoardSettings board={board} tab={settings.tab} onTab={(tab) => openSettings(board.id, tab)} act={act} />
+            <BoardSettings
+              project={project!.config}
+              board={board}
+              tab={settings.tab}
+              onTab={(tab) => openSettings(board.id, tab)}
+              act={act}
+            />
           ) : (
             <BoardView
               board={board}
@@ -159,6 +179,7 @@ export function App() {
         {!creating && editing && (
           <StoryEditor
             key={editing.key ?? "new"}
+            project={project!.config}
             board={board}
             story={board.stories.find((s) => s.key === editing.key) ?? null}
             act={act}
