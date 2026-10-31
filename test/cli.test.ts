@@ -128,3 +128,26 @@ test("story delete offline accepts project/json and rejects stale Workers and mi
   assert.match(repeated.stderr, /no Story DEV-1/);
   assert.equal(JSON.parse(run("story", "create", "DEV", "--title", "Next").stdout).key, "DEV-2");
 });
+
+test("offline Story dependency CLI replaces, preserves, clears and rejects invalid references", () => {
+  const project = tempDir();
+  const run = (...args: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", main, ...args, "--project", project, "--json"], {
+      encoding: "utf8",
+    });
+  assert.equal(run("board", "create", "Development", "--key", "DEV").status, 0);
+  run("story", "create", "DEV", "--title", "One");
+  let result = run("story", "create", "DEV", "--title", "Two", "--depends-on", "DEV-1");
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).dependsOn, ["DEV-1"]);
+  run("story", "update", "DEV-2", "--title", "Edited");
+  result = run("story", "show", "DEV-2");
+  assert.deepEqual(JSON.parse(result.stdout).unresolvedDependencies, ["DEV-1"]);
+  result = run("story", "update", "DEV-1", "--depends-on", "DEV-2");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /cycle/);
+  result = run("story", "update", "DEV-2", "--depends-on", "");
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).dependsOn, []);
+  assert.equal(run("story", "wait", "DEV-2", "--depends-on", "DEV-1", "--worker", "stale").status, 3);
+});

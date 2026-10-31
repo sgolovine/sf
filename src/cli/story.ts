@@ -35,15 +35,16 @@ export const PROJECT_HELP = `Project commands (all accept --project <dir>, --jso
                [--hil-flag <field-id>] [--hil-comment <field-id>]
   sf stage reorder <board> <stage-id> --index <n>
   sf stage remove <board> <stage-id>
-  sf story create <board> --title "<t>" [--stage <id>] [--model <slug>] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story create <board> --title "<t>" [--stage <id>] [--model <slug>] [--depends-on <KEY,KEY>] [--field k=v]... [--body "<md>" | --body-file <p>]
   sf story list [<board>] [--stage <id>]
   sf story show <KEY>
   sf story move <KEY> <stage-id>
-  sf story update <KEY> [--title "<t>"] [--model <slug>] [--field k=v]... [--body "<md>" | --body-file <p>]
+  sf story update <KEY> [--title "<t>"] [--model <slug>] [--depends-on <KEY,KEY>] [--field k=v]... [--body "<md>" | --body-file <p>]
   sf story attachment add <KEY> <path>  (regular file, up to 20 MiB)
   sf story attachment list <KEY>
   sf story attachment get <KEY> <attachment-id> --output <path>  (never overwrites)
   sf story delete <KEY>  # permanent; retains Story Worktree and branch; release any Claim first
+  sf story wait <KEY> --depends-on <KEY,KEY> --worker <id>  # record dependencies and release atomically
   sf story release <KEY>
   sf story force-release <KEY>
   sf story retry <KEY>
@@ -239,6 +240,7 @@ export async function runProjectCommand(
         const schema = svc.showBoard(ref).config.schema;
         const body = {
           board: ref,
+          ...dependencyPatch(flags),
           title: need(str(flags.title), 'story create <board> --title "<t>"'),
           ...(str(flags.stage) ? { stage: str(flags.stage) } : {}),
           ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
@@ -266,6 +268,7 @@ export async function runProjectCommand(
       if (sub === "update") {
         const boardKey = parseStoryKey(key)?.boardKey ?? key;
         const patch = {
+          ...dependencyPatch(flags),
           ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
           ...(str(flags.title) !== undefined ? { title: str(flags.title) } : {}),
           ...(flags.field ? { fields: parseFields(svc.showBoard(boardKey).config.schema, flags.field) } : {}),
@@ -282,6 +285,15 @@ export async function runProjectCommand(
         );
         return out(deleted, () => `Permanently deleted ${key}. Story Worktree and branch retained.`);
       }
+      if (sub === "wait") {
+        const dependsOn = dependencyPatch(flags).dependsOn;
+        if (!dependsOn?.length)
+          throw new SfError("invalid", "usage: sf story wait <KEY> --depends-on <KEY,KEY> --worker <id>");
+        const story = await call<StoryDetails>("POST", routes.storyWait(key), { dependsOn, ...worker }, () =>
+          svc.waitStory(key, dependsOn, actor),
+        );
+        return out(story, () => `Released ${key}.${statusText(story)}`);
+      }
       if (sub === "release") {
         const story = await call<StoryDetails>("POST", routes.storyRelease(key), worker, () =>
           svc.releaseStory(key, actor),
@@ -296,7 +308,10 @@ export async function runProjectCommand(
         const story = await call<StoryDetails>("POST", routes.storyRetry(key), {}, () => svc.retry(key));
         return out(story, () => `Retrying ${key} in ${story.stage}.${statusText(story)}`);
       }
-      throw new SfError("invalid", "usage: sf story list|create|show|move|update|delete|release|force-release|retry");
+      throw new SfError(
+        "invalid",
+        "usage: sf story list|create|show|move|update|delete|wait|release|force-release|retry",
+      );
     }
 
     case "worktree": {
@@ -355,17 +370,22 @@ function formatBoard({ id, config, prompts, effectiveModel }: BoardResponse) {
 }
 
 function statusText(s: StoryDetails) {
-  if (s.claim) return ` Claimed by Worker ${s.claim.workerId} (${s.claim.status}).`;
-  if (s.queued) return " Waiting for a Worker.";
-  if (s.failure) return ` Spawn failed: ${s.failure.error}`;
-  if (s.hil) return ` Held for HIL (${s.hil.flag})${s.hil.comment ? `: ${s.hil.comment}` : ""}.`;
-  return "";
+  return [
+    s.claim && ` Claimed by Worker ${s.claim.workerId} (${s.claim.status}).`,
+    s.queued && " Waiting for Worker capacity.",
+    s.failure && ` Spawn failed: ${s.failure.error}`,
+    s.waitingOnDependencies && ` Waiting on dependencies: ${s.unresolvedDependencies?.join(", ")}.`,
+    s.hil && ` Held for HIL (${s.hil.flag})${s.hil.comment ? `: ${s.hil.comment}` : ""}.`,
+  ]
+    .filter(Boolean)
+    .join("");
 }
 
 function formatStoryLine(s: StoryDetails) {
   const tags = [
     s.claim && `claimed by ${s.claim.workerId} (${s.claim.status})`,
-    s.queued && "waiting for a Worker",
+    s.queued && "waiting for Worker capacity",
+    s.waitingOnDependencies && `dependencies: ${s.unresolvedDependencies?.join(", ")}`,
     s.failure && `failed: ${s.failure.error}`,
     s.worktreeWarning && `worktree kept: ${s.worktreeWarning.reason}`,
     s.hil && `HIL${s.hil.comment ? `: ${s.hil.comment}` : ""}`,
@@ -376,6 +396,7 @@ function formatStoryLine(s: StoryDetails) {
 function formatStory(s: StoryDetails) {
   const lines = [`${s.key}: ${s.title}`, `stage: ${s.stage}`];
   if (s.effectiveModel) lines.push(`model: ${modelDescription(s.effectiveModel)}${s.model ? "" : " (inherited)"}`);
+  if (s.dependsOn?.length) lines.push(`dependsOn: ${s.dependsOn.join(", ")}`);
   if (s.branch) lines.push(`branch: ${s.branch}`);
   for (const [k, v] of Object.entries(s.fields)) lines.push(`${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`);
   const status = statusText(s).trim();
@@ -419,5 +440,21 @@ function modelPatch(flags: Flags) {
   return {
     ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
     ...(list.length ? { addModelOptions: list.map((slug) => ({ slug, label: slug })) } : {}),
+  };
+}
+
+function dependencyPatch(flags: Flags): { dependsOn?: string[] } {
+  const raw = flags["depends-on"];
+  if (raw === undefined) return {};
+  if (typeof raw === "boolean")
+    throw new SfError("invalid", "--depends-on needs comma-separated Story keys; use an empty string to clear");
+  const values = Array.isArray(raw) ? raw : [raw];
+  return {
+    dependsOn: values.flatMap((v) =>
+      v
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean),
+    ),
   };
 }

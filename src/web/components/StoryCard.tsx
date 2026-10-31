@@ -29,6 +29,14 @@ export function StoryCard({ story, board, runtime, act, onOpen }: Props) {
       <button type="button" className="cursor-pointer text-left text-sm hover:underline" onClick={onOpen}>
         <span className="text-xs text-muted-foreground">{story.key}</span> {story.title}
       </button>
+      {story.dependsOn?.length ? (
+        <p className="text-xs text-muted-foreground">Depends on {story.dependsOn.join(", ")}</p>
+      ) : null}
+      {story.waitingOnDependencies && (
+        <Status className="bg-muted text-muted-foreground">
+          Waiting on dependencies: {story.unresolvedDependencies?.join(", ")}
+        </Status>
+      )}
       {hil && (
         <Status className="bg-amber-50 text-amber-900">
           <span className="font-semibold">Needs a human</span>
@@ -43,7 +51,7 @@ export function StoryCard({ story, board, runtime, act, onOpen }: Props) {
           </Button>
         </Status>
       )}
-      {queued && <Status className="bg-muted text-muted-foreground">waiting for a Worker</Status>}
+      {queued && <Status className="bg-muted text-muted-foreground">Waiting for Worker capacity</Status>}
       {failure && (
         <Status className="bg-red-50 text-destructive">
           Spawn failed: {failure.error}

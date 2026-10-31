@@ -165,3 +165,36 @@ test("recheck a dispatched spawn before launch, but leave already active Workers
   assert.ok((await svc.showStory("DEV-2", user)).claim);
   assert.equal(spawns.length, 2);
 });
+
+test("editing dependencies to already Done resumes once and wait release respects older capacity work", async () => {
+  const { svc, spawns } = await setupProject({ config: { maxConcurrentWorkers: 1 } });
+  await svc.createStory("DEV", { title: "Done", stage: "done" }, user);
+  await svc.createStory("DEV", { title: "Busy", stage: "todo" }, user);
+  await svc.createStory("DEV", { title: "Older", stage: "todo" }, user);
+  await svc.waitStory("DEV-2", ["DEV-1"], worker(spawns[0]!.workerId));
+  assert.equal(spawns[1]!.storyKey, "DEV-3");
+  assert.equal((await svc.showStory("DEV-2", user)).queued, true);
+  await svc.forceRelease("DEV-3");
+  assert.equal(spawns[2]!.storyKey, "DEV-2");
+  await svc.forceRelease("DEV-2");
+  await svc.createStory("DEV", { title: "Unclaimed" }, user);
+  await svc.moveStory("DEV-4", "todo", user);
+  await svc.forceRelease("DEV-4");
+  await svc.updateStory("DEV-4", { dependsOn: ["DEV-1"] }, user);
+  assert.equal(spawns.length, 5);
+  await svc.updateStory("DEV-4", { dependsOn: ["DEV-1"], title: "No second launch" }, user);
+  assert.equal(spawns.length, 5);
+});
+
+test("a failed brief composition preserves dependency wake intent for recovery", async () => {
+  const { svc, root, spawns } = await setupProject();
+  await svc.createStory("DEV", { title: "One" }, user);
+  await svc.createStory("DEV", { title: "Waiting", stage: "todo", dependsOn: ["DEV-1"] }, user);
+  const instructions = path.join(root, ".sf/SF.md");
+  fs.mkdirSync(instructions);
+  await assert.rejects(svc.moveStory("DEV-1", "done", user), /cannot read Worker instructions/);
+  fs.rmdirSync(instructions);
+  await svc.drainPending();
+  await svc.drainPending();
+  assert.equal(spawns.length, 1);
+});

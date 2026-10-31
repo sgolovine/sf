@@ -219,14 +219,17 @@ export function createService(opts: ServiceOptions) {
 
   function validateDependencies(key: string, value: unknown) {
     const keys = dependencyKeys(value);
+    const visited = new Set<string>();
     const visit = (current: string, chain: string[]) => {
       if (current === key) throw new SfError("invalid", `dependency cycle: ${[key, ...chain, key].join(" → ")}`);
       if (chain.includes(current))
         throw new SfError("invalid", `existing dependency cycle: ${[...chain, current].join(" → ")}`);
+      if (visited.has(current)) return;
       const found = tryLocate(current);
       if (!found)
         throw new SfError("invalid", `dependency ${current} does not exist; create it or remove it from dependsOn`);
       for (const next of found.story.dependsOn ?? []) visit(next, [...chain, current]);
+      visited.add(current);
     };
     for (const dep of keys) visit(dep, []);
     return keys;
@@ -762,7 +765,7 @@ export function createService(opts: ServiceOptions) {
         // Reserve the Key before writing: a failed write may leave a gap, never a reused Key.
         saveBoard(root, id, config);
         const key = `${config.key}-${number}`;
-        const dependsOn = validateDependencies(key, input.dependsOn ?? []);
+        const dependsOn = validateDependencies(key, input.dependsOn === undefined ? [] : input.dependsOn);
         const story: StoryData = {
           title,
           stage: stageId,
@@ -855,6 +858,11 @@ export function createService(opts: ServiceOptions) {
         const wasHeld = Boolean(activeHil(board, story));
         const held = Boolean(activeHil(board, next));
         if (held && !wasHeld) dropSpawn(tx, key);
+        if (
+          patch.dependsOn !== undefined &&
+          JSON.stringify(next.dependsOn ?? []) !== JSON.stringify(story.dependsOn ?? [])
+        )
+          tx.rt.dependencyWaits[key] = { stageId: next.stage };
         if (unresolved(next).length) {
           tx.rt.dependencyWaits[key] = { stageId: next.stage };
           dropSpawn(tx, key);
