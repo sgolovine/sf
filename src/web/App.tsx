@@ -62,7 +62,12 @@ export function App() {
   };
 
   useEffect(() => {
-    const sync = () => setRoute(parseStoryPath(location.pathname));
+    // Back/Forward onto a Story path leaves Create a Board, so only one dialog is ever open.
+    const sync = () => {
+      const next = parseStoryPath(location.pathname);
+      if (next.kind !== "none") setCreating(false);
+      setRoute(next);
+    };
     addEventListener("popstate", sync);
     return () => removeEventListener("popstate", sync);
   }, []);
