@@ -212,3 +212,72 @@ test("editing ready dependencies of a capacity-queued Story consumes wake intent
   await svc.drainPending();
   assert.equal(spawns.length, 2);
 });
+
+for (const change of ["reopen", "edit dependencies", "HIL", "disable prompt", "replace Claim"] as const) {
+  test(`spawn eligibility is rechecked after worktree preparation: ${change}`, async () => {
+    let signalEntered!: () => void;
+    let resume!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      signalEntered = resolve;
+    });
+    const gitResumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const { svc, spawns, make } = await setupProject({
+      git: async (args) => {
+        if (args[0] === "worktree" && args[1] === "add") {
+          signalEntered();
+          await gitResumed;
+        }
+        return "";
+      },
+    });
+    await svc.updateBoard("DEV", { schema: [{ id: "hil", name: "HIL", type: "boolean" }] });
+    await svc.updateStage("DEV", "todo", { hilFlag: "hil" });
+    await svc.createStory("DEV", { title: "Prerequisite", stage: "done" }, user);
+    await svc.createStory("DEV", { title: "Dependent", stage: "todo", dependsOn: ["DEV-1"] }, user);
+    await svc.createStory("DEV", { title: "Other prerequisite" }, user);
+    const originalWorker = spawns[0]!.workerId;
+    const preparing = svc.prepareSpawn(originalWorker);
+    try {
+      await entered;
+      if (change === "reopen") await svc.moveStory("DEV-1", "backlog", user);
+      else if (change === "edit dependencies") await svc.updateStory("DEV-2", { dependsOn: ["DEV-3"] }, user);
+      else if (change === "HIL") await svc.updateStory("DEV-2", { fields: { hil: true } }, user);
+      else if (change === "disable prompt") await svc.updateStage("DEV", "todo", { promptEnabled: false });
+      else {
+        await svc.forceRelease("DEV-2");
+        await svc.moveStory("DEV-2", "in_progress", user);
+      }
+    } finally {
+      resume();
+    }
+    assert.deepEqual(await preparing, { cancelled: true });
+    const held = await svc.showStory("DEV-2", user);
+    if (change === "replace Claim") {
+      assert.equal(held.claim?.workerId, spawns[1]!.workerId);
+      assert.notEqual(held.claim?.workerId, originalWorker);
+      return;
+    }
+    assert.equal(held.claim, undefined);
+    assert.equal(spawns.length, 1);
+    if (change === "disable prompt") return;
+    if (change === "HIL") {
+      assert.ok(held.hil);
+      await svc.updateStory("DEV-2", { fields: { hil: false } }, user);
+    } else {
+      assert.equal(held.waitingOnDependencies, true);
+      assert.deepEqual(held.unresolvedDependencies, [change === "reopen" ? "DEV-1" : "DEV-3"]);
+      // A new service instance must retain the cancelled spawn's wake intent.
+      await make(true).moveStory(change === "reopen" ? "DEV-1" : "DEV-3", "done", user);
+    }
+    await svc.drainPending();
+    await svc.sweep();
+    assert.equal(spawns.length, 2);
+    const resumed = spawns[1]!;
+    assert.equal(resumed.storyKey, "DEV-2");
+    assert.equal(resumed.stageId, "todo");
+    assert.deepEqual(await svc.prepareSpawn(resumed.workerId), { ok: true });
+    assert.equal((await svc.showStory("DEV-2", user)).claim?.workerId, resumed.workerId);
+  });
+}

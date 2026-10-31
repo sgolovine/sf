@@ -1070,26 +1070,33 @@ export function createService(opts: ServiceOptions) {
      * gone, or an error to fail the spawn with.
      */
     async prepareSpawn(workerId: string): Promise<{ ok: true } | { cancelled: true } | { error: string }> {
-      // Read under the lock so a transaction that is still enqueuing this spawn has saved its Claim.
-      const rt = await mutate((tx) => {
-        const key = tx.rt.workers[workerId]?.storyKey;
-        if (key && tx.rt.claims[key]?.workerId === workerId && tx.rt.claims[key]?.status === "spawning") {
+      // Git preparation releases the mutation lock. Check both before that work
+      // and after it, immediately before the command can be delivered.
+      const eligibleKey = () =>
+        mutate((tx) => {
+          const key = tx.rt.workers[workerId]?.storyKey;
+          const claim = key && tx.rt.claims[key];
+          if (!key || !claim || claim.workerId !== workerId || claim.status !== "spawning") return null;
           const found = tryLocate(key);
-          if (!found || !spawnsFor(found.boardId, found.board, found.story.stage, found.story)) {
+          if (
+            !found ||
+            found.story.stage !== claim.stageId ||
+            !spawnsFor(found.boardId, found.board, claim.stageId, found.story)
+          ) {
             if (found && unresolved(found.story).length) tx.rt.dependencyWaits[key] = { stageId: found.story.stage };
             endClaim(tx, key, "released");
+            return null;
           }
-        }
-        return tx.rt;
-      }, false);
-      const key = rt.workers[workerId]?.storyKey;
-      if (!key || rt.claims[key]?.workerId !== workerId) return { cancelled: true };
+          return key;
+        }, false);
+      const key = await eligibleKey();
+      if (!key) return { cancelled: true };
       try {
         await service.ensureStoryWorktree(key);
-        return { ok: true };
       } catch (err) {
         return { error: `could not prepare the Story Worktree: ${(err as Error).message}` };
       }
+      return (await eligibleKey()) ? { ok: true } : { cancelled: true };
     },
 
     async ensureStoryWorktree(key: string) {

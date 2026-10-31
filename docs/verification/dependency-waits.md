@@ -15,3 +15,9 @@ Verified 2026-10-31 from the Story branch.
 Screenshots are attached to DEV-13 (waiting, resumed, capacity). The disposable Project was intentionally not a Git repository, so moving its prerequisite to Done displayed the existing worktree-cleanup warning; this did not affect scheduling.
 
 The [migration runbook](../dependency-waits.md) includes current inspected classifications and concrete CLI commands for DEV-9/10/11/12. Live holds and live Stage Prompts have not been replaced during branch development: the authoritative Supervisor still runs the previous service, which must be upgraded before installing the new prompts or writing dependencies. DEV-11's integration/access requirements and DEV-12's test-target question remain preserved. The runbook requires fresh inspection before every update; it never bulk-clears HIL or derives permission from comments automatically.
+
+## Review rework: worktree preparation race
+
+The dispatch path now rechecks the current spawning Claim, Stage, dependencies, HIL and enabled prompt under the mutation lock after asynchronous Git preparation, immediately before returning a deliverable command. An ineligible spawn releases only its own Claim and retains dependency wake intent; an active or replacement Claim is left alone.
+
+Deterministic regressions pause injected Git during worktree creation, then reopen a prerequisite, edit dependencies, set HIL, disable the prompt, or replace the Claim. They verify cancellation, preservation of the replacement Claim, and exactly one current-Stage reservation after dependency completion or HIL clearance, including through a fresh service instance.
