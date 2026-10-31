@@ -44,6 +44,7 @@ type Props = {
   /** Every Board in the Project, for cross-Board dependency candidates. */
   boards: BoardSnapshot[];
   story: StoryView | null;
+  initialStage?: string;
   act: Act;
   onClose: () => void;
 };
@@ -52,17 +53,17 @@ type Props = {
 const NONE = "__none__";
 
 /** Create or edit a Story. Custom field inputs follow the Board's Story schema. */
-export function StoryEditor({ project, board, boards, story, act, onClose }: Props) {
+export function StoryEditor({ project, board, boards, story, initialStage = "backlog", act, onClose }: Props) {
   const id = useId();
   const [title, setTitle] = useState(story?.title ?? "");
-  const [stage, setStage] = useState(story?.stage ?? "backlog");
+  const [stage, setStage] = useState(story?.stage ?? initialStage);
   const [dependsOn, setDependsOn] = useState<string[]>(story?.dependsOn ?? []);
   const [model, setModel] = useState(story?.model ?? "");
   const legacyModel = board.config.schema.some((f) => f.id === "model");
   useEffect(() => {
     setModel(story?.model ?? "");
-    setStage(story?.stage ?? "backlog");
-  }, [story?.model, story?.stage]);
+    setStage(story?.stage ?? initialStage);
+  }, [story?.model, story?.stage, initialStage]);
   const [body, setBody] = useState(story?.body ?? "");
   // Open existing descriptions rendered; start empty ones ready to type.
   const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");
