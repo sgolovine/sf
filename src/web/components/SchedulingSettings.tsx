@@ -1,26 +1,22 @@
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { useId, useState } from "react";
-import type { ProjectConfig, SchedulingConfig } from "#model/config";
+import type { ProjectConfig } from "#model/config";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { sfApi } from "../api/client.ts";
+import {
+  blankRemote,
+  draftScheduling,
+  LOCAL_SLOT,
+  type RemoteDraft,
+  slotId,
+  toNumber,
+  toScheduling,
+} from "../lib/schedulingDraft.ts";
 import type { Act } from "./ErrorBanner.tsx";
-
-type Remote = SchedulingConfig["remotes"][number];
-/** Capacities are edited as text; the server validates them on save. */
-type RemoteDraft = Omit<Remote, "capacity"> & { capacity: string };
-
-const blank = (): RemoteDraft => ({
-  id: "",
-  name: "",
-  environmentId: "",
-  project: { projectId: "", repository: "" },
-  enabled: true,
-  capacity: "1",
-});
 
 /** Project-wide Worker capacity: the legacy total, or per-machine caps and an ordered machine preference. */
 export function SchedulingSettings({ project, act }: { project: ProjectConfig; act: Act }) {
@@ -29,26 +25,22 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
   const [enabled, setEnabled] = useState(!!current);
   const [max, setMax] = useState(String(project.maxConcurrentWorkers));
   const [local, setLocal] = useState(String(current?.local.capacity ?? project.maxConcurrentWorkers));
-  const [remotes, setRemotes] = useState<RemoteDraft[]>(
-    current?.remotes.map((r) => ({ ...r, capacity: String(r.capacity) })) ?? [],
-  );
-  const [order, setOrder] = useState<string[]>(current?.order ?? ["local"]);
+  const [initial] = useState(() => draftScheduling(current));
+  const [remotes, setRemotes] = useState<RemoteDraft[]>(initial.remotes);
+  // Order slots are draft keys, so editing a machine ID keeps its position.
+  const [order, setOrder] = useState<string[]>(initial.order);
   const [adding, setAdding] = useState("");
-  const machineIds = ["local", ...remotes.map((r) => r.id).filter(Boolean)];
-  const addable = machineIds.filter((m) => !order.includes(m));
+  const slots = [LOCAL_SLOT, ...remotes.filter((r) => r.id).map((r) => r.key)];
+  const addable = slots.filter((slot) => !order.includes(slot));
+  const slotLabel = (slot: string) => slotId(slot, remotes) || "(no ID)";
 
-  const updateRemote = (index: number, patch: Partial<RemoteDraft>) => {
-    const before = remotes[index]!;
-    if (patch.id !== undefined && before.id && order.includes(before.id))
-      setOrder(order.map((m) => (m === before.id ? patch.id! : m)));
+  const updateRemote = (index: number, patch: Partial<RemoteDraft>) =>
     setRemotes(remotes.map((r, i) => (i === index ? { ...r, ...patch } : r)));
-  };
   const move = (index: number, by: number) => {
     const next = [...order];
     [next[index], next[index + by]] = [next[index + by]!, next[index]!];
     setOrder(next);
   };
-  const toNumber = (text: string) => (text.trim() === "" ? Number.NaN : Number(text));
 
   return (
     <form
@@ -58,13 +50,7 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
         void act(() =>
           sfApi.updateProject(
             enabled
-              ? {
-                  scheduling: {
-                    local: { capacity: toNumber(local) },
-                    remotes: remotes.map((r) => ({ ...r, capacity: toNumber(r.capacity) })),
-                    order,
-                  },
-                }
+              ? { scheduling: toScheduling(local, { remotes, order }) }
               : { scheduling: null, maxConcurrentWorkers: toNumber(max) },
           ),
         );
@@ -115,8 +101,7 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
               const field = (key: string) => `${id}-remote-${index}-${key}`;
               const label = r.name || r.id || `Remote ${index + 1}`;
               return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: drafts have no stable identity until saved
-                <div key={index} className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+                <div key={r.key} className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
                   <div className="grid gap-1">
                     <Label htmlFor={field("id")}>Machine ID</Label>
                     <Input
@@ -184,7 +169,7 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
                       size="icon"
                       aria-label={`Remove ${label}`}
                       onClick={() => {
-                        setOrder(order.filter((m) => m !== r.id));
+                        setOrder(order.filter((slot) => slot !== r.key));
                         setRemotes(remotes.filter((_, i) => i !== index));
                       }}
                     >
@@ -198,7 +183,7 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
               type="button"
               variant="outline"
               className="justify-self-start"
-              onClick={() => setRemotes([...remotes, blank()])}
+              onClick={() => setRemotes([...remotes, blankRemote(remotes)])}
             >
               <Plus /> Add remote machine
             </Button>
@@ -214,15 +199,15 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
               Supervisor's machine; an empty order makes them wait.
             </p>
             <ol className="grid gap-1">
-              {order.map((m, index) => (
-                <li key={m} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
+              {order.map((slot, index) => (
+                <li key={slot} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
                   <span className="w-5 text-muted-foreground">{index + 1}.</span>
-                  <span className="flex-1">{m}</span>
+                  <span className="flex-1">{slotLabel(slot)}</span>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Move ${m} up`}
+                    aria-label={`Move ${slotLabel(slot)} up`}
                     disabled={index === 0}
                     onClick={() => move(index, -1)}
                   >
@@ -232,7 +217,7 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Move ${m} down`}
+                    aria-label={`Move ${slotLabel(slot)} down`}
                     disabled={index === order.length - 1}
                     onClick={() => move(index, 1)}
                   >
@@ -242,8 +227,8 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Remove ${m} from the order`}
-                    onClick={() => setOrder(order.filter((x) => x !== m))}
+                    aria-label={`Remove ${slotLabel(slot)} from the order`}
+                    onClick={() => setOrder(order.filter((x) => x !== slot))}
                   >
                     <Trash2 />
                   </Button>
@@ -257,9 +242,9 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
                     <SelectValue placeholder="Machine" />
                   </SelectTrigger>
                   <SelectContent>
-                    {addable.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
+                    {addable.map((slot) => (
+                      <SelectItem key={slot} value={slot}>
+                        {slotLabel(slot)}
                       </SelectItem>
                     ))}
                   </SelectContent>
