@@ -5,8 +5,8 @@ import type { RuntimeState } from "#model/runtime";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { sfApi } from "../api/client.ts";
+import { reportedIds } from "../lib/execution.ts";
 import type { Act } from "./ErrorBanner.tsx";
-import { reportedIds } from "./StoryEditor.tsx";
 
 type Props = { story: StoryView; board: BoardConfig; runtime: RuntimeState; act: Act; onOpen: () => void };
 
