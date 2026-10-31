@@ -16,12 +16,12 @@ import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
 import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
 
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+
 /**
  * What the main area shows. Views are plain state; only the Story dialog has a URL path
  * (see storyRoute.ts). The URL hash carries the auth token.
  */
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
