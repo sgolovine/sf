@@ -112,7 +112,7 @@ export function App() {
             <Button
               size="sm"
               variant="outline"
-              className="shrink-0"
+              className="ml-auto shrink-0"
               onClick={() => openBoard(board.id)}
               aria-label="Back to board"
             >
@@ -120,7 +120,7 @@ export function App() {
               <span className="hidden @md/header:inline">Back to board</span>
             </Button>
           )}
-          <span className="flex-1" />
+          {!settings && <span className="flex-1" />}
           {board && !settings && view.kind !== "project-settings" && (
             <>
               <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
@@ -145,7 +145,9 @@ export function App() {
           )}
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+        {/* relative: absolutely positioned descendants (such as the hidden checkbox a Radix Switch adds inside a
+            form) overflow this scroller, not SidebarInset, so they cannot stretch the document under the footer. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
 
           {view.kind === "project-settings" && project ? (
@@ -190,6 +192,7 @@ export function App() {
             />
             <span className="truncate">{supervisorText}</span>
           </span>
+          <span className="ml-auto shrink-0">sf v{session.version}</span>
         </footer>
 
         {creating && (
