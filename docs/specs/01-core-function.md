@@ -61,10 +61,12 @@ Attachments belong to the Supervisor's Project, outside runtime and Story Worktr
 
 Optional Project-only `scheduling` is validated and persisted policy data. Dispatch (DEV-10) selects
 with it and reserves per-machine capacity in the execution ledger; see
-[the execution ledger](../execution-ledger.md). It does **not** activate remote launches: until DEV-11
-provides a positively verified adapter and authoritative remote Worker commands, every remote is
-`incompatible`, so required remotes wait and preferred remotes fall back before reservation. See [the compatibility report](../remote-workers.md)
-and [ADR 0003](../adr/0003-remote-worker-boundaries.md). Configured mappings alone prove no capability.
+[the execution ledger](../execution-ledger.md). sf does not handle other machines itself: a configured,
+enabled remote is eligible whenever the Supervisor can launch Workers, and when one is selected the
+`worker.spawn` command carries a `machine` request and the Worker Brief ends with delimited machine
+instructions (DEV-11). The Supervisor's harness owns starting the Worker there. A machine request is
+not evidence of remote execution. See [the remote Worker boundary](../remote-workers.md)
+and [ADR 0003](../adr/0003-remote-worker-boundaries.md).
 
 Complete example `.sf/sf.config.json` (IDs are illustrative catalog values):
 
@@ -198,7 +200,7 @@ reason `detail`. With no candidates, the only reason is `{ code: "no-candidates"
 Malformed Project configuration is rejected as `SfError("invalid", ...)` at shared load/validation,
 not disguised as a wait. Tests simulate caller-owned usage to produce four build-server selections,
 two spare-server selections, two local selections, then wait regardless of legacy cap 3. This is
-policy evidence; production dispatch performs no remote allocation until DEV-11.
+policy evidence; production dispatch reserves remotes and requests them from the harness (DEV-11).
 
 ### Shared Worker instructions
 

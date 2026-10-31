@@ -1,10 +1,50 @@
-# Remote Worker compatibility and preflight
+# Remote Workers
 
-Checked **2026-10-29** for DEV-7. **Result: remote unavailable; local execution remains supported.**
-This report and [ADR 0003](adr/0003-remote-worker-boundaries.md) establish the gates for future work.
-They do not enable scheduling or certify a remote lifecycle.
+## Current boundary (DEV-11, 2026-10-31)
 
-## Evidence and status vocabulary
+**sf requests a machine; the Supervisor's harness owns machine handling.** On 2026-10-31 the user
+revised DEV-11's scope: when placement resolves to a configured remote ("Use X Machine"), sf only
+adds instructions to the Worker launch request so the underlying harness knows to start the Worker
+on X. This supersedes the sf-owned remote adapter, discovery/preflight, worktree transfer, scoped
+network transport and real remote lifecycle gates in the DEV-7 report below.
+
+What sf does:
+
+- Placement and capacity are unchanged: DEV-9's policy selects a machine and DEV-10's execution
+  ledger reserves it (see [the execution ledger](execution-ledger.md)). A configured, enabled
+  remote is eligible whenever the Supervisor can launch Workers at all.
+- When the selected machine is a configured remote, the `worker.spawn` command carries a `machine`
+  request: its `id`, `name`, `environmentId`, `projectId`, `repository`, the Story's `placement`
+  intent (`required`, `preferred`, or `default` when the Project's machine order chose it),
+  `localFallback`, and readable `instructions`. The Supervisor reads it before choosing where to
+  launch. `sf next` prints it ahead of the brief.
+- The Worker Brief is unchanged up to its end, then appends the same instructions as a delimited
+  `## Machine Placement` section (`<!-- sf:machine-placement -->` … `<!-- /sf:machine-placement -->`),
+  so they travel with the brief through thread and subagent launches.
+- `required` never allows local fallback. `preferred` and `default` allow the harness to start the
+  Worker on the Supervisor's machine only when the Project's machine order includes `local`.
+  Local and local-only launches carry no `machine` request and keep their existing briefs.
+- sf still prepares the Story Worktree in the Supervisor's checkout. The brief's Project and
+  worktree paths are authority context on the Supervisor's machine; the instructions say they may
+  not exist on X. Preparing X (repository, Story branch, working directory) and reaching sf's
+  Story commands from X are up to the harness.
+
+What sf does not do: discover or pair machines, call remote launch/status/cancel APIs, transfer
+worktrees or Git state, issue network credentials, or certify that a Worker ran on X. A machine
+request is not evidence of remote execution. The Supervisor reports the launch through the
+existing `sf done`/`sf fail`/`sf execution report` results. The reservation stays charged to X
+even if the harness used a permitted local fallback; the Supervisor says where the Worker started
+in its result or evidence text.
+
+## Historical: DEV-7 compatibility and preflight (2026-10-29)
+
+The rest of this document is the DEV-7 report. It records what the installed T3 integration
+exposed on 2026-10-29. Its gates for an sf-owned adapter and transport no longer apply (see above).
+Its observations are dated and kept as evidence.
+
+Checked **2026-10-29** for DEV-7. **Result then: remote unavailable; local execution remains supported.**
+
+### Evidence and status vocabulary
 
 - **Observed:** read-only calls and public tool declarations available to this Worker.
 - **Upstream-documented:** current upstream documentation, not proof about the installed server.
@@ -29,7 +69,7 @@ ID `3af2b145-fc30-4255-ad06-9fd3c6e563fe`, workspace root
 `/home/sgolovine/Projects/sf`, repository canonical key `github.com/sgolovine/sf`.
 This is a local mapping only.
 
-## Installed public contract inventory
+### Installed public contract inventory
 
 These are declared local contracts; mutating operations were inspected, not exercised.
 The snapshot contains their complete optional fields and result declarations.
@@ -57,7 +97,7 @@ The current inherited options are `medium/default`. These are a dated observatio
 Future dispatch must resolve Stage → Board → Project agent/model, query the selected target's
 catalog and verify the launch result matches instance/model/options. Do not silently downgrade.
 
-## Upstream evidence is distinct
+### Upstream evidence is distinct
 
 [Remote architecture](https://github.com/pingdotgg/t3code/blob/main/docs/internals/remote.md)
 describes stable environment identity, route-independent ownership and beta-gated peer links.
@@ -70,7 +110,7 @@ Its client load balancing does not supply sf capacity guarantees.
 Both pages were read on 2026-10-29 from upstream `main` (mutable references).
 Neither establishes a minimum release or authorizes speculative arguments on this integration.
 
-## Reproducible read-only preflight
+### Reproducible read-only preflight
 
 Run from the actual Supervisor thread after any integration upgrade or reconnect; a different
 thread can have different tools/permissions. Save dated, credential-free evidence with each result.
@@ -105,7 +145,7 @@ Those commands do not inspect T3 tools. See
 Keep existing local launch instructions in the [command reference](../skills/sf/references/commands.md).
 No existing sf flag enables a remote target.
 
-### Eligibility failures and recovery (proposed adapter reasons)
+#### Eligibility failures and recovery (proposed adapter reasons)
 
 These are reason categories to implement, not current sf error codes.
 
@@ -127,9 +167,10 @@ a required target waits/fails explicitly and never falls back. After an uncertai
 fallback waits for conclusive non-execution/termination evidence. Confirmed failure can release
 capacity and reconsider policy. Availability/configuration/capacity changes wake eligible queued work.
 
-## Authoritative Worker command transport decision
+### Authoritative Worker command transport decision
 
-**Gate unresolved for DEV-11.** Neither evaluated channel has verified end-to-end prerequisites;
+**Superseded 2026-10-31:** sf no longer selects or builds a remote Worker command channel; the
+harness gives a remote Worker access to sf's Story commands. As of 2026-10-29: **Gate unresolved for DEV-11.** Neither evaluated channel has verified end-to-end prerequisites;
 this report selects no transport as available today. [ADR 0003](adr/0003-remote-worker-boundaries.md)
 sets the required security and authority boundary.
 
@@ -190,7 +231,7 @@ These examples are local only. The generated [brief](../src/server/project/brief
 actual command and Project path. Current Worker scope is less restrictive than the proposed
 remote authorization above; do not claim the local worker-ID check is a scoped network credential.
 
-## sf and adapter boundary
+### sf and adapter boundary
 
 Proposed for DEV-9/10/11; existing local behavior is described separately below.
 
@@ -252,7 +293,7 @@ with `origin/main` at `3da70ca0c1d7b057d7af71a62d779071e4790d4b` before handoff:
   [command resolution](../test/sf-command.test.ts), [worktrees](../test/worktree.test.ts).
   They establish local behavior, not remote compatibility.
 
-## Implementation sequence and feature acceptance
+### Implementation sequence and feature acceptance
 
 Body-level sequencing (sf has no automatic dependency enforcement):
 **DEV-7 → DEV-9 → DEV-10 → DEV-11 → DEV-12**.
@@ -264,7 +305,7 @@ the dependency and ownership map is:
 | DEV-7 | This compatibility report, evidence, ADR and Supervisor preflight. Documentation slice only. |
 | DEV-9 | Depends on DEV-7: validated machine configuration, precedence, persisted overrides and pure deterministic selector. |
 | DEV-10 | Depends on DEV-9 and this boundary: atomic reservations, eligible FIFO, lifecycle/restart reconciliation and occupancy distinct from Claims. |
-| DEV-11 | Depends on DEV-10 and positive integration/transport preflight: real adapter, target worktree/head, scoped commands and real remote lifecycle. Unsupported integration is a concrete refinement gate. |
+| DEV-11 | Depends on DEV-10. Revised 2026-10-31: append the selected machine's instructions to the Worker launch request; the harness owns machine handling. (Originally: real adapter, target worktree/head, scoped commands and real remote lifecycle.) |
 | DEV-12 | Depends on DEV-9/10/11: UI/CLI, status/recovery/setup and final full-feature acceptance. |
 
 DEV-12 owns this single complete checklist, corresponding in order to the original eight feature
@@ -296,9 +337,10 @@ criteria on DEV-7. All remain **unverified** by this documentation slice:
   lifecycle and setup/capacity/fallback/recovery docs. Fake adapters cannot certify compatibility.
   (DEV-9–12)
 
-## Real target test runbook — UNRUN
+### Real target test runbook — UNRUN
 
-DEV-11 and DEV-12 must record actual commands, versions, environment/project IDs, selected
+**Superseded 2026-10-31:** neither DEV-11 nor DEV-12 needs this sf-owned remote lifecycle run;
+the harness owns machine handling. Kept as the 2026-10-29 plan. As written then: DEV-11 and DEV-12 must record actual commands, versions, environment/project IDs, selected
 model/options, launch key/task/thread/link, branch SHA, authoritative mutation receipts,
 termination and cleanup evidence. Use a disposable test Story and an explicitly configured
 compatible linked target. This checklist has **not** run; this installation fails preflight.

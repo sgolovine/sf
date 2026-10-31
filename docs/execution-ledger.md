@@ -2,8 +2,8 @@
 
 DEV-10 (2026-10-31). sf schedules Workers from a durable per-Project **execution ledger** in
 `.sf/runtime/state.json` (runtime version 2). This document is the Supervisor protocol and the
-operator recovery guide. Remote execution stays unavailable until DEV-11's verified adapter;
-DEV-12 adds the controls and status UI.
+operator recovery guide. Since DEV-11, a reserved remote is requested from the Supervisor's
+harness with a machine request ([remote Workers](remote-workers.md)); DEV-12 adds the controls and status UI.
 
 ## Claim versus execution
 
@@ -51,8 +51,8 @@ identity. A crash at any point republishes the same intent; it never creates a n
   `scheduling`, only per-machine caps. Every non-terminal entry counts, across all Boards.
   A lowered cap or cap 0 stops new reservations; running Workers are never stopped.
 - Eligibility: local needs a registered Supervisor with a thread or subagent tool (an
-  unregistered Supervisor keeps commands waiting, as before). Remotes are `incompatible` with the
-  DEV-11 reason. A remote whose environment/project mapping changed while one of its executions
+  unregistered Supervisor keeps commands waiting, as before). Configured, enabled remotes need the
+  same launch ability; the harness owns machine handling. A remote whose environment/project mapping changed while one of its executions
   is occupying is `unmapped` until that execution ends. Removing a machine never hides its
   occupying entries or their branch fences.
 - Queue: oldest first (`queuedAt`, then a stable sequence number). Each drain skips entries that
@@ -111,7 +111,7 @@ Adapters (from the Supervisor's registered capabilities):
 | | T3 Code | Other Supervisors |
 | --- | --- | --- |
 | Local launch | supported | supported (thread or subagent tool) |
-| Remote | unsupported until DEV-11 | unsupported |
+| Remote | requested from the harness (machine request) | requested from the harness (machine request) |
 | Status | by task/thread ID | only the Supervisor's own observation |
 | Lookup by request ID | not declared | unsupported |
 | Idempotent relaunch | unverified: never relaunched | unsupported |
