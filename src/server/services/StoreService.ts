@@ -5,6 +5,7 @@ import type { CommandRecord, SupervisorCommand } from "#model/commands";
 import type { ProjectSnapshot } from "#model/project";
 import type { FileChange, SessionState } from "#model/session";
 import type { Capabilities, SupervisorMessage } from "#model/supervisor";
+import { atomicWrite } from "../project/fsutil.ts";
 
 const MAX_FILE_CHANGES = 500;
 
@@ -32,15 +33,36 @@ function create(root: string, sessionFile: string | null): Store {
     project: null,
   };
   state.supervisor.listening = false;
-  // A command claimed by a Supervisor that went away goes back to the queue.
-  for (const c of state.commands) if (c.status === "claimed") c.status = "pending";
+  // A claimed instruction goes back to the queue. A claimed execution command may
+  // have been acted on, so it is never delivered again; sf reconciles it instead.
+  for (const c of state.commands)
+    if (c.status === "claimed") c.status = c.command.type === "supervisor.instruct" ? "pending" : "interrupted";
   return { state, sessionFile, events, seq: state.commands.length + state.messages.length, waiting: 0 };
 }
 
-function enqueue(store: Store, command: SupervisorCommand): CommandRecord {
-  const record: CommandRecord = { id: nextId(store, "c"), command, status: "pending", createdAt: Date.now() };
+/**
+ * Queues a command. With a `key`, returns the existing record for that key
+ * instead, unless it was cancelled or interrupted before delivery completed.
+ * Throws when the session cannot be saved; the command is then not queued.
+ */
+function enqueue(store: Store, command: SupervisorCommand, key?: string): CommandRecord {
+  const existing =
+    key && store.state.commands.find((c) => c.key === key && c.status !== "cancelled" && c.status !== "interrupted");
+  if (existing) return existing;
+  const record: CommandRecord = {
+    id: nextId(store, "c"),
+    command,
+    status: "pending",
+    createdAt: Date.now(),
+    ...(key ? { key } : {}),
+  };
   store.state.commands.push(record);
-  changed(store);
+  try {
+    changed(store);
+  } catch (err) {
+    store.state.commands.pop();
+    throw err;
+  }
   store.events.emit("command");
   return record;
 }
@@ -56,7 +78,17 @@ function claim(store: Store): CommandRecord | null {
   return record;
 }
 
-/** Marks a command cancelled; a cancelled command ignores later results. */
+/** Returns a claimed command to the queue when it was never delivered. */
+function unclaim(store: Store, id: string) {
+  const record = store.state.commands.find((c) => c.id === id);
+  if (record?.status !== "claimed") return;
+  record.status = "pending";
+  delete record.claimedAt;
+  changed(store);
+  store.events.emit("command");
+}
+
+/** Marks a command cancelled: withdrawn before delivery. Later results are kept as evidence only. */
 function cancel(store: Store, id: string) {
   const record = store.state.commands.find((c) => c.id === id);
   if (!record) return;
@@ -69,11 +101,18 @@ function finish(store: Store, id: string, body: CommandResultRequest): CommandRe
   const record = store.state.commands.find((c) => c.id === id);
   if (!record) return null;
   seen(store);
-  if (record.status === "cancelled") return record;
+  if (record.status !== "pending" && record.status !== "claimed") {
+    // Late or duplicate: keep the evidence without changing the outcome.
+    const late = { at: Date.now(), ok: body.ok, ...(body.ok ? { result: body.result } : { error: body.error }) };
+    record.late = [...(record.late ?? []), { ...late, ...(body.execution ? { execution: body.execution } : {}) }];
+    changed(store);
+    return record;
+  }
   record.status = body.ok ? "done" : "failed";
   record.finishedAt = Date.now();
   if (body.ok) record.result = body.result;
   else record.error = body.error;
+  if (body.execution) record.execution = body.execution;
   changed(store);
   return record;
 }
@@ -140,7 +179,7 @@ function nextId(store: Store, prefix: string) {
 function changed(store: Store, { persist = true } = {}) {
   if (persist && store.sessionFile) {
     const { root, startedAt, supervisor, commands, messages } = store.state;
-    fs.writeFileSync(store.sessionFile, JSON.stringify({ root, startedAt, supervisor, commands, messages }, null, 2));
+    atomicWrite(store.sessionFile, JSON.stringify({ root, startedAt, supervisor, commands, messages }, null, 2));
   }
   store.events.emit("state", store.state);
 }
@@ -154,11 +193,17 @@ function load(sessionFile: string | null): Partial<SessionState> | null {
   }
 }
 
+function commandStatus(store: Store, id: string) {
+  return store.state.commands.find((c) => c.id === id)?.status;
+}
+
 export const StoreService = {
   create,
   enqueue,
   claim,
+  unclaim,
   cancel,
+  commandStatus,
   finish,
   setCapabilities,
   addMessage,

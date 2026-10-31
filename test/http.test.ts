@@ -57,6 +57,27 @@ test("a Move over HTTP spawns; next hands out worker.spawn with its worktree; do
     code: "claim_gone",
     message: "claim is gone",
   });
+  // Force-release proves nothing about the thread: sf asks the Supervisor, never relaunches.
+  const executionId = record.command.execution!.id;
+  assert.equal((await call<StoryDetails>("GET", routes.story("DEV-1"))).execution?.status, "unknown");
+  const lookup = await call<CommandRecord>("GET", `${routes.nextCommand}?wait=1`);
+  assert.equal(lookup.command.type, "execution.reconcile");
+  if (lookup.command.type !== "execution.reconcile") return;
+  assert.equal(lookup.command.execution.id, executionId);
+  assert.equal(lookup.command.label, "thread-123");
+  await assert.rejects(
+    call("POST", routes.commandResult(lookup.id), {
+      ok: true,
+      execution: { status: "terminal", outcome: "completed", evidence: "idle", executionId: "x-other" },
+    }),
+    { code: "invalid" },
+  );
+  await call("POST", routes.commandResult(lookup.id), {
+    ok: true,
+    execution: { status: "terminal", outcome: "completed", evidence: "thread idle", threadId: "thread-123" },
+  });
+  const ended = await call<import("#model/api").ExecutionView>("GET", routes.execution(executionId));
+  assert.deepEqual([ended.status, ended.outcome, ended.threadId], ["terminal", "completed", "thread-123"]);
 });
 
 test("a spawn whose Claim is gone is cancelled, not handed out", async () => {
