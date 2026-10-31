@@ -7,7 +7,7 @@ import type { ExecutionsResponse, ExecutionView, StoryDetails, UpdateProjectRequ
 import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
 import type { CommandStatus, ExecutionReconcileCommand, SupervisorCommand, WorkerSpawnCommand } from "#model/commands";
 import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
-import { type AdapterSupport, type ExecutionReport, supportFor } from "#model/execution";
+import { type AdapterSupport, type ExecutionReport, REMOTE_UNSUPPORTED, supportFor } from "#model/execution";
 import { modelCatalog, resolveModel } from "#model/models";
 import {
   normalizePlacementPolicy,
@@ -381,6 +381,8 @@ export function createService(opts: ServiceOptions) {
           if (drain) drainQueue(tx);
           const result = fn(tx);
           reconcileDependencies(tx);
+          // Placement, configuration and Claim changes made by `fn` wake the queue too.
+          if (drain) drainQueue(tx);
           scheduleAttempts(tx);
           return result;
         } finally {
@@ -1577,7 +1579,8 @@ export function createService(opts: ServiceOptions) {
               requestSpawn(tx, e.storyKey, found.boardId, claim.stageId);
             return null;
           }
-          if (e.machineId !== "local") return { error: `cannot prepare ${e.machineId}: ${boundary.support().remote}` };
+          // Remote preparation happens on the owning machine through a verified adapter (DEV-11).
+          if (e.machineId !== "local") return { error: `cannot prepare ${e.machineId}: ${REMOTE_UNSUPPORTED}` };
           if (deliver) {
             Object.assign(e, { status: "launching", dispatchedAt: now(), updatedAt: now() });
             delete e.intent;
@@ -1627,11 +1630,13 @@ export function createService(opts: ServiceOptions) {
      * it may attach identities after the Claim ended but never restores it.
      * A failure without structured evidence is definite only before delivery.
      */
-    async spawnResult(workerId: string, ok: boolean, text?: string, report?: ExecutionReport) {
+    async spawnResult(workerId: string, ok: boolean, text?: string, report?: ExecutionReport, duplicate = false) {
       return mutate((tx) => {
         const { rt } = tx;
         const e = executionOf(rt, workerId);
         if (!e) return { applied: false, reason: "no such launch" };
+        // A repeated result only contributes structured, generation-checked evidence.
+        if (duplicate) return report ? applyReport(tx, e, report) : { applied: false, reason: "duplicate result" };
         if (ok && report && report.status === "not-started")
           throw new SfError("invalid", "a successful launch cannot report not-started; use fail");
         const worker = rt.workers[workerId];

@@ -90,7 +90,9 @@ export function commandsRouter(store: Store, service: Service) {
     const text = body.ok ? body.result : body.error;
     // Evidence is applied by launch generation first, even for cancelled or
     // interrupted records; a mismatched identity rejects without recording.
-    if (command.type === "worker.spawn") await service.spawnResult(command.workerId, body.ok, text, body.execution);
+    const duplicate = found.status === "done" || found.status === "failed";
+    if (command.type === "worker.spawn")
+      await service.spawnResult(command.workerId, body.ok, text, body.execution, duplicate);
     else if (command.type === "execution.reconcile" || command.type === "execution.cancel")
       await service.attemptResult(command, body.ok, text, body.execution);
     res.json(StoreService.finish(store, req.params.id, body));
