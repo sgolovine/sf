@@ -1,5 +1,7 @@
-import type { BoardConfig, FieldDef } from "#model/config";
+import type { MachineRequest } from "#model/commands";
+import type { BoardConfig, FieldDef, SchedulingConfig } from "#model/config";
 import { modelDescription, type ResolvedModel } from "#model/models";
+import type { StoryPlacement } from "#model/placement";
 import type { StoryData } from "./story.ts";
 
 export type BriefInput = {
@@ -18,6 +20,8 @@ export type BriefInput = {
   prompt: string;
   projectInstructions?: string;
   boardInstructions?: string;
+  /** The requested remote machine; its instructions end the brief. */
+  machine?: MachineRequest;
 };
 
 /** The Worker Brief: sf/configured preambles, project/board instructions, Stage Prompt, Story. */
@@ -82,7 +86,58 @@ Every command refreshes your Claim. If a command fails with "claim is gone", sto
   if (b.boardInstructions?.trim()) sections.push(`## BOARD.md\n\n${b.boardInstructions.trim()}`);
   sections.push(`## Stage Prompt\n\n${b.prompt.trim()}`);
   sections.push(`## Story\n\n${storyText(b.storyKey, b.story, b.board.schema)}`);
+  if (b.machine) sections.push(b.machine.instructions);
   return `${sections.join("\n\n")}\n`;
+}
+
+/**
+ * The machine request for a Worker that placement put on a configured remote,
+ * or undefined for local. sf asks the harness to start the Worker there and
+ * leaves machine handling, preparation and Story command access to it.
+ */
+export function machineRequest(
+  scheduling: SchedulingConfig | undefined,
+  placement: StoryPlacement | undefined,
+  machineId: string,
+  branch: string,
+): MachineRequest | undefined {
+  const remote = scheduling?.remotes.find((r) => r.id === machineId);
+  if (!remote) return undefined;
+  const intent = placement?.mode === "required" || placement?.mode === "preferred" ? placement.mode : "default";
+  const localFallback = intent !== "required" && scheduling!.order.includes("local");
+  const where = `"${remote.name}" (machine id \`${remote.id}\`)`;
+  const instructions = `## Machine Placement
+
+<!-- sf:machine-placement -->
+sf placement selected machine ${where} for this Worker. Start this Worker on that machine using the harness's own machine handling. sf does not move the Worker itself.
+
+- Machine name: ${remote.name}
+- Machine id: ${remote.id}
+- Environment id: ${remote.environmentId}
+- Project id: ${remote.project.projectId}
+- Repository: ${remote.project.repository} (Story branch ${branch})
+- Placement: ${
+    intent === "required"
+      ? "required. Do not start this Worker anywhere else. If the harness cannot start it on this machine, start nothing and report the launch as not started."
+      : `${intent === "preferred" ? "preferred by the Story" : "chosen by the Project's machine order"}. ${
+          localFallback
+            ? "If the harness cannot start it on this machine, it may start the Worker on the Supervisor's machine instead; say where it started."
+            : "The policy does not allow local fallback: if the harness cannot start it on this machine, start nothing and report the launch as not started."
+        }`
+  }
+- The Project and Story Worktree paths in this brief are on the Supervisor's machine, which holds the sf authority. They may not exist on ${remote.name}. Preparing the machine (repository, Story branch, working directory) and reaching sf's Story commands from it are up to the harness.
+- This request is not evidence that the Worker runs on ${remote.name}. Report only what the launch tool returns.
+<!-- /sf:machine-placement -->`;
+  return {
+    id: remote.id,
+    name: remote.name,
+    environmentId: remote.environmentId,
+    projectId: remote.project.projectId,
+    repository: remote.project.repository,
+    placement: intent,
+    localFallback,
+    instructions,
+  };
 }
 
 function storyText(key: string, story: StoryData, schema: FieldDef[]) {

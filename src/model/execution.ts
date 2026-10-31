@@ -92,10 +92,6 @@ export type AdapterSupport = {
   cancel: Support;
 };
 
-/** Remote execution needs a verified adapter and command channel (DEV-11). */
-export const REMOTE_UNSUPPORTED =
-  "remote execution is unavailable: no verified remote adapter or authoritative Worker command channel (DEV-11)";
-
 /** Adapter support derived from the Supervisor's registered capabilities. */
 export function supportFor(capabilities: { app: string; canSpawnThreads: boolean; canSpawnSubagents: boolean } | null) {
   // An unregistered Supervisor keeps commands waiting, as before; a registered one must have a tool.
@@ -104,7 +100,8 @@ export function supportFor(capabilities: { app: string; canSpawnThreads: boolean
   return {
     name: t3 ? "t3-code" : (capabilities?.app ?? "unregistered"),
     local: canLaunch ? true : "the Supervisor reports no thread or subagent tool",
-    remote: REMOTE_UNSUPPORTED,
+    // sf only requests a configured machine; the Supervisor's harness owns machine handling.
+    remote: canLaunch ? true : "the Supervisor reports no thread or subagent tool",
     status: t3
       ? true
       : "status comes only from the Supervisor's own observation of its Workers; no lookup tool is declared",

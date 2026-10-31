@@ -18,6 +18,26 @@ export type ExecutionRef = {
   projectId: string;
 };
 
+/**
+ * The configured machine placement selected for a Worker. sf only requests it:
+ * the Supervisor's harness owns machine handling, and this is never evidence
+ * that the Worker runs there.
+ */
+export type MachineRequest = {
+  /** Configured machine id (the stable slug in `scheduling.remotes`). */
+  id: string;
+  name: string;
+  environmentId: string;
+  projectId: string;
+  repository: string;
+  /** The Story's placement intent; `default` means the Project's machine order chose it. */
+  placement: "required" | "preferred" | "default";
+  /** Whether the harness may start the Worker on the Supervisor's machine instead. */
+  localFallback: boolean;
+  /** Readable instructions for the launcher; the brief ends with the same text. */
+  instructions: string;
+};
+
 /** Start a Worker for one Story in one Stage. Queued by the server, never by the UI. */
 export type WorkerSpawnCommand = {
   type: "worker.spawn";
@@ -36,6 +56,8 @@ export type WorkerSpawnCommand = {
   brief: string;
   /** Durable launch identity; use `execution.id` as the launch request key where a tool takes one. */
   execution?: ExecutionRef;
+  /** Present when placement selected a configured remote: start the Worker there. Absent: launch locally. */
+  machine?: MachineRequest;
 };
 
 /** Ask the Supervisor what happened to an earlier launch. Never a request to launch again. */

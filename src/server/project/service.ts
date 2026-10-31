@@ -7,7 +7,7 @@ import type { ExecutionsResponse, ExecutionView, StoryDetails, UpdateProjectRequ
 import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
 import type { CommandStatus, ExecutionReconcileCommand, SupervisorCommand, WorkerSpawnCommand } from "#model/commands";
 import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
-import { type AdapterSupport, type ExecutionReport, REMOTE_UNSUPPORTED, supportFor } from "#model/execution";
+import { type AdapterSupport, type ExecutionReport, supportFor } from "#model/execution";
 import { modelCatalog, resolveModel } from "#model/models";
 import {
   normalizePlacementPolicy,
@@ -28,7 +28,7 @@ import {
   type WorkerEndReason,
 } from "#model/runtime";
 import { attachmentStore } from "./attachments.ts";
-import { composeBrief } from "./brief.ts";
+import { composeBrief, machineRequest } from "./brief.ts";
 import {
   BACKLOG,
   DEFAULT_PROJECT_CONFIG,
@@ -876,6 +876,7 @@ export function createService(opts: ServiceOptions) {
     const executionId = `x-${crypto.randomBytes(6).toString("hex")}`;
     const worktree = { path: worktreePath(root, key), branch: storyBranch(key) };
     const mode = opts.spawnMode?.() ?? "subagent";
+    const machine = machineRequest(tx.project.scheduling, story.placement, machineId, worktree.branch);
     const brief = composeBrief({
       storyKey: key,
       story,
@@ -891,6 +892,7 @@ export function createService(opts: ServiceOptions) {
       boardInstructions: instructionText(paths.boardInstructions(boardId)),
       prompt: promptText(boardId, stageId),
       effectiveModel: resolveModel(tx.project, board, stage, story),
+      ...(machine ? { machine } : {}),
     });
     const t = now();
     const execution: Execution = {
@@ -922,6 +924,7 @@ export function createService(opts: ServiceOptions) {
       worktree,
       brief,
       execution: executionRef(execution),
+      ...(machine ? { machine } : {}),
     };
     tx.rt.executions[executionId] = execution;
     tx.rt.claims[key] = {
@@ -1585,8 +1588,6 @@ export function createService(opts: ServiceOptions) {
               requestSpawn(tx, e.storyKey, found.boardId, claim.stageId);
             return null;
           }
-          // Remote preparation happens on the owning machine through a verified adapter (DEV-11).
-          if (e.machineId !== "local") return { error: `cannot prepare ${e.machineId}: ${REMOTE_UNSUPPORTED}` };
           if (deliver) {
             Object.assign(e, { status: "launching", dispatchedAt: now(), updatedAt: now() });
             delete e.intent;
@@ -1595,7 +1596,7 @@ export function createService(opts: ServiceOptions) {
         }, false);
       const e = await gate(false);
       if (!e) return { cancelled: true };
-      if ("error" in e) return e;
+      // A remote Worker still gets its Story Worktree here, the authority-side context; the harness prepares the machine.
       try {
         await service.ensureStoryWorktree(e.storyKey, e.id);
       } catch (err) {
@@ -1603,7 +1604,7 @@ export function createService(opts: ServiceOptions) {
       }
       const delivered = await gate(true);
       if (!delivered) return { cancelled: true };
-      return "error" in delivered ? delivered : { ok: true };
+      return { ok: true };
     },
 
     /** Undoes delivery when the command never reached the Supervisor (its long-poll closed). */
