@@ -3,7 +3,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ExecutionsResponse, ExecutionView, StoryDetails, UpdateProjectRequest } from "#model/api";
+import fuzzysort from "fuzzysort";
+import type { ExecutionsResponse, ExecutionView, SearchResponse, StoryDetails, UpdateProjectRequest } from "#model/api";
 import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
 import type { CommandStatus, ExecutionReconcileCommand, SupervisorCommand, WorkerSpawnCommand } from "#model/commands";
 import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
@@ -1488,6 +1489,29 @@ export function createService(opts: ServiceOptions) {
         .flatMap((id) => storyViews(id))
         .filter((s) => !stageId || s.stage === stageId)
         .map((s) => details(rt, s));
+    },
+
+    /** Fuzzy-matches every Story's key and title across all Boards, best first. */
+    searchStories(query: string, limit = 50): SearchResponse {
+      loadProjectConfig(root);
+      if (!query.trim()) return [];
+      const targets = listBoardIds(root).flatMap((id) => {
+        const board = loadBoard(root, id);
+        return storyViews(id).map((s) => ({
+          key: s.key,
+          title: s.title,
+          board: { id, name: board.name },
+          stage: { id: s.stage, name: board.stages.find((st) => st.id === s.stage)?.name ?? s.stage },
+        }));
+      });
+      return fuzzysort
+        .go(query.trim(), targets, {
+          keys: ["key", "title"],
+          limit,
+          threshold: 0,
+          scoreFn: (r) => Math.max(...r.map((k) => k?.score ?? 0)),
+        })
+        .map((r) => r.obj);
     },
 
     listBoards() {

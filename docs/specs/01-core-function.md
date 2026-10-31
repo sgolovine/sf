@@ -277,6 +277,10 @@ New Story and Edit Story open on a **Details** tab with Title, Stage, and Descri
 
 The Story dialog has a URL path: `/create` for New Story on the selected Board and `/<KEY>` (for example `/DEV-19`) for an existing Story; closing it returns to `/`. Opening and closing push history entries, so Back and Forward close and reopen it. Loading a Story path opens that Story with its Board selected. An unknown path or key, a Story deleted while open, or `/create` with no Boards shows no dialog and replaces the URL with `/`. Board, Board Settings, and Project settings views have no URL.
 
+### Story search
+
+When the Project has a Board, the header shows a Search Stories trigger in every view; it or Cmd/Ctrl+K (ignored while a Story dialog or Create a Board is open) opens a finder dialog with an empty, focused query. Typing fuzzy-matches the key and title of every Story on every Board, in any Stage, through `GET /api/search?q=<text>` (token required). The server ranks matches with `fuzzysort` by each Story's best key or title score and returns at most 50 `{ key, title, board: { id, name }, stage: { id, name } }`, best first; an empty or blank `q` returns `[]`. Up/Down move the highlighted row (the first by default), and Enter or a click opens it at `/<KEY>`, switching to its Board; Escape closes the finder without navigating. The finder has no URL. Bodies and custom fields are not searched.
+
 ### Deletion
 
 An existing Story can be permanently deleted through its modal's trash icon and confirmation,
