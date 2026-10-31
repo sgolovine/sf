@@ -6,6 +6,8 @@ import { after, test } from "node:test";
 import { promisify } from "node:util";
 import { type ErrorResponse, routes, type StoryDetails } from "#model/api";
 import type { CommandRecord } from "#model/commands";
+import type { SessionState } from "#model/session";
+import pkg from "../package.json" with { type: "json" };
 import { createApp, listen } from "../src/server/server.ts";
 import { ClientService, type ServerInfo } from "../src/server/services/ClientService.ts";
 import { OnlineService } from "../src/server/services/OnlineService.ts";
@@ -21,6 +23,11 @@ after(() => http.close());
 const address = http.address();
 const server: ServerInfo = { port: typeof address === "object" && address ? address.port : 0, token: "t", pid: 0 };
 const call = <T>(method: string, path: string, body?: unknown) => ClientService.api<T>(server, method, path, body);
+
+test("GET /api/state includes the package.json version", async () => {
+  const state = await call<SessionState>("GET", routes.state);
+  assert.equal(state.version, pkg.version);
+});
 
 test("a Move over HTTP spawns; next hands out worker.spawn with its worktree; done activates", async () => {
   await call("POST", routes.capabilities, {
