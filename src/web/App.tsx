@@ -102,7 +102,7 @@ export function App() {
             <Button
               size="sm"
               variant="outline"
-              className="shrink-0"
+              className="ml-auto shrink-0"
               onClick={() => openBoard(board.id)}
               aria-label="Back to board"
             >
@@ -110,7 +110,7 @@ export function App() {
               <span className="hidden @md/header:inline">Back to board</span>
             </Button>
           )}
-          <span className="flex-1" />
+          {!settings && <span className="flex-1" />}
           {!creating && !settings && view.kind !== "project-settings" && (
             <>
               <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
