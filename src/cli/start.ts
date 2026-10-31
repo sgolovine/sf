@@ -20,6 +20,7 @@ import { WatcherService } from "../server/services/WatcherService.ts";
 import type { Flags } from "./story.ts";
 
 const SWEEP_MS = 60 * 1000;
+const CONFIG_FILE = /^\.sf\/(sf\.config\.json|boards\/[^/]+\/board\.config\.json)$/;
 // ps is a process per check, so poll less often where there is no /proc.
 const PARENT_CHECK_MS = process.platform === "linux" ? 1000 : 3000;
 
@@ -45,6 +46,9 @@ export async function runStart(flags: Flags, root: string, sf: string) {
     StoreService.addFileChanges(store, changes);
     // Hand edits (and offline CLI writes) show up live; they never trigger Workers.
     if (changes.some((c) => c.path.startsWith(".sf/"))) OnlineService.refreshProject(store, service);
+    // Configuration edits can free or change capacity: drain the existing queue with them.
+    if (changes.some((c) => CONFIG_FILE.test(c.path)) && service.hasProject())
+      service.sweep().catch((err) => console.error(`sf: sweep failed: ${err.message}`));
   });
 
   const app = createApp({ store, service, token, uiDir, onStop: () => shutdown("sf stop") });
@@ -72,6 +76,8 @@ export async function runStart(flags: Flags, root: string, sf: string) {
   }, SWEEP_MS);
   // The agent that ran `sf start` is the Supervisor. In dev there may be none.
   if (!dev) StoreService.setCapabilities(store, CapabilitiesService.resolve(flags));
+  // Reconnect launches with their command records before anything new is dispatched.
+  if (service.hasProject()) await service.recover();
   // Run the triggers that Workers queued while no server was running.
   if (store.state.supervisor.capabilities && service.hasProject()) await service.drainPending();
 

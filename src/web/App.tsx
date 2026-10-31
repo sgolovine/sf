@@ -226,7 +226,8 @@ export function App() {
         <footer className="flex h-8 shrink-0 items-center gap-3 border-t px-3 text-xs whitespace-nowrap text-muted-foreground">
           {project && (
             <span className="shrink-0">
-              Workers {Object.keys(project.runtime.claims).length}/{project.config.maxConcurrentWorkers}
+              Workers {Object.values(project.runtime.executions ?? {}).filter((e) => e.status !== "terminal").length}
+              {project.config.scheduling ? "" : `/${project.config.maxConcurrentWorkers}`}
               {project.runtime.queue.length > 0 && ` · ${project.runtime.queue.length} waiting`}
             </span>
           )}

@@ -5,8 +5,9 @@
 
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { type FileChangesResponse, routes } from "#model/api";
+import { type ExecutionsResponse, type ExecutionView, type FileChangesResponse, routes } from "#model/api";
 import type { CommandRecord } from "#model/commands";
+import { type ExecutionReport, validateExecutionReport } from "#model/execution";
 import type { SessionState } from "#model/session";
 import type { SupervisorMessage } from "#model/supervisor";
 import pkg from "../../package.json" with { type: "json" };
@@ -27,8 +28,11 @@ Project (.sf).
   sf capabilities                   print detected agent/app capabilities (JSON)
   sf start [capability flags]       init .sf if needed, run the server in the foreground, open the UI
   sf next [--timeout <s>]           wait for and claim the next command (e.g. worker.spawn)
-  sf done <id> [--result "..."]     report a command as finished (worker.spawn: the thread id)
-  sf fail <id> --error "..."        report a command as failed
+  sf done <id> [--result "..."]     report a command as finished (worker.spawn: launch accepted)
+  sf fail <id> --error "..."        report a command as failed (--not-started: no Worker was started)
+  sf execution list | show <id>     Worker executions: identity, status, what sf is waiting for
+  sf execution report <id> --status <s> --evidence "..."   correlated launch/end evidence
+  sf execution reconcile <id> | cancel <id>   ask the Supervisor to look it up or stop it
   sf say "<text>" [--level warn]    post a message to the UI
   sf changes [--since <ms>]         list file changes seen by the watcher
   sf status | url | stop
@@ -37,6 +41,8 @@ Project (.sf).
 Capability flags: --agent, --model, --app, --can-spawn-threads <bool>,
 --can-spawn-subagents <bool>, --notes. Other flags: --json, --no-open,
 --project <dir> (default: $SF_PROJECT, then the current directory).
+Execution evidence (done, fail, execution report): --status running|not-started|terminal|unknown,
+--outcome completed|failed|cancelled (terminal), --task <id>, --thread <id>, --evidence "...".
 \`start\` also takes --port <n> (default: random) and --ui-dir <dir>. It runs
 until Ctrl-C, SIGTERM, \`sf stop\`, or the exit of the process that started it.
 \`next\` exits 0 with a command, 2 on timeout, 1 on error.
@@ -44,7 +50,7 @@ until Ctrl-C, SIGTERM, \`sf stop\`, or the exit of the process that started it.
 ${PROJECT_HELP}`;
 
 const POLL_SECONDS = 25;
-const BOOLEAN_FLAGS = new Set(["json", "no-open", "dev", "force"]);
+const BOOLEAN_FLAGS = new Set(["json", "no-open", "dev", "force", "not-started", "all"]);
 const REPEATABLE_FLAGS = new Set(["field", "model-option"]);
 
 const argv = process.argv.slice(2);
@@ -86,10 +92,12 @@ async function main() {
     case "fail": {
       const id = positional[0];
       if (!id) throw new Error(`usage: sf ${cmd} <command-id>`);
+      const error = str(flags.error) ?? "failed";
+      const execution = executionFlags(cmd === "fail" && flags["not-started"] ? error : undefined);
       const body =
         cmd === "done"
-          ? { ok: true, ...(str(flags.result) ? { result: str(flags.result) } : {}) }
-          : { ok: false, error: str(flags.error) ?? "failed" };
+          ? { ok: true, ...(str(flags.result) ? { result: str(flags.result) } : {}), ...execution }
+          : { ok: false, error, ...execution };
       const record = await ClientService.api<CommandRecord>(
         await requireServer(),
         "POST",
@@ -98,6 +106,8 @@ async function main() {
       );
       return console.log(`Command ${record.id} marked ${record.status}.`);
     }
+    case "execution":
+      return execution(await requireServer());
     case "say": {
       const text = positional.join(" ") || str(flags.text);
       if (!text) throw new Error('usage: sf say "<text>"');
@@ -129,7 +139,9 @@ async function main() {
       return console.log(
         `running at ${ClientService.uiUrl(server)} | agent: ${state.supervisor.capabilities?.agent ?? "unregistered"} | ` +
           `pending: ${count("pending")} | claimed: ${count("claimed")} | done: ${count("done")} | failed: ${count("failed")} | ` +
-          `Workers: ${Object.keys(runtime?.claims ?? {}).length} | waiting: ${runtime?.queue.length ?? 0}`,
+          `Workers: ${Object.keys(runtime?.claims ?? {}).length} | occupying: ${
+            Object.values(runtime?.executions ?? {}).filter((e) => e.status !== "terminal").length
+          } | waiting: ${runtime?.queue.length ?? 0}`,
       );
     }
     case "url":
@@ -143,6 +155,73 @@ async function main() {
 }
 
 // ---------- Supervisor commands ----------
+
+/** The structured execution envelope from flags, or nothing when none were given. */
+function executionFlags(notStarted?: string): { execution?: ExecutionReport } {
+  const status = notStarted ? "not-started" : str(flags.status);
+  const given = ["outcome", "task", "thread", "evidence"].filter((k) => str(flags[k]) !== undefined);
+  if (!status && !given.length) return {};
+  if (!status) throw new Error(`--${given[0]} needs --status running|not-started|terminal|unknown`);
+  const report = {
+    status,
+    ...(str(flags.outcome) ? { outcome: str(flags.outcome) } : {}),
+    ...(str(flags.task) ? { taskId: str(flags.task) } : {}),
+    ...(str(flags.thread) ? { threadId: str(flags.thread) } : {}),
+    ...(str(flags.evidence) || notStarted ? { evidence: str(flags.evidence) ?? notStarted } : {}),
+  };
+  const invalid = validateExecutionReport(report);
+  if (invalid) throw new Error(invalid);
+  return { execution: report as ExecutionReport };
+}
+
+async function execution(server: ServerInfo) {
+  const [sub, id] = positional;
+  const print = (e: ExecutionView) =>
+    flags.json
+      ? console.log(JSON.stringify(e, null, 2))
+      : console.log(
+          `${e.id}  ${e.storyKey}/${e.stageId}  ${e.machineId}  ${e.status}${e.outcome ? ` (${e.outcome})` : ""}` +
+            `${e.taskId ? `  task ${e.taskId}` : ""}${e.threadId ? `  thread ${e.threadId}` : ""}${e.label ? `  ${e.label}` : ""}\n` +
+            `  worker ${e.workerId}  ${e.worktree.branch}  ${e.waitingFor}`,
+        );
+  if (sub === "list" || !sub) {
+    const list = await ClientService.api<ExecutionsResponse>(server, "GET", routes.executions);
+    if (flags.json) return console.log(JSON.stringify(list, null, 2));
+    const shown = list.executions.filter((e) => e.occupying || flags.all);
+    if (!shown.length) console.log("No occupying executions.");
+    for (const e of shown) print(e);
+    return console.log(
+      `usage: ${
+        Object.entries(list.usage)
+          .map(([m, n]) => `${m} ${n}`)
+          .join(", ") || "none"
+      } | adapter: ${list.support.name}`,
+    );
+  }
+  if (!id) throw new Error(`usage: sf execution ${sub} <execution-id>`);
+  if (sub === "show") return print(await ClientService.api<ExecutionView>(server, "GET", routes.execution(id)));
+  if (sub === "reconcile" || sub === "cancel")
+    return print(
+      await ClientService.api<ExecutionView>(
+        server,
+        "POST",
+        sub === "cancel" ? routes.executionCancel(id) : routes.executionReconcile(id),
+      ),
+    );
+  if (sub === "report") {
+    const { execution: report } = executionFlags();
+    if (!report) throw new Error('usage: sf execution report <id> --status <status> --evidence "..."');
+    const result = await ClientService.api<{ applied: boolean; reason?: string; execution: ExecutionView }>(
+      server,
+      "POST",
+      routes.executionReport(id),
+      report,
+    );
+    if (!result.applied) console.log(`Not applied: ${result.reason}`);
+    return print(result.execution);
+  }
+  throw new Error(`unknown execution command: ${sub}`);
+}
 
 async function next(server: ServerInfo) {
   const deadline = Date.now() + Number(str(flags.timeout) ?? 540) * 1000;
@@ -169,8 +248,30 @@ function formatCommand({ id, command }: CommandRecord) {
       command.brief.trimEnd(),
       "----- END WORKER BRIEF -----",
       "",
-      `Once the Worker is running: ${SF_COMMAND} done ${id} --result "<thread or agent id>"`,
-      `If it cannot be spawned: ${SF_COMMAND} fail ${id} --error "<reason>"`,
+      ...(command.execution ? [`Execution: ${command.execution.id} (use it as the launch request key)`] : []),
+      `Once the Worker is running: ${SF_COMMAND} done ${id} --status running --task <task id> --thread <thread id>`,
+      `If no Worker was started: ${SF_COMMAND} fail ${id} --not-started --error "<reason>"`,
+      `When the Worker's thread or subagent ends: ${SF_COMMAND} execution report ${command.execution?.id ?? "<execution>"} --status terminal --outcome completed --evidence "<what ended>"`,
+    );
+    return lines.join("\n");
+  }
+  if (command.type === "execution.reconcile" || command.type === "execution.cancel") {
+    const ids = [
+      command.taskId && `task ${command.taskId}`,
+      command.threadId && `thread ${command.threadId}`,
+      command.label && `label ${command.label}`,
+    ].filter(Boolean);
+    lines.push(
+      `Execution: ${command.execution.id}  Story: ${command.storyKey}  Worker: ${command.workerId}  Mode: ${command.mode}`,
+      `Known identity: ${ids.join(", ") || "none (look it up by the Worker id or execution id; never launch it again)"}`,
+      "",
+      command.type === "execution.cancel"
+        ? "Stop this Worker with your tools, then report what you can confirm."
+        : "Look up this Worker with your tools. Do not launch it again.",
+      `Ended: ${SF_COMMAND} done ${id} --status terminal --outcome completed|failed|cancelled --evidence "<what you saw>"`,
+      `Still running: ${SF_COMMAND} done ${id} --status running --evidence "<what you saw>"`,
+      `Never started: ${SF_COMMAND} done ${id} --status not-started --evidence "<proof>"`,
+      `Cannot tell: ${SF_COMMAND} done ${id} --status unknown --evidence "<what is missing>"`,
     );
     return lines.join("\n");
   }

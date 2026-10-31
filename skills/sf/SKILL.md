@@ -16,7 +16,8 @@ Everything goes through the `sf` CLI: starting the UI, receiving commands, and r
 | Start the UI and server | `sf start ...` (step 3) |
 | Is it running, and where | `sf status`, `sf url` |
 | Wait for the next command | `sf next` |
-| Report a command | `sf done <id> --result "..."`, `sf fail <id> --error "..."` |
+| Report a command | `sf done <id> --status running --task <id>`, `sf fail <id> [--not-started] --error "..."` |
+| Report a Worker's end | `sf execution report <execution id> --status terminal --outcome completed --evidence "..."` |
 | Post to the UI | `sf say "<text>"` |
 | Boards, Stages, Stories | `sf board ...`, `sf stage ...`, `sf story ...` ([worker-commands.md](references/worker-commands.md)) |
 | Stop | `sf stop` |
@@ -73,10 +74,12 @@ If the Project has no Board yet, the user can create one in the interface, or as
 Run these as separate commands, not in the `sf start` session. Repeat until the user tells you to stop:
 
 1. Run `sf next` with a shell timeout of at least 10 minutes. It blocks until there is a command and prints it. Exit `2` means no command arrived; run it again.
-2. Carry out the command. Honor an explicit Worker `model` slug unchanged through a supported spawn tool; report unsupported selections or spawn failures with `sf fail` and `sf say --level warn`, never silently substitute a default. An omitted model uses the Supervisor default. See [commands.md](references/commands.md). For `worker.spawn`, start the Worker and report right away; do not wait for the Worker to finish, and never do the Worker's work yourself.
-3. Report the outcome: `sf done <id> --result "<outcome>"`, or `sf fail <id> --error "<reason>"`.
+2. Carry out the command. Honor an explicit Worker `model` slug unchanged through a supported spawn tool; report unsupported selections or spawn failures with `sf fail` and `sf say --level warn`, never silently substitute a default. An omitted model uses the Supervisor default. See [commands.md](references/commands.md). For `worker.spawn`, start the Worker and report right away; do not wait for the Worker to finish, and never do the Worker's work yourself. For `execution.reconcile` and `execution.cancel`, look up or stop the named Worker and report what you can confirm; never launch it again.
+3. Report the outcome: `sf done <id> --status running --task <id>` for a started Worker, `sf done <id> --result "<outcome>"` for an instruction, or `sf fail <id> [--not-started] --error "<reason>"`.
 
-Use `sf say "<text>"` to post progress to the interface. Use `sf changes --since <cursor>` to see files changed since the last check. `sf status` shows the number of Workers holding Claims and Stories waiting for a Worker. Always close a claimed command with `done` or `fail`.
+Whenever you learn that a Worker's subagent or thread has ended, report it with `sf execution report <execution id> --status terminal --outcome completed --evidence "<what ended>"` (the id is the `worker.spawn` command's `execution.id`). sf keeps the Worker's slot and Story branch until then, even after the Worker Moved or released its Story, so the next Stage starts only after this report.
+
+Use `sf say "<text>"` to post progress to the interface. Use `sf changes --since <cursor>` to see files changed since the last check. `sf status` shows the number of Workers holding Claims, executions still occupying slots, and Stories waiting for a Worker; `sf execution list` shows what each occupying execution waits for. Always close a claimed command with `done` or `fail`.
 
 If a command says sf is not running, read the output of the `sf start` process, then start it again.
 

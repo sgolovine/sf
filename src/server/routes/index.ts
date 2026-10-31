@@ -5,6 +5,7 @@ import type { Service } from "../project/service.ts";
 import type { Store } from "../services/StoreService.ts";
 import { boardsRouter } from "./boards.ts";
 import { commandsRouter } from "./commands.ts";
+import { executionsRouter } from "./executions.ts";
 import { projectRouter } from "./project.ts";
 import { sessionRouter } from "./session.ts";
 import { storiesRouter } from "./stories.ts";
@@ -29,6 +30,7 @@ export function apiRouter({ store, service, token, onStop }: ApiOptions) {
   router.use("/project", projectRouter(store, service));
   router.use("/boards", boardsRouter(service));
   router.use("/stories", storiesRouter(service));
+  router.use("/executions", executionsRouter(service));
 
   router.use((_req, res) => {
     res.status(404).json({ error: "not found" });

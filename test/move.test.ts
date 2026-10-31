@@ -28,10 +28,13 @@ test("Move into an enabled Stage claims the Story and queues worker.spawn", asyn
   assert.equal(spawn.mode, "thread");
   assert.equal(spawn.worktree.branch, "sf/DEV-1");
   assert.ok(spawn.brief.indexOf("Plan the Story.") < spawn.brief.indexOf("### DEV-1: One"));
+  // The command is published after the reservation is saved, so only the saved Claim has its id.
+  const claim = svc.snapshot()!.runtime.claims["DEV-1"]!;
   assert.deepEqual(
-    { worker: moved.claim?.workerId, status: moved.claim?.status, command: moved.claim?.commandId },
+    { worker: moved.claim?.workerId, status: moved.claim?.status, command: claim.commandId },
     { worker: spawn.workerId, status: "spawning", command: "c1" },
   );
+  assert.equal(spawn.execution?.id, claim.executionId);
 });
 
 test("creating a Story in an enabled Stage counts as a Move", async () => {

@@ -38,7 +38,7 @@ UI ◀── GET /api/events (SSE) ── server ◀── sf done | fail | say 
 1. A Story enters a Stage with an enabled Stage Prompt. sf claims the Story for a new Worker id and queues a `worker.spawn` command (or queues the spawn, oldest first, when the Project is at `maxConcurrentWorkers`).
 2. The Supervisor runs `sf next`. The server creates or reuses the Story Worktree and hands out the command with the Worker Brief.
 3. The Supervisor starts the Worker (a thread, or a subagent when it cannot start threads) and reports `sf done <id> --result <thread id>`, or `fail`.
-4. The Worker changes Stories only through `sf story ... --worker <id> --project <root>`. Its Claim ends when it Moves or releases the Story, when the user force-releases it, or after the claim timeout.
+4. The Worker changes Stories only through `sf story ... --worker <id> --project <root>`. Its Claim ends when it Moves or releases the Story, when the user force-releases it, or after the claim timeout. Its Worker slot and Story branch stay occupied until the Supervisor reports that the Worker's thread or subagent ended ([execution ledger](docs/execution-ledger.md)).
 5. Every state change streams to the UI over server-sent events.
 
 UI helpers (`src/web/api`):
@@ -59,7 +59,7 @@ sf keeps its data in `.sf/` at the repository root, committed with the repositor
   SF.md                     optional shared Worker instructions
   sf.config.json            Project defaults: Worker agent/model, base branch, claim timeout, brief preamble, maxConcurrentWorkers
   .gitignore                ignores runtime/
-  runtime/                  Claims, queued spawns, failures, pending triggers, server.json (gitignored)
+  runtime/                  Claims, executions, queued spawns, failures, pending triggers, server.json (gitignored)
   boards/development/
     BOARD.md                optional instructions for this Board
     board.config.json       key, ordered Stages, Story schema, overrides
