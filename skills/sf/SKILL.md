@@ -83,3 +83,7 @@ If a command says sf is not running, read the output of the `sf start` process, 
 ## 5. Stop
 
 When the user asks to stop, run `sf stop`, or stop the background `sf start` process. sf also stops when this thread ends.
+
+## Dependency waits versus human input
+
+Workers use `sf story wait <KEY> --depends-on <KEY,KEY> --worker <id> --project <root>` for observable Story prerequisites. sf records the list and releases atomically, then resumes the current Stage when every prerequisite is Done. HIL remains an independent hold for a specific human decision or action. Do not manually Move waiting Stories or clear human requests on dependency completion. Resumed Workers must reread delivered changes and reconcile their Stage's work. See [worker-commands.md](references/worker-commands.md).

@@ -67,7 +67,7 @@ sf story update DEV-3 --field requires_dev_hil=true --field "dev_hil_comment=Whi
 sf story release DEV-3 --worker w-1a2b --project /abs/repo
 ```
 
-The Story stays in its Stage, marked in the UI with the comment. When a human clears the flag (`sf story update DEV-3 --field requires_dev_hil=false`, or unchecks it in the UI), and the Story is unclaimed and the Stage has an enabled Stage Prompt, a Worker starts as if the Story had just entered the Stage. Clearing the flag of another Stage starts nothing.
+The Story stays in its Stage, marked in the UI with the comment. When a human clears the flag (`sf story update DEV-3 --field requires_dev_hil=false`, or unchecks it in the UI), and the Story is unclaimed the dependencies are Done, and the Stage has an enabled Stage Prompt, a Worker starts as if the Story had just entered the Stage. Clearing the flag of another Stage starts nothing.
 
 ## Configuration
 
@@ -94,3 +94,19 @@ sf story attachment get DEV-3 <attachment-id> --output ./download.png --worker <
 ```
 
 Add uploads one regular file up to 20 MiB. Get writes exact bytes and refuses to overwrite an existing file. Commands work with the server running or stopped, refresh the Worker Claim, and never Move or release the Story. Files live in the Supervisor's Project and survive Story Worktree cleanup.
+
+## Story dependencies
+
+```sh
+sf story create DEV --title "Follow-up" --depends-on DEV-7,DEV-8
+sf story update DEV-9 --depends-on DEV-7,DEV-8   # replaces the complete list
+sf story update DEV-9 --depends-on ""          # clears the list
+sf story show DEV-9 --json
+sf story wait DEV-9 --depends-on DEV-7 --worker w-1a2b --project /abs/repo
+```
+
+`dependsOn` is built-in frontmatter, independent of custom fields and HIL. Keys can reference any Board in the same Project; all must exist and graphs must be acyclic. sf rejects self references and deleting referenced Stories. If a file is removed outside sf, its key remains unresolved until restored or explicitly removed from dependent lists.
+
+`story wait` validates, records the complete list, and releases the Worker's own Claim under one lock. It never sets or clears HIL, never Moves the Story, and cannot lose a completion concurrent with release. All prerequisites Done means the current Stage may resume immediately. The resumed Worker must reread the current Story, prerequisite delivery and existing work before advancing. Use HIL only for an explicit human action, never as a dependency waiting state.
+
+Story show/list JSON includes `dependsOn`, `unresolvedDependencies`, `waitingOnDependencies`, independent `hil`, and `queued` for Worker capacity. Cards and the editor show both holds when applicable. Dependency changes and startup recovery reconcile durable waits through the existing queue; queued launches recheck dependencies. A prerequisite reopening does not stop an active Worker.

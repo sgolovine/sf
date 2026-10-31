@@ -67,3 +67,6 @@ _Avoid_: Transition, drag
 
 **Attachment**:
 A file belonging to a Story, stored with display metadata under the Supervisor’s Project. Users stage files in the Story editor until Save/Create; Workers upload, list, and retrieve them with `sf story attachment ...`. Attachments persist across Moves and Story Worktree cleanup.
+
+**Dependency wait**:
+A Story's built-in `dependsOn` list names prerequisite Story keys in the same Project, across Boards. sf starts no Worker until every key is Done. The current Stage stays unchanged. Workers record a wait and release atomically with `sf story wait`; dependency completion resumes that Stage through the normal capacity queue. HIL is independent and is never automatically cleared. Missing prerequisites remain unresolved; supported deletion rejects referenced Stories.

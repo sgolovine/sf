@@ -5,6 +5,7 @@ import type {
   MoveStoryRequest,
   ReleaseStoryRequest,
   UpdateStoryRequest,
+  WaitStoryRequest,
   WorktreeRequest,
 } from "#model/api";
 import { SfError } from "../project/errors.ts";
@@ -61,6 +62,11 @@ export function storiesRouter(service: Service) {
     const { stage, worker } = req.body as MoveStoryRequest;
     if (typeof stage !== "string") throw new SfError("invalid", "stage is required");
     res.json(await service.moveStory(req.params.key, stage, actor(worker)));
+  });
+
+  router.post("/:key/wait", async (req, res) => {
+    const { worker, dependsOn } = req.body as WaitStoryRequest;
+    res.json(await service.waitStory(req.params.key, dependsOn, actor(worker)));
   });
 
   router.post("/:key/release", async (req, res) => {

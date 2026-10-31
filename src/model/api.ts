@@ -34,6 +34,7 @@ export const routes = {
   storyAttachments: (key: string) => `/api/stories/${enc(key)}/attachments`,
   storyAttachment: (key: string, id: string) => `/api/stories/${enc(key)}/attachments/${enc(id)}`,
   storyMove: (key: string) => `/api/stories/${enc(key)}/move`,
+  storyWait: (key: string) => `/api/stories/${enc(key)}/wait`,
   storyRelease: (key: string) => `/api/stories/${enc(key)}/release`,
   storyForceRelease: (key: string) => `/api/stories/${enc(key)}/force-release`,
   storyRetry: (key: string) => `/api/stories/${enc(key)}/retry`,
@@ -91,6 +92,7 @@ export type ReorderStageRequest = { index: number };
 export type CreateStoryRequest = AttachmentSubmission & {
   board: string;
   title: string;
+  dependsOn?: string[];
   model?: string | null;
   stage?: string;
   fields?: Record<string, unknown>;
@@ -99,6 +101,7 @@ export type CreateStoryRequest = AttachmentSubmission & {
 };
 /** A null field value clears the field. */
 export type UpdateStoryRequest = AttachmentSubmission & {
+  dependsOn?: string[];
   model?: string | null;
   title?: string;
   fields?: Record<string, unknown>;
@@ -108,6 +111,7 @@ export type UpdateStoryRequest = AttachmentSubmission & {
 export type MoveStoryRequest = { stage: string; worker?: string };
 export type DeleteStoryRequest = { worker?: string };
 export type DeleteStoryResponse = { key: string };
+export type WaitStoryRequest = { worker: string; dependsOn: string[] };
 export type ReleaseStoryRequest = { worker: string };
 export type WorktreeRequest = { action: "ensure" | "remove"; force?: boolean };
 export type WorktreeResponse = {

@@ -177,3 +177,60 @@ test("online CLI deletion calls HTTP with Worker credentials and refreshes the s
   assert.deepEqual(JSON.parse(deleted.stdout), { key: story.key });
   assert.equal(store.state.project!.boards.find((b) => b.config.key === "DEL")!.stories.length, 0);
 });
+
+test("online CLI/API dependencies share validation, atomic wait and independent HIL holds", async () => {
+  const main = path.resolve(import.meta.dirname, "../src/cli/main.ts");
+  const run = async (...args: string[]) => {
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      "--import",
+      "tsx",
+      main,
+      ...args,
+      "--project",
+      root,
+      "--json",
+    ]);
+    return JSON.parse(stdout) as StoryDetails;
+  };
+  // Make online CLI discovery explicit for this test server.
+  fs.writeFileSync(path.join(root, ".sf/runtime/server.json"), JSON.stringify(server));
+  const prerequisite = await call<StoryDetails>("POST", routes.stories, { board: "DEV", title: "Dependency API" });
+  const dependent = await run(
+    "story",
+    "create",
+    "DEV",
+    "--title",
+    "Online dependent",
+    "--stage",
+    "todo",
+    "--depends-on",
+    prerequisite.key,
+  );
+  assert.deepEqual(dependent.unresolvedDependencies, [prerequisite.key]);
+  assert.equal(dependent.claim, undefined);
+  await assert.rejects(call("PATCH", routes.story(prerequisite.key), { dependsOn: [dependent.key] }), {
+    code: "invalid",
+  });
+  await assert.rejects(call("PATCH", routes.story(dependent.key), { dependsOn: ["DEV-99999"] }), { code: "invalid" });
+  await call("POST", routes.storyMove(prerequisite.key), { stage: "done" });
+  const woken = await call<StoryDetails>("GET", routes.story(dependent.key));
+  assert.ok(woken.claim);
+  const next = await call<StoryDetails>("POST", routes.stories, { board: "DEV", title: "Next prerequisite" });
+  const waiting = await run(
+    "story",
+    "wait",
+    dependent.key,
+    "--depends-on",
+    next.key,
+    "--worker",
+    woken.claim!.workerId,
+  );
+  assert.equal(waiting.claim, undefined);
+  assert.equal(waiting.waitingOnDependencies, true);
+  await assert.rejects(
+    call("POST", routes.storyWait(dependent.key), { dependsOn: [next.key], worker: woken.claim!.workerId }),
+    { code: "claim_gone" },
+  );
+  await run("story", "update", dependent.key, "--depends-on", "");
+  assert.ok((await call<StoryDetails>("GET", routes.story(dependent.key))).claim);
+});

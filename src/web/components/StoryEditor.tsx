@@ -47,6 +47,7 @@ export function StoryEditor({ project, board, story, act, onClose }: Props) {
   const id = useId();
   const [title, setTitle] = useState(story?.title ?? "");
   const [stage, setStage] = useState(story?.stage ?? "backlog");
+  const [dependsOn, setDependsOn] = useState(story?.dependsOn?.join(", ") ?? "");
   const [model, setModel] = useState(story?.model ?? "");
   const legacyModel = board.config.schema.some((f) => f.id === "model");
   useEffect(() => {
@@ -89,6 +90,7 @@ export function StoryEditor({ project, board, story, act, onClose }: Props) {
         title,
         stage,
         body,
+        dependsOn: dependsOn.split(/[\s,]+/).filter(Boolean),
         fields: values,
         ...(!legacyModel ? { model: model || null } : {}),
         attachments: await encodeAttachments(pending),
@@ -129,13 +131,19 @@ export function StoryEditor({ project, board, story, act, onClose }: Props) {
                   : "Describe the work; custom fields follow the Board's settings."}
               </DialogDescription>
             </DialogHeader>
+            {story?.waitingOnDependencies && (
+              <p className="rounded-md border bg-muted px-3 py-2 text-sm">
+                Waiting on dependencies: {story.unresolvedDependencies?.join(", ")}. This Stage resumes when all are
+                Done and other holds are cleared.
+              </p>
+            )}
             {hil && (
               <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 <p className="font-semibold">Needs a human</p>
                 {hil.comment && <p className="whitespace-pre-wrap">{hil.comment}</p>}
                 <p className="mt-1 text-xs">
                   No Worker runs while {schema.find((f) => f.id === hil.flag)?.name ?? hil.flag} is checked. Uncheck it
-                  and save to start one.
+                  and save to resume when dependencies are Done.
                 </p>
               </div>
             )}
@@ -196,6 +204,19 @@ export function StoryEditor({ project, board, story, act, onClose }: Props) {
                     </Select>
                   </div>
                 )}
+                <div className="grid gap-2">
+                  <Label htmlFor={`${id}-dependencies`}>Depends on</Label>
+                  <Input
+                    id={`${id}-dependencies`}
+                    value={dependsOn}
+                    onChange={(e) => setDependsOn(e.target.value)}
+                    placeholder="DEV-7, DEV-8"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Story keys in this Project, separated by commas. Clear to remove dependencies. Workers wait until
+                    all are Done.
+                  </p>
+                </div>
                 <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor={`${id}-body`}>Description</Label>
