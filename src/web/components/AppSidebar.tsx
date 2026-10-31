@@ -49,7 +49,7 @@ export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewB
             <SidebarMenu>
               {boards.map((b) => (
                 <SidebarMenuItem key={b.id}>
-                  <SidebarMenuButton isActive={!creating && b.id === activeId} onClick={() => onSelect(b.id)}>
+                  <SidebarMenuButton isActive={b.id === activeId} onClick={() => onSelect(b.id)}>
                     <KanbanSquare />
                     <span>{b.config.name}</span>
                   </SidebarMenuButton>

@@ -37,23 +37,30 @@ import { Markdown } from "./Markdown.tsx";
 import { ModelSelector } from "./ModelSelector.tsx";
 import { encodeAttachments, StoryAttachments } from "./StoryAttachments.tsx";
 
-type Props = { project: ProjectConfig; board: BoardSnapshot; story: StoryView | null; act: Act; onClose: () => void };
+type Props = {
+  project: ProjectConfig;
+  board: BoardSnapshot;
+  story: StoryView | null;
+  initialStage?: string;
+  act: Act;
+  onClose: () => void;
+};
 
 /** Radix Select items cannot have an empty value; this one stands for "no value". */
 const NONE = "__none__";
 
 /** Create or edit a Story. Custom field inputs follow the Board's Story schema. */
-export function StoryEditor({ project, board, story, act, onClose }: Props) {
+export function StoryEditor({ project, board, story, initialStage = "backlog", act, onClose }: Props) {
   const id = useId();
   const [title, setTitle] = useState(story?.title ?? "");
-  const [stage, setStage] = useState(story?.stage ?? "backlog");
+  const [stage, setStage] = useState(story?.stage ?? initialStage);
   const [dependsOn, setDependsOn] = useState(story?.dependsOn?.join(", ") ?? "");
   const [model, setModel] = useState(story?.model ?? "");
   const legacyModel = board.config.schema.some((f) => f.id === "model");
   useEffect(() => {
     setModel(story?.model ?? "");
-    setStage(story?.stage ?? "backlog");
-  }, [story?.model, story?.stage]);
+    setStage(story?.stage ?? initialStage);
+  }, [story?.model, story?.stage, initialStage]);
   const [body, setBody] = useState(story?.body ?? "");
   // Open existing descriptions rendered; start empty ones ready to type.
   const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");

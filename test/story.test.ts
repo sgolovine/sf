@@ -76,3 +76,26 @@ test("parseFieldArg rejects unknown fields and clears on empty", () => {
   assert.throws(() => parseFieldArg(schema, "nope=1"), /unknown field/);
   assert.deepEqual(parseFieldArg(schema, "notes="), ["notes", null]);
 });
+
+test("placement is built-in metadata, preserved once and cleared by inheritance", () => {
+  for (const placement of [
+    { mode: "local-only" },
+    { mode: "required", machineId: "old-target" },
+    { mode: "preferred", machineId: "a" },
+  ] as const) {
+    const story = { title: "One", stage: "backlog", placement, fields: { extra: "kept" }, body: "Body" };
+    const serialized = serializeStory(story);
+    assert.equal(serialized.match(/placement:/g)?.length, 1);
+    const parsed = parseStory(serialized);
+    assert.deepEqual(parsed.placement, placement);
+    assert.deepEqual(parsed.fields, { extra: "kept" });
+    assert.deepEqual(parseStory(serializeStory({ ...parsed, title: "Edited", stage: "done" })).placement, placement);
+    assert.equal(parseStory(serializeStory({ ...parsed, placement: { mode: "inherit" } })).placement, undefined);
+  }
+  assert.throws(() => parseStory("---\ntitle: Old\nstage: backlog\nplacement: custom text\n---\n"), /placement/);
+  for (const key of ["placement", "title", "stage", "branch", "dependsOn"])
+    assert.throws(
+      () => serializeStory({ title: "One", stage: "backlog", fields: { [key]: "collision" }, body: "" }),
+      /built-in/,
+    );
+});
