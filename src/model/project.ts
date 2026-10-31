@@ -1,3 +1,4 @@
+import type { StoryPlacement } from "#model/placement";
 import type { BoardConfig, ProjectConfig } from "./config.ts";
 import type { RuntimeState } from "./runtime.ts";
 
@@ -7,6 +8,7 @@ export type StoryView = {
   board: string;
   title: string;
   stage: string;
+  placement?: StoryPlacement;
   dependsOn?: string[];
   branch?: string;
   model?: string | null;

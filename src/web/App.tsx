@@ -1,5 +1,5 @@
 import { ArrowLeft, Plus, Settings } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -22,13 +22,24 @@ import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/stor
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
-  | { kind: "create-board" }
   | { kind: "project-settings" };
 
 export function App() {
   const { data: session, error } = useSession();
   const [view, setView] = useState<View>({ kind: "board", boardId: null });
   const [route, setRoute] = useState<StoryRoute>(() => parseStoryPath(location.pathname));
+  /** The Stage a new Story starts in when created from a Stage column; not part of the URL. */
+  const [createStage, setCreateStage] = useState<string>();
+  const [creating, setCreating] = useState(false);
+  const initialized = useRef(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const emptyAction = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (session && !initialized.current) {
+      initialized.current = true;
+      setCreating(!session.project?.boards.length);
+    }
+  }, [session]);
   const [failure, setFailure] = useState<string | null>(null);
 
   /** Opening or closing the dialog pushes a history entry; `replace` corrects the current one. */
@@ -36,6 +47,18 @@ export function App() {
     if (replace) history.replaceState(null, "", storyPath(next));
     else history.pushState(null, "", storyPath(next));
     setRoute(next);
+  };
+  const closeStory = () => {
+    if (route.kind !== "none") navigate(NO_STORY);
+  };
+  const openCreateStory = (initialStage?: string) => {
+    setCreateStage(initialStage);
+    navigate({ kind: "create" });
+  };
+  const openCreateBoard = () => {
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setCreating(true);
+    closeStory();
   };
 
   useEffect(() => {
@@ -49,7 +72,7 @@ export function App() {
   useEffect(() => {
     if (!session) return;
     const boards = session.project?.boards ?? [];
-    const boardId = view.kind === "board" || view.kind === "settings" ? view.boardId : null;
+    const boardId = view.kind === "project-settings" ? null : view.boardId;
     if (route.kind === "edit") {
       const owner = boards.find((b) => b.stories.some((s) => s.key === route.key));
       if (!owner) navigate(NO_STORY, true);
@@ -80,18 +103,14 @@ export function App() {
   const { capabilities, listening } = session.supervisor;
   const project = session.project;
   const boards = project?.boards ?? [];
-  const selectedId = view.kind === "create-board" || view.kind === "project-settings" ? null : view.boardId;
+  const selectedId = view.kind === "project-settings" ? null : view.boardId;
   const board = boards.find((b) => b.id === selectedId) ?? boards[0];
-  const creating = view.kind === "create-board" || !board;
   const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
     ` · ${listening ? "listening" : "busy or away"}`;
   // Never fall back to a new Story for a key that is not (yet) on the shown Board.
   const editingStory = route.kind === "edit" ? board?.stories.find((s) => s.key === route.key) : undefined;
-  const closeStory = () => {
-    if (route.kind !== "none") navigate(NO_STORY);
-  };
   const openView = (next: View) => {
     setView(next);
     closeStory();
@@ -108,7 +127,7 @@ export function App() {
         creating={creating}
         onProjectSettings={() => openView({ kind: "project-settings" })}
         onSelect={openBoard}
-        onNewBoard={() => openView({ kind: "create-board" })}
+        onNewBoard={openCreateBoard}
       />
       {/* Fixed height: only the content region scrolls, so the header and footer stay in place. */}
       <SidebarInset className="h-svh min-w-0">
@@ -116,19 +135,19 @@ export function App() {
         <header className="@container/header flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SidebarTrigger className="shrink-0" />
           {/* The sidebar shows the Board name; the header names only the other views. */}
-          {(creating || settings) && (
+          {(view.kind === "project-settings" || settings) && (
             <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           )}
-          <h1 className={cn("min-w-0 truncate font-medium", !creating && !settings && "sr-only")}>
+          <h1
+            className={cn("min-w-0 truncate font-medium", view.kind !== "project-settings" && !settings && "sr-only")}
+          >
             {view.kind === "project-settings"
               ? "Project settings"
-              : creating
-                ? "New Board"
-                : settings
-                  ? "Board Settings"
-                  : board.config.name}
+              : settings
+                ? "Board Settings"
+                : (board?.config.name ?? "Boards")}
           </h1>
-          {!creating && settings && (
+          {board && settings && (
             <Button
               size="sm"
               variant="outline"
@@ -141,14 +160,9 @@ export function App() {
             </Button>
           )}
           <span className="flex-1" />
-          {!creating && !settings && view.kind !== "project-settings" && (
+          {board && !settings && view.kind !== "project-settings" && (
             <>
-              <Button
-                size="sm"
-                className="shrink-0"
-                onClick={() => navigate({ kind: "create" })}
-                aria-label="New Story"
-              >
+              <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
                 <Plus />
                 <span className="hidden @md/header:inline">New Story</span>
               </Button>
@@ -175,8 +189,13 @@ export function App() {
 
           {view.kind === "project-settings" && project ? (
             <ModelSettings key={JSON.stringify(project.config)} project={project.config} act={act} />
-          ) : creating ? (
-            <CreateBoard act={act} onCreated={openBoard} onCancel={board ? () => openBoard(board.id) : undefined} />
+          ) : !board ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+              <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
+              <Button ref={emptyAction} onClick={openCreateBoard}>
+                New Board
+              </Button>
+            </div>
           ) : settings ? (
             <BoardSettings
               project={project!.config}
@@ -191,6 +210,7 @@ export function App() {
               runtime={project!.runtime}
               act={act}
               onOpenStory={(key) => navigate({ kind: "edit", key })}
+              onCreateStory={openCreateStory}
               onOpenStages={() => openSettings(board.id, "stages")}
             />
           )}
@@ -211,12 +231,27 @@ export function App() {
           </span>
         </footer>
 
-        {!creating && (route.kind === "create" || editingStory) && (
+        {creating && (
+          <CreateBoard
+            onClose={() => setCreating(false)}
+            onRestoreFocus={() => {
+              const target = returnFocus.current;
+              if (target?.isConnected) target.focus();
+              else emptyAction.current?.focus();
+            }}
+            onCreated={(id) => {
+              setCreating(false);
+              openBoard(id);
+            }}
+          />
+        )}
+        {board && (route.kind === "create" || editingStory) && (
           <StoryEditor
             key={editingStory?.key ?? "new"}
             project={project!.config}
             board={board}
             story={editingStory ?? null}
+            initialStage={editingStory ? undefined : createStage}
             act={act}
             onClose={closeStory}
           />

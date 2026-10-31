@@ -1,3 +1,4 @@
+import type { StoryPlacement } from "#model/placement";
 import type { AttachmentSubmission } from "./attachment.ts";
 import type { CommandRecord, SupervisorCommand } from "./commands.ts";
 import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig } from "./config.ts";
@@ -92,6 +93,7 @@ export type ReorderStageRequest = { index: number };
 export type CreateStoryRequest = AttachmentSubmission & {
   board: string;
   title: string;
+  placement?: StoryPlacement | null;
   dependsOn?: string[];
   model?: string | null;
   stage?: string;
@@ -101,6 +103,7 @@ export type CreateStoryRequest = AttachmentSubmission & {
 };
 /** A null field value clears the field. */
 export type UpdateStoryRequest = AttachmentSubmission & {
+  placement?: StoryPlacement | null;
   dependsOn?: string[];
   model?: string | null;
   title?: string;
