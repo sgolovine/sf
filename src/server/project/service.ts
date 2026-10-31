@@ -97,6 +97,8 @@ const ATTEMPT_BACKOFF_MS = 60_000;
 const MAX_BACKOFF_MS = 30 * 60_000;
 const ATTEMPT_TIMEOUT_MS = 10 * 60_000;
 const MAX_OUTSTANDING_ATTEMPTS = 4;
+/** Terminal executions kept as history; occupying ones are never trimmed. */
+const MAX_ENDED_EXECUTIONS = 500;
 
 export type ServiceOptions = {
   root: string;
@@ -712,8 +714,12 @@ export function createService(opts: ServiceOptions) {
     delete e.recovery;
   }
 
-  /** Ends Claims whose Worker ran no sf command for the claim timeout. */
+  /** Ends Claims whose Worker ran no sf command for the claim timeout, and trims old history. */
   function sweep(tx: Tx) {
+    const ended = Object.values(tx.rt.executions)
+      .filter((e) => !occupies(e))
+      .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+    for (const e of ended.slice(MAX_ENDED_EXECUTIONS)) delete tx.rt.executions[e.id];
     for (const [key, claim] of Object.entries(tx.rt.claims)) {
       let board: BoardConfig | undefined;
       try {
@@ -1674,7 +1680,7 @@ export function createService(opts: ServiceOptions) {
         const e = tx.rt.executions[command.execution.id];
         if (!e) return { applied: false, reason: "no such execution" };
         if (e.attempt?.id !== command.attemptId) {
-          // Stale answers may still carry identity, never state.
+          // A stale answer changes nothing; a mismatched identity is still rejected.
           if (report) applyReport(tx, e, { ...report, attemptId: command.attemptId });
           return { applied: false, reason: `attempt ${command.attemptId} is not outstanding` };
         }
@@ -1716,6 +1722,8 @@ export function createService(opts: ServiceOptions) {
      * delivered ones without a result become `unknown`.
      */
     async recover() {
+      // Without command records there is nothing to reconnect with.
+      if (!boundary.commandState) return;
       return mutate(({ rt }) => {
         for (const e of Object.values(rt.executions)) {
           if (!occupies(e)) continue;

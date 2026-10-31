@@ -7,6 +7,8 @@ import { type AdapterSupport, supportFor } from "#model/execution";
 import { sfPaths } from "../src/server/project/paths.ts";
 import { loadRuntime, saveRuntime } from "../src/server/project/runtime.ts";
 import type { ExecutionBoundary, Service } from "../src/server/project/service.ts";
+import { OnlineService } from "../src/server/services/OnlineService.ts";
+import { StoreService } from "../src/server/services/StoreService.ts";
 import { setupProject, user, worker } from "./helpers.ts";
 import { scheduling } from "./scheduling-fixture.ts";
 
@@ -464,4 +466,28 @@ test("version 1 runtime migrates live Claims to occupying executions, repeatably
   assert.equal(saved.claims["DEV-1"]!.executionId, byKey["DEV-1"]!.id);
   assert.deepEqual(saved.identity, read.identity);
   assert.deepEqual(loadRuntime(root), saved, "migrating again is a no-op");
+});
+
+test("capability registration wakes the queue with fresh eligibility", async () => {
+  const { root } = await setupProject();
+  const store = StoreService.create(root, null);
+  const online = OnlineService.create(store, { root, sf: "sf", git: async () => "" });
+  const tools = (spawn: boolean) => ({
+    agent: "claude-code",
+    model: "m",
+    app: "terminal",
+    canSpawnThreads: false,
+    canSpawnSubagents: spawn,
+  });
+  StoreService.setCapabilities(store, tools(false));
+  await online.createStory("DEV", { title: "One", stage: "todo" }, user);
+  const held = await online.showStory("DEV-1", user);
+  assert.equal(held.wait?.reasons[0]?.code, "incompatible");
+  assert.equal(store.state.commands.length, 0);
+  StoreService.setCapabilities(store, tools(true));
+  await online.drainPending();
+  const record = store.state.commands[0]!;
+  assert.equal(record.command.type, "worker.spawn");
+  assert.equal(record.key, `spawn:${(record.command as WorkerSpawnCommand).execution!.id}`);
+  assert.match(String(online.executions().support.lookupByRequest), /cannot look up/);
 });
