@@ -1,6 +1,12 @@
 ---
 title: Add dependency waits with automatic wake-up separate from HIL
-stage: todo
+stage: done
+branch: sf/DEV-13
+requires_dev_hil: false
+pr_url: https://github.com/sgolovine/sf/pull/13
+requires_validation_hil: false
+review_rounds: 1
+requires_review_hil: false
 ---
 ## Problem
 Workers currently use human-in-the-loop (HIL) flags as a waiting state when another Story must finish first. The refinement Stage Prompt says “Blocked, or anything else that stops you” must set HIL. This converts ordinary sequencing into a manual hold: completion of the prerequisite does not clear HIL or restart the waiting Story.
@@ -35,3 +41,16 @@ Story/config/API models and persistence; shared service validation; dispatch que
 
 ## Boundaries
 Use existing Story completion (Done) as the dependency condition. Do not introduce timed polling, arbitrary external watchers, automatic HIL clearing based on comment text, or automatic advancement past a Stage. Creating this ticket does not authorize changing the existing held Stories yet; migration belongs to implementation and verification of this feature.
+
+
+## Development handoff (2026-10-31)
+
+Implemented and pushed on sf/DEV-13: 562c214, 2bf3f68, f68d4c7, 07ed8c9 (head).
+
+- Built-in dependsOn persistence and shared graph validation; cross-Board references within the same Project. Referenced prerequisite deletion is rejected; missing/unreadable files remain unresolved.
+- Independent durable dependency wake intent, normal FIFO capacity queue and startup/offline recovery. Atomic story wait records dependencies/releases the Worker Claim. No dependency completion clears HIL or Moves a Stage. Queue/delivery rechecks preserve active Workers.
+- CLI/API, cards/editor, Worker Brief guidance, repository Stage skills and installable Stage Prompt templates updated.
+- Checks: pnpm check passes; pnpm test passes all 125 tests (13 dependency regressions plus CLI/API tests). origin/master does not exist; origin/main is the remote default and merging it reports already up to date. Working tree is clean and all commits pushed.
+- Browser verified dependency waiting + HIL together, self-cycle validation/correction, prerequisite Done resuming current TODO Stage, preservation of human access request, capacity queue after clearing HIL and resume after freeing capacity. waiting.png, resumed.png and capacity.png attached. T3 preview snapshots timed out twice; Playwright browser skill used for verification. No external Worker launched in the disposable UI fixture.
+- Verification details: docs/verification/dependency-waits.md. Migration/upgrade procedure: docs/dependency-waits.md. Stage templates: .agents/stage-prompts/.
+- Live migration deliberately awaits upgrade of the authoritative service; its running version cannot persist dependsOn or execute story wait. Do not install the new prompts against that old service. Freshly recheck DEV-9/10/11/12 before migration. DEV-9/10 inspected as dependency-only; DEV-11 retains separate public integration/linked-target/secure-channel requirements, and DEV-12 retains a test-target question. Runbook preserves their comments and requires confirmed human-request resolution before clearing those mixed holds.

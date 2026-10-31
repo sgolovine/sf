@@ -1,0 +1,23 @@
+{
+  "files": [
+    {
+      "id": "7b9961a1-3a0d-47a0-8c39-e4a38157e95d",
+      "name": "waiting.png",
+      "mediaType": "application/octet-stream",
+      "size": 51764
+    },
+    {
+      "id": "8935e0c5-8962-485b-b2da-224b044fac51",
+      "name": "resumed.png",
+      "mediaType": "application/octet-stream",
+      "size": 50363
+    },
+    {
+      "id": "ddfd8f65-3aa4-4afa-9777-0590d91e8ce6",
+      "name": "capacity.png",
+      "mediaType": "application/octet-stream",
+      "size": 49530
+    }
+  ],
+  "submissions": []
+}
