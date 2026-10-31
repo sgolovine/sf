@@ -150,7 +150,7 @@ export function validateSchema(schema: FieldDef[]) {
   for (const f of schema) {
     if (!f || typeof f.id !== "string" || !/^[a-z][a-z0-9_]*$/.test(f.id))
       invalid(`field id must be lowercase letters, digits, and _, got "${f?.id}"`);
-    if (["title", "stage", "branch", "model"].includes(f.id)) invalid(`"${f.id}" is a reserved field id`);
+    if (["title", "stage", "branch", "model", "dependsOn"].includes(f.id)) invalid(`"${f.id}" is a reserved field id`);
     if (seen.has(f.id)) invalid(`duplicate field id "${f.id}"`);
     seen.add(f.id);
     if (typeof f.name !== "string" || !f.name.trim()) invalid(`field ${f.id} needs a name`);

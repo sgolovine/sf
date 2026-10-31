@@ -7,9 +7,12 @@ export type StoryView = {
   board: string;
   title: string;
   stage: string;
+  dependsOn?: string[];
   branch?: string;
   model?: string | null;
   /** Custom field values by field id, plus any frontmatter keys the schema does not know. */
+  unresolvedDependencies?: string[];
+  waitingOnDependencies?: boolean;
   fields: Record<string, unknown>;
   body: string;
 };

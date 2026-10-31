@@ -35,6 +35,7 @@ export function composeBrief(b: BriefInput): string {
 You are an sf Worker for Story ${b.storyKey} on Board "${b.board.name}" (key ${b.board.key}, id ${b.boardId}).
 Your worker id is ${b.workerId}. You hold the Claim on ${b.storyKey}: no one else can Move it until you Move or release it.
 
+- Dependencies: ${b.story.dependsOn?.join(", ") || "none"}
 - Worker model: ${modelDescription(b.effectiveModel ?? { model: null, source: "supervisor" })}
 - Project (the Supervisor's checkout): ${b.root}
 - Your Story Worktree: ${b.worktree.path} (branch ${b.worktree.branch}). Do all work there.
@@ -58,8 +59,15 @@ Change Stories only with these commands. Never edit files under \`.sf\` in your 
   ${b.sf} story attachment add ${b.storyKey} <path> ${tail}
 - Retrieve an attachment to a new file:
   ${b.sf} story attachment get ${b.storyKey} <attachment-id> --output <path> ${tail}
+- Wait on Story dependencies and release the Claim atomically (does not set HIL):
+  ${b.sf} story wait ${b.storyKey} --depends-on <KEY,KEY> ${tail}
+- Set/replace dependencies with story update --depends-on <KEY,KEY>; use --depends-on "" to clear them.
 - Release the Claim if you finish without Moving the Story:
   ${b.sf} story release ${b.storyKey} ${tail}
+
+At the start, show this Story and reread its prerequisites and delivered changes. Reconcile the current Stage's work before advancing. Completing dependencies wakes this Stage; it never advances the Story automatically.
+
+For observable Story dependencies, save your work and use story wait. sf resumes this Stage when every prerequisite is Done, subject to HIL and Worker capacity. An already-Done prerequisite may resume it immediately. Reserve HIL for a specific human decision or action (such as access, scope, or configuration); dependency completion never clears HIL.
 
 Every command refreshes your Claim. If a command fails with "claim is gone", stop: your Claim ended and this Story is no longer yours.`,
   ];

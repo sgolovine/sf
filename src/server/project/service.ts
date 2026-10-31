@@ -34,7 +34,15 @@ import { atomicWrite, withLock, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";
 import { loadRuntime, saveRuntime } from "./runtime.ts";
 import { readStage, serializeStage } from "./stage.ts";
-import { nextStoryNumber, parseStory, parseStoryKey, type StoryData, serializeStory, validateFields } from "./story.ts";
+import {
+  dependencyKeys,
+  nextStoryNumber,
+  parseStory,
+  parseStoryKey,
+  type StoryData,
+  serializeStory,
+  validateFields,
+} from "./story.ts";
 import {
   type CleanupResult,
   cleanupWorktree,
@@ -77,6 +85,7 @@ export type ServiceOptions = {
 };
 
 export type StoryInput = AttachmentSubmission & {
+  dependsOn?: string[];
   model?: string | null;
   title: string;
   stage?: string;
@@ -84,6 +93,7 @@ export type StoryInput = AttachmentSubmission & {
   body?: string;
 };
 export type StoryPatch = AttachmentSubmission & {
+  dependsOn?: string[];
   model?: string | null;
   title?: string;
   fields?: Record<string, unknown>;
@@ -192,7 +202,53 @@ export function createService(opts: ServiceOptions) {
 
   /** True when entering this Stage spawns a Worker for this Story: the Stage spawns and the Story is not held for HIL. */
   function spawnsFor(boardId: string, board: BoardConfig, stageId: string, story: StoryData) {
-    return stageSpawns(boardId, board, stageId) && !activeHil(board, { ...story, stage: stageId });
+    return (
+      stageSpawns(boardId, board, stageId) &&
+      !activeHil(board, { ...story, stage: stageId }) &&
+      !unresolved(story).length
+    );
+  }
+
+  function unresolved(story: Pick<StoryData, "dependsOn">): string[] {
+    return (story.dependsOn ?? []).filter((key) => tryLocate(key)?.story.stage !== DONE);
+  }
+
+  function allStories() {
+    return listBoardIds(root).flatMap(storyViews);
+  }
+
+  function validateDependencies(key: string, value: unknown) {
+    const keys = dependencyKeys(value);
+    const visit = (current: string, chain: string[]) => {
+      if (current === key) throw new SfError("invalid", `dependency cycle: ${[key, ...chain, key].join(" → ")}`);
+      if (chain.includes(current))
+        throw new SfError("invalid", `existing dependency cycle: ${[...chain, current].join(" → ")}`);
+      const found = tryLocate(current);
+      if (!found)
+        throw new SfError("invalid", `dependency ${current} does not exist; create it or remove it from dependsOn`);
+      for (const next of found.story.dependsOn ?? []) visit(next, [...chain, current]);
+    };
+    for (const dep of keys) visit(dep, []);
+    return keys;
+  }
+
+  /** Reconcile durable waits, without restarting released or already running Workers. */
+  function reconcileDependencies(tx: Tx) {
+    for (const story of allStories()) {
+      if (!tx.rt.claims[story.key] && unresolved(story).length) {
+        tx.rt.dependencyWaits[story.key] = { stageId: story.stage };
+        dropSpawn(tx, story.key);
+      }
+    }
+    for (const [key, wait] of Object.entries(tx.rt.dependencyWaits)) {
+      const found = tryLocate(key);
+      if (!found || found.story.stage !== wait.stageId) {
+        delete tx.rt.dependencyWaits[key];
+        continue;
+      }
+      if (!tx.rt.claims[key] && spawnsFor(found.boardId, found.board, wait.stageId, found.story))
+        requestSpawn(tx, key, found.boardId, wait.stageId);
+    }
   }
 
   function view(key: string, boardId: string, story: StoryData): StoryView {
@@ -203,6 +259,9 @@ export function createService(opts: ServiceOptions) {
       stage: story.stage,
       ...(story.branch ? { branch: story.branch } : {}),
       ...(story.model ? { model: story.model } : {}),
+      dependsOn: story.dependsOn ?? [],
+      unresolvedDependencies: unresolved(story),
+      waitingOnDependencies: unresolved(story).length > 0,
       fields: story.fields,
       body: story.body,
     };
@@ -271,7 +330,9 @@ export function createService(opts: ServiceOptions) {
         try {
           sweep(tx);
           if (drain) drainQueue(tx);
-          return fn(tx);
+          const result = fn(tx);
+          reconcileDependencies(tx);
+          return result;
         } finally {
           saveRuntime(root, tx.rt);
         }
@@ -316,7 +377,10 @@ export function createService(opts: ServiceOptions) {
       const entry = tx.rt.queue.shift()!;
       const found = tryLocate(entry.storyKey);
       if (!found || tx.rt.claims[entry.storyKey] || found.story.stage !== entry.stageId) continue;
-      if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) continue;
+      if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) {
+        if (unresolved(found.story).length) tx.rt.dependencyWaits[entry.storyKey] = { stageId: entry.stageId };
+        continue;
+      }
       try {
         spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
       } catch (err) {
@@ -329,17 +393,30 @@ export function createService(opts: ServiceOptions) {
 
   function requestSpawn(tx: Tx, key: string, boardId: string, stageId: string) {
     const { rt } = tx;
+    const found = locate(key);
+    if (rt.claims[key]) return;
+    if (unresolved(found.story).length) {
+      rt.dependencyWaits[key] = { stageId };
+      dropSpawn(tx, key);
+      return;
+    }
+    if (!spawnsFor(boardId, found.board, stageId, found.story)) return;
+    if (rt.queue.some((q) => q.storyKey === key && q.stageId === stageId)) return;
     rt.queue = rt.queue.filter((q) => q.storyKey !== key);
     if (!online) {
       rt.pendingTriggers = rt.pendingTriggers.filter((t) => !(t.type === "spawn" && t.storyKey === key));
       rt.pendingTriggers.push({ type: "spawn", storyKey: key, stageId, at: now() });
+      delete rt.dependencyWaits[key];
       return;
     }
-    if (liveClaims(tx) >= tx.project.maxConcurrentWorkers) {
+    if (rt.queue.length || liveClaims(tx) >= tx.project.maxConcurrentWorkers) {
       rt.queue.push({ storyKey: key, board: boardId, stageId, queuedAt: now() });
+      delete rt.dependencyWaits[key];
+      drainQueue(tx);
       return;
     }
     spawnNow(tx, key, boardId, stageId);
+    delete rt.dependencyWaits[key];
   }
 
   function spawnNow(tx: Tx, key: string, boardId: string, stageId: string) {
@@ -408,6 +485,7 @@ export function createService(opts: ServiceOptions) {
   /** What follows a Story entering a Stage (a Move or a create). A Story held for HIL waits. */
   function enterStage(tx: Tx, key: string, boardId: string, board: BoardConfig, story: StoryData, claimEnded: boolean) {
     const stageId = story.stage;
+    if (unresolved(story).length) tx.rt.dependencyWaits[key] = { stageId };
     if (stageId === DONE) scheduleCleanup(tx, key);
     if (claimEnded && online) {
       // Persist this Story's intent before a drain can fail, behind older spawns.
@@ -430,6 +508,8 @@ export function createService(opts: ServiceOptions) {
   }
 
   function cleanFields(fields: Record<string, unknown>) {
+    if (Object.hasOwn(fields, "dependsOn"))
+      throw new SfError("invalid", "dependsOn is a built-in property; use --depends-on");
     return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== null && v !== undefined));
   }
 
@@ -682,9 +762,11 @@ export function createService(opts: ServiceOptions) {
         // Reserve the Key before writing: a failed write may leave a gap, never a reused Key.
         saveBoard(root, id, config);
         const key = `${config.key}-${number}`;
+        const dependsOn = validateDependencies(key, input.dependsOn ?? []);
         const story: StoryData = {
           title,
           stage: stageId,
+          dependsOn,
           ...(input.model ? { model: input.model } : {}),
           fields,
           body: input.body ?? "",
@@ -707,6 +789,12 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         if (actor.kind === "worker") checkWorker(tx, actor.id);
         const { boardId, board } = locate(key);
+        const dependents = allStories().filter((s) => s.dependsOn?.includes(key));
+        if (dependents.length)
+          throw new SfError(
+            "invalid",
+            `cannot delete ${key}; required by ${dependents.map((s) => s.key).join(", ")}. Clear those dependencies first`,
+          );
         const claim = tx.rt.claims[key];
         if (claim)
           throw new SfError(
@@ -719,6 +807,7 @@ export function createService(opts: ServiceOptions) {
         fs.unlinkSync(storyFile(boardId, key));
         dropSpawn(tx, key);
         tx.rt.pendingTriggers = tx.rt.pendingTriggers.filter((t) => t.storyKey !== key);
+        delete tx.rt.dependencyWaits[key];
         delete tx.rt.failures[key];
         delete tx.rt.worktreeWarnings[key];
         drainQueue(tx);
@@ -739,6 +828,8 @@ export function createService(opts: ServiceOptions) {
             "invalid",
             "existing model metadata conflicts with the built-in model; rename it and its data first",
           );
+        if (patch.fields && Object.hasOwn(patch.fields, "dependsOn"))
+          throw new SfError("invalid", "dependsOn is a built-in property; use --depends-on");
         const fields = { ...story.fields };
         for (const [k, v] of Object.entries(patch.fields ?? {})) {
           if (v === null || v === undefined) delete fields[k];
@@ -749,6 +840,7 @@ export function createService(opts: ServiceOptions) {
         const next: StoryData = {
           ...story,
           title: patch.title?.trim() ?? story.title,
+          ...(patch.dependsOn !== undefined ? { dependsOn: validateDependencies(key, patch.dependsOn) } : {}),
           ...(patch.model !== undefined ? { model: patch.model || undefined } : {}),
           fields,
           body: patch.body ?? story.body,
@@ -763,8 +855,13 @@ export function createService(opts: ServiceOptions) {
         const wasHeld = Boolean(activeHil(board, story));
         const held = Boolean(activeHil(board, next));
         if (held && !wasHeld) dropSpawn(tx, key);
+        if (unresolved(next).length) {
+          tx.rt.dependencyWaits[key] = { stageId: next.stage };
+          dropSpawn(tx, key);
+        }
         if (wasHeld && !held && !tx.rt.claims[key] && stageSpawns(boardId, board, next.stage))
           requestSpawn(tx, key, boardId, next.stage);
+        reconcileDependencies(tx);
         return details(tx.rt, view(key, boardId, next));
       });
     },
@@ -812,9 +909,30 @@ export function createService(opts: ServiceOptions) {
         writeStory(boardId, key, next);
         delete rt.failures[key];
         dropSpawn(tx, key);
+        delete rt.dependencyWaits[key];
         if (claim) endClaim(tx, key, "moved");
         enterStage(tx, key, boardId, board, next, Boolean(claim));
         return details(rt, view(key, boardId, next));
+      });
+    },
+
+    async waitStory(key: string, dependsOn: string[], actor: Actor) {
+      if (actor.kind !== "worker") throw new SfError("invalid", "wait needs --worker <id>");
+      return mutate((tx) => {
+        if (checkWorker(tx, actor.id) !== key) throw new SfError("claim_gone", "claim is gone");
+        const { boardId, story } = locate(key);
+        const keys = validateDependencies(key, dependsOn);
+        if (!keys.length)
+          throw new SfError(
+            "invalid",
+            "wait requires at least one dependency; use update --depends-on '' to clear dependencies",
+          );
+        writeStory(boardId, key, { ...story, dependsOn: keys });
+        tx.rt.dependencyWaits[key] = { stageId: story.stage };
+        endClaim(tx, key, "released");
+        reconcileDependencies(tx);
+        drainQueue(tx);
+        return details(tx.rt, storyView(key));
       });
     },
 
@@ -824,6 +942,7 @@ export function createService(opts: ServiceOptions) {
       return mutate((tx) => {
         if (checkWorker(tx, actor.id) !== key) throw new SfError("claim_gone", "claim is gone");
         endClaim(tx, key, "released");
+        reconcileDependencies(tx);
         drainQueue(tx);
         return details(tx.rt, storyView(key));
       });
@@ -904,6 +1023,10 @@ export function createService(opts: ServiceOptions) {
     /** Runs triggers queued while no server was running. Call once the Supervisor is registered. */
     async drainPending() {
       return mutate((tx) => {
+        // Discover unresolved waits after recovery, including hand edits while stopped.
+        for (const story of allStories())
+          if (unresolved(story).length) tx.rt.dependencyWaits[story.key] = { stageId: story.stage };
+        reconcileDependencies(tx);
         const triggers = tx.rt.pendingTriggers;
         tx.rt.pendingTriggers = [];
         let index = 0;
@@ -936,7 +1059,17 @@ export function createService(opts: ServiceOptions) {
      */
     async prepareSpawn(workerId: string): Promise<{ ok: true } | { cancelled: true } | { error: string }> {
       // Read under the lock so a transaction that is still enqueuing this spawn has saved its Claim.
-      const rt = await withLock(root, () => loadRuntime(root));
+      const rt = await mutate((tx) => {
+        const key = tx.rt.workers[workerId]?.storyKey;
+        if (key && tx.rt.claims[key]?.workerId === workerId && tx.rt.claims[key]?.status === "spawning") {
+          const found = tryLocate(key);
+          if (!found || !spawnsFor(found.boardId, found.board, found.story.stage, found.story)) {
+            if (found && unresolved(found.story).length) tx.rt.dependencyWaits[key] = { stageId: found.story.stage };
+            endClaim(tx, key, "released");
+          }
+        }
+        return tx.rt;
+      }, false);
       const key = rt.workers[workerId]?.storyKey;
       if (!key || rt.claims[key]?.workerId !== workerId) return { cancelled: true };
       try {

@@ -7,6 +7,7 @@ import { SfError } from "./errors.ts";
 export type StoryData = {
   title: string;
   stage: string;
+  dependsOn?: string[];
   branch?: string;
   model?: string | null;
   fields: Record<string, unknown>;
@@ -20,8 +21,9 @@ export function parseStory(text: string, legacyModelField = false): StoryData {
   const data = match ? (parse(match[1]!) ?? {}) : {};
   if (typeof data !== "object" || Array.isArray(data))
     throw new SfError("invalid", "Story frontmatter must be a mapping");
-  const { title, stage, branch, ...fields } = data as Record<string, unknown>;
+  const { title, stage, branch, dependsOn, ...fields } = data as Record<string, unknown>;
   return {
+    ...(dependsOn === undefined ? {} : { dependsOn: dependencyKeys(dependsOn) }),
     title: title == null ? "" : String(title),
     stage: stage == null ? "" : String(stage),
     ...(branch == null ? {} : { branch: String(branch) }),
@@ -39,6 +41,7 @@ export function parseStory(text: string, legacyModelField = false): StoryData {
 
 export function serializeStory(story: StoryData): string {
   const front: Record<string, unknown> = { title: story.title, stage: story.stage };
+  if (story.dependsOn?.length) front.dependsOn = story.dependsOn;
   if (story.branch) front.branch = story.branch;
   for (const [k, v] of Object.entries(story.fields)) if (v !== undefined) front[k] = v;
   if (story.model) front.model = story.model;
@@ -125,4 +128,11 @@ export function parseFieldArg(schema: FieldDef[], arg: string): [string, unknown
     default:
       return [id, raw];
   }
+}
+
+/** Validates the built-in dependency list; graph validation belongs to the shared service. */
+export function dependencyKeys(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((key) => typeof key !== "string" || !parseStoryKey(key)))
+    throw new SfError("invalid", "dependsOn must be a list of Story keys, e.g. [DEV-7]; use [] to clear it");
+  return [...new Set(value)];
 }

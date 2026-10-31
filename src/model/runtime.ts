@@ -28,6 +28,8 @@ export type RuntimeState = {
   claims: Record<string, Claim>;
   /** Spawns waiting for a free Worker slot, oldest first. */
   queue: { storyKey: string; board: string; stageId: string; queuedAt: number }[];
+  /** Durable wake intent, retained independently of HIL and capacity. */
+  dependencyWaits: Record<string, { stageId: string }>;
   failures: Record<string, { stageId: string; error: string; at: number }>;
   worktreeWarnings: Record<string, { path: string; branch: string; reason: string; at: number }>;
   workers: Record<string, WorkerRecord>;
