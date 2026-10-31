@@ -1,5 +1,6 @@
 import { ArrowLeft, Plus, Search, Settings } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { machineUsage } from "#model/placement";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -12,6 +13,7 @@ import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
 import { ModelSettings } from "./components/ModelSettings.tsx";
+import { SchedulingSettings } from "./components/SchedulingSettings.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
 import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
@@ -227,7 +229,10 @@ export function App() {
           {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
 
           {view.kind === "project-settings" && project ? (
-            <ModelSettings key={JSON.stringify(project.config)} project={project.config} act={act} />
+            <div key={JSON.stringify(project.config)} className="flex flex-col divide-y">
+              <ModelSettings project={project.config} act={act} />
+              <SchedulingSettings project={project.config} act={act} />
+            </div>
           ) : !board ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
               <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
@@ -258,8 +263,14 @@ export function App() {
         <footer className="flex h-8 shrink-0 items-center gap-3 border-t px-3 text-xs whitespace-nowrap text-muted-foreground">
           {project && (
             <span className="shrink-0">
-              Workers {Object.values(project.runtime.executions ?? {}).filter((e) => e.status !== "terminal").length}
-              {project.config.scheduling ? "" : `/${project.config.maxConcurrentWorkers}`}
+              Workers{" "}
+              {project.config.scheduling
+                ? machineUsage(project.config, Object.values(project.runtime.executions ?? {}))
+                    .map(
+                      (m) => `${m.id} ${m.used}/${m.capacity ?? "?"}${m.configured && !m.enabled ? " (disabled)" : ""}`,
+                    )
+                    .join(" · ")
+                : `${Object.values(project.runtime.executions ?? {}).filter((e) => e.status !== "terminal").length}/${project.config.maxConcurrentWorkers}`}
               {project.runtime.queue.length > 0 && ` · ${project.runtime.queue.length} waiting`}
             </span>
           )}
@@ -296,6 +307,9 @@ export function App() {
             board={board}
             boards={boards}
             story={editingStory ?? null}
+            execution={Object.values(project!.runtime.executions ?? {}).find(
+              (e) => e.storyKey === editingStory?.key && e.status !== "terminal",
+            )}
             initialStage={editingStory ? undefined : createStage}
             act={act}
             onClose={closeStory}
