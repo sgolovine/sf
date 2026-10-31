@@ -79,5 +79,6 @@ A Story's built-in `dependsOn` list names prerequisite Story keys in the same Pr
 Optional Project `scheduling` defines local/remote capacities, stable environment/project mappings,
 and explicit machine order. Built-in Story `placement` inherits, selects local-only, requires a remote,
 or prefers a remote with ordered fallback. DEV-9 persists/validates these and provides a pure selector;
-dispatch uses it to reserve capacity per machine (DEV-10), with only local eligible. Remote launches
-require DEV-11's verified adapter/command channel. See the core spec for schema, precedence and eligibility reasons.
+dispatch uses it to reserve capacity per machine (DEV-10). When it selects a configured remote, sf adds
+a machine request and machine instructions to the Worker launch request; the Supervisor's harness owns
+machine handling (DEV-11). See the core spec for schema, precedence and eligibility reasons.

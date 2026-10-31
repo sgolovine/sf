@@ -242,8 +242,15 @@ function formatCommand({ id, command }: CommandRecord) {
       `Story: ${command.storyKey}  Stage: ${command.stageId}  Worker: ${command.workerId}  Mode: ${command.mode}` +
         `${command.agent ? `  Agent: ${command.agent}` : ""}${command.model ? `  Model: ${command.model}` : ""}`,
       `Worktree: ${command.worktree.path} (branch ${command.worktree.branch})`,
+      ...(command.machine
+        ? [
+            "",
+            `Machine: start this Worker on ${command.machine.name} (${command.machine.id}) with your harness's machine handling,`,
+            `  placement ${command.machine.placement}, ${command.machine.localFallback ? "local fallback permitted" : "no local fallback"}. The brief ends with these instructions; keep them when forwarding it.`,
+          ]
+        : []),
       "",
-      `Spawn a Worker as ${how} working in that worktree, with this brief as its prompt:`,
+      `Spawn a Worker as ${how} ${command.machine ? "on that machine" : "working in that worktree"}, with this brief as its prompt:`,
       "----- BEGIN WORKER BRIEF -----",
       command.brief.trimEnd(),
       "----- END WORKER BRIEF -----",

@@ -366,7 +366,7 @@ test("online CLI reports structured launch and terminal evidence; Claim end keep
   const listed = JSON.parse(await run("execution", "list", "--json")) as import("#model/api").ExecutionsResponse;
   const mine = listed.executions.find((e) => e.id === execution!.id)!;
   assert.deepEqual([mine.status, mine.taskId, mine.threadId, mine.claimLive], ["running", "t-1", "th-1", true]);
-  assert.equal(listed.support.remote, (await import("#model/execution")).REMOTE_UNSUPPORTED);
+  assert.equal(listed.support.remote, true, "the harness owns machine handling");
   // A duplicate result is recorded as late evidence without changing the outcome.
   await run("fail", record.id, "--error", "late");
   assert.equal(store.state.commands.find((c) => c.id === record.id)?.status, "done");

@@ -210,26 +210,43 @@ test("eligible FIFO skips full or unavailable pins without blocking later work",
   await svc.updateStory("DEV-2", { placement: { mode: "preferred", machineId: "b" } }, user);
   assert.equal(spawns()[4]?.storyKey, "DEV-2");
   assert.equal(spawns()[4]?.execution?.machineId, "b");
-  // A remote reservation cannot be prepared until DEV-11: it never started.
+  // A remote reservation is delivered like a local one; the harness handles the machine.
   const remote = spawns()[0]!;
-  assert.match(String(((await svc.prepareSpawn(remote.workerId)) as { error: string }).error), /DEV-11/);
+  assert.equal(remote.machine?.id, "a");
+  assert.deepEqual(await svc.prepareSpawn(remote.workerId), { ok: true });
 });
 
-test("production remotes are incompatible: required waits, preferred falls back before reservation", async () => {
-  const { svc, spawns } = await project({ scheduling: scheduling() });
+test("production remotes are requested from the harness: required and preferred reserve the machine", async () => {
+  const { svc, spawns } = await project({ scheduling: { ...scheduling(), order: ["local"] } });
   await svc.createStory("DEV", { title: "Req", stage: "todo", placement: { mode: "required", machineId: "b" } }, user);
   await svc.createStory(
     "DEV",
     { title: "Pref", stage: "todo", placement: { mode: "preferred", machineId: "b" } },
     user,
   );
+  await svc.createStory("DEV", { title: "Default", stage: "todo" }, user);
   assert.deepEqual(
     spawns().map((s) => `${s.storyKey}@${s.execution!.machineId}`),
-    ["DEV-2@local"],
+    ["DEV-1@b", "DEV-2@b", "DEV-3@local"],
   );
+  const [req, pref, local] = spawns();
+  assert.deepEqual(
+    [req!.machine?.placement, req!.machine?.localFallback, pref!.machine?.placement, pref!.machine?.localFallback],
+    ["required", false, "preferred", true],
+  );
+  assert.equal(local!.machine, undefined, "local launches carry no machine request");
+  assert.ok(req!.brief.endsWith(`${req!.machine!.instructions}\n`), "the brief ends with the machine instructions");
+});
+
+test("remotes wait while the Supervisor can launch nothing", async () => {
+  const { svc, spawns } = await project(
+    { scheduling: scheduling() },
+    { local: "no tool", remote: "the Supervisor reports no thread or subagent tool" },
+  );
+  await svc.createStory("DEV", { title: "Req", stage: "todo", placement: { mode: "required", machineId: "b" } }, user);
+  assert.equal(spawns().length, 0);
   const wait = (await svc.showStory("DEV-1", user)).wait?.reasons[0];
   assert.equal(wait?.code, "incompatible");
-  assert.match(String(wait && "detail" in wait ? wait.detail : ""), /DEV-11/);
 });
 
 test("a changed mapping under an occupied slug keeps its charge and blocks that slug", async () => {

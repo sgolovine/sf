@@ -26,8 +26,8 @@ Each command must end with exactly one `done` or `fail`.
 
 A Story moved into a Stage with an enabled Stage Prompt. sf has already claimed the Story for `workerId`, reserved a Worker slot for the launch `execution.id`, and created the Story Worktree at `worktree.path` on `worktree.branch`. Start one Worker:
 
-- **Prompt:** pass `brief` unchanged as the Worker's whole prompt. It holds the sf preamble with the Worker's commands and HIL guidance, the resolved `briefPreamble` when present, optional `## SF.md` and `## BOARD.md` sections, then `## Stage Prompt` and `## Story`.
-- **Where:** the Worker works in `worktree.path`. If the tool takes a working directory, use that path. Otherwise the brief already tells the Worker to work there.
+- **Prompt:** pass `brief` unchanged as the Worker's whole prompt. It holds the sf preamble with the Worker's commands and HIL guidance, the resolved `briefPreamble` when present, optional `## SF.md` and `## BOARD.md` sections, then `## Stage Prompt` and `## Story`, and ends with `## Machine Placement` when the command has `machine`.
+- **Where:** the Worker works in `worktree.path`. If the tool takes a working directory, use that path. Otherwise the brief already tells the Worker to work there. When the command has `machine`, start the Worker on that machine instead; see [machine requests](#machine-requests).
 - **Mode `thread`:** start a new top-level thread. In T3 Code, use `t3_thread_launch`, put the brief in `message`, and use the existing worktree path. Report the returned thread id: `done <id> --status running --thread <thread id>`.
 - **Mode `subagent`:** start a child agent you own, for example with the Claude Code Agent tool or T3 Code `delegate_task` (pass `execution.id` as `clientRequestId`). Run it in the background when the tool allows, so you can keep serving commands. Report as soon as it starts: `done <id> --status running --task <task or agent id>` (add `--thread <child thread id>` when the tool returns one).
 - **Launch request key:** where a tool takes a retry or request key, use `execution.id`. Never launch the same `worker.spawn` twice; if a launch call's response was lost, do not retry it, report what you know.
@@ -37,7 +37,7 @@ A Story moved into a Stage with an enabled Stage Prompt. sf has already claimed 
 
 Project owners can maintain optional, case-sensitive Markdown files at `.sf/SF.md` (shared by every Board's Workers) and `.sf/boards/<board-id>/BOARD.md` (shared by that Board's Workers across Stages). The Board id determines the path, not its display name or Story key prefix. These files supplement the existing resolved `briefPreamble`; sf does not expand templates or interpret instruction conflicts.
 
-Worker Briefs contain, in order: the sf operational preamble (including commands and HIL guidance), the resolved `briefPreamble` when present, `## SF.md`, `## BOARD.md`, `## Stage Prompt`, and `## Story`. Each instruction section appears only when its file contains nonblank text, with only surrounding whitespace trimmed. Missing, empty, or whitespace-only files are omitted independently; other read errors report the failing path. Existing Projects need no migration or generated files. If an instruction read fails while deferred spawns are drained, sf reports the path and retains unfinished work for a later drain after the file is repaired. Already dispatched spawns are not replayed.
+Worker Briefs contain, in order: the sf operational preamble (including commands and HIL guidance), the resolved `briefPreamble` when present, `## SF.md`, `## BOARD.md`, `## Stage Prompt`, `## Story`, and `## Machine Placement` when the command has `machine`. Each instruction section appears only when its file contains nonblank text, with only surrounding whitespace trimmed. Missing, empty, or whitespace-only files are omitted independently; other read errors report the failing path. Existing Projects need no migration or generated files. If an instruction read fails while deferred spawns are drained, sf reports the path and retains unfinished work for a later drain after the file is repaired. Already dispatched spawns are not replayed.
 
 sf reads these files from the service's Project root in the Supervisor's checkout each time it composes a brief, including when concurrency-queued spawns or offline pending triggers are drained. Creation, edits, and deletion take effect on the next composition without a restart. Already composed/dispatched briefs and running Workers are unchanged. The files do not instruct the Supervisor or enable Stages, start Workers, or change Claims and HIL behavior; an enabled, nonblank Stage Prompt is still required.
 
@@ -69,30 +69,27 @@ sf done <id> --status unknown --evidence "<what is missing>"   # you cannot tell
 
 Add `--task` or `--thread` when you learn an identity. "Not found" alone is not proof it never started: report `unknown`. Use `fail <id> --error "<reason>"` only when you could not carry out the lookup at all. See the [execution ledger](../../../docs/execution-ledger.md) for recovery.
 
-## Remote dispatch preflight
+## Machine requests
 
-Current `worker.spawn` commands, worktree paths and briefs are local. Keep using the local
-instructions above. Neither `sf capabilities`, an app name, nor thread/subagent support proves
-remote execution. Do not route today's command remotely or pass its Project path/loopback server
-as though accessible on another machine.
+When placement selects a configured remote machine, `worker.spawn` carries `machine`:
 
-Before a future remote adapter dispatches, require dated public API/schema evidence for stable
-environment identity, linked-target discovery, beta/link/access, target project/repository and
-provider/model/options; remote launch with durable retry identity; status/cancel/terminal
-reconciliation; target worktree/head preparation/cleanup; correct task/thread links; and a
-Worker/Claim-scoped authenticated channel to the authoritative sf Project.
-Unknown-key acceptance is not proof of a supported argument. An uncertain launch retains
-occupancy and branch exclusion; do not retry elsewhere on disconnect or response loss.
+```json
+"machine": {
+  "id": "build-server", "name": "Build server",
+  "environmentId": "…", "projectId": "…", "repository": "github.com/owner/repo",
+  "placement": "required", "localFallback": false,
+  "instructions": "## Machine Placement\n\n<!-- sf:machine-placement -->\n…"
+}
+```
 
-On the 2026-10-29 installed T3 integration (serverVersion 0.1.2), discovery and remote target
-selection are not declared: report remote unavailable and preserve local operation. Recheck
-after upgrades; minimum compatible release is unverified. Never inspect private T3 databases
-for credentials or invent remote arguments.
+sf only requests the machine. Machine handling belongs to your harness:
 
-The repository's [compatibility report](../../../docs/remote-workers.md) contains the reproducible
-read-only preflight, exact observed declarations, transport gate and unrun real-target checklist;
-it is source documentation, not bundled runtime functionality. If using an installed skill without
-that report, obtain the repository documentation before assessing remote compatibility.
+- Read `machine` before you choose where to launch. Start the Worker on that machine with your harness's own machine handling, with the brief as the Worker's whole prompt as usual. The brief ends with the same `instructions` in a delimited `## Machine Placement` section; keep it when you forward the brief. Use only arguments your launch tool documents. Never invent remote parameters.
+- `placement` is the Story's intent: `required`, `preferred`, or `default` (the Project's machine order chose it). If the harness cannot start the Worker there and `localFallback` is `false`, start nothing and run `fail <id> --not-started --error "<reason>"`. If `localFallback` is `true`, you may launch locally instead; say so in the result or evidence. sf keeps the reservation charged to the requested machine, so do not report a different `machineId`.
+- The brief's Project and worktree paths are on your machine, which holds the sf authority. They may not exist on the requested machine. Preparing that machine (repository, Story branch, working directory) and giving the Worker access to sf's Story commands are up to the harness.
+- A machine request is not evidence of where the Worker runs. Report only what the launch tool returned, with the usual `done`, `fail` and `execution report` results.
+
+Without `machine`, launch locally as described above. See the repository's [remote Worker boundary](../../../docs/remote-workers.md) for the full contract and the dated DEV-7 history.
 
 ## `supervisor.instruct`
 
