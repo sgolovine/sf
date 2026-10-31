@@ -41,6 +41,7 @@ export const routes = {
   storyForceRelease: (key: string) => `/api/stories/${enc(key)}/force-release`,
   storyRetry: (key: string) => `/api/stories/${enc(key)}/retry`,
   storyWorktree: (key: string) => `/api/stories/${enc(key)}/worktree`,
+  search: (q: string) => `/api/search?q=${enc(q)}`,
   executions: "/api/executions",
   execution: (id: string) => `/api/executions/${enc(id)}`,
   executionReport: (id: string) => `/api/executions/${enc(id)}/report`,
@@ -134,6 +135,16 @@ export type WorktreeResponse = {
   branchDeleted?: boolean;
   branchReason?: string;
 };
+
+/** One Story matched by GET /api/search. */
+export type SearchResult = {
+  key: string;
+  title: string;
+  board: { id: string; name: string };
+  stage: { id: string; name: string };
+};
+/** GET /api/search?q=<text>: Stories whose key or title fuzzy-match, best first. */
+export type SearchResponse = SearchResult[];
 
 export type SfErrorCode = "claim_gone" | "claimed" | "invalid" | "not_found" | "no_project";
 

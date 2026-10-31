@@ -7,6 +7,7 @@ import { boardsRouter } from "./boards.ts";
 import { commandsRouter } from "./commands.ts";
 import { executionsRouter } from "./executions.ts";
 import { projectRouter } from "./project.ts";
+import { searchRouter } from "./search.ts";
 import { sessionRouter } from "./session.ts";
 import { storiesRouter } from "./stories.ts";
 import { supervisorRouter } from "./supervisor.ts";
@@ -31,6 +32,7 @@ export function apiRouter({ store, service, token, onStop }: ApiOptions) {
   router.use("/boards", boardsRouter(service));
   router.use("/stories", storiesRouter(service));
   router.use("/executions", executionsRouter(service));
+  router.use("/search", searchRouter(service));
 
   router.use((_req, res) => {
     res.status(404).json({ error: "not found" });
