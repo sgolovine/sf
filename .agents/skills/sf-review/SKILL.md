@@ -64,6 +64,14 @@ If it still stands, leave the thread open, reply saying why, and count it as a f
 
 Confirm the PR head is still the SHA you reviewed; if it moved, review the new commits first. Post one review through `gh api repos/sgolovine/sf/pulls/<n>/reviews` with event `COMMENT`, because GitHub does not let the author approve or request changes on their own PR. Put each new finding as an inline comment on its changed line. In the review body, give the verdict, the reviewed SHA, the files covered, and the commands you ran with their results.
 
+## Dependency waits and human input
+
+Start by showing the current Story and rereading prerequisite Stories and delivered changes. A wake-up resumes this Stage; reconcile its existing work before advancing.
+
+- **Waiting on dependencies:** for an observable Story prerequisite, persist the complete dependency list and release atomically with `sf story wait <KEY> --depends-on <KEY,KEY> --worker <id> --project <root>`. Save the current Stage's work first; commit and push finished code if applicable. Do not set HIL or Move. sf queues this Stage when all prerequisites are Done, subject to prompt, Claim, HIL and capacity rules. Already-Done prerequisites can resume immediately.
+- **Needs human input:** reserve HIL for a concrete human decision/action (access, scope, configuration, or an error the Worker cannot fix). Name the action in the Stage's comment, keep separate dependencies, set the flag and release. Never infer that dependency completion permits clearing an existing human request.
+- Retry or fix routine recoverable errors within the Stage. A failed command alone does not imply a human is needed. Report an unresolved failure precisely if it prevents finishing.
+
 ## Verdict
 
 - **Approve:** no findings, every criterion is met, the checks pass, and the PR is open, not a draft, and mergeable.

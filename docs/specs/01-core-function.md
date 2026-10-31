@@ -140,7 +140,7 @@ The UI closes only after success and preserves unsaved edits on cancellation or 
 
 A Move changes a Story's Stage to any other Stage. Stages do not need to be adjacent. The user, Workers, and the Supervisor can all Move Stories, through the UI or sf commands.
 
-When a Story Moves into a Stage with an enabled Stage Prompt:
+When a Story Moves into a Stage with an enabled Stage Prompt (and no HIL or unresolved dependency hold):
 
 1. If the Story is claimed by a Worker, the Move is rejected (unless that Worker is making it).
 2. If the Project is at max concurrent Workers, the spawn is queued, oldest first, and the Story shows "waiting for a Worker". The Story is not claimed while it is queued. A new Move replaces its queued spawn.
@@ -154,7 +154,7 @@ When a Story Moves to Done, sf runs `git fetch --prune`, removes the Story Workt
 A Stage other than Backlog and Done can name a HIL flag field (a boolean field in the Board schema) and a HIL comment field (a text field), in its `hil` setting: `{ "flag": "requires_dev_hil", "comment": "dev_hil_comment" }`. A Worker that needs a human sets the flag and comment for its Stage and releases the Story.
 
 - **Hold.** While a Story's HIL flag for the Stage it is in is true, no Worker spawns for it in that Stage, even on a Move into the Stage. The UI marks the Story and shows the HIL comment.
-- **Wake.** When an update flips that flag from true to false or unset, and the Story is not claimed and the Stage has an enabled, non-empty Stage Prompt, sf spawns a Worker exactly as for a Move into the Stage (claim, Story Worktree, queueing at max concurrent Workers). With no server running, the spawn is queued as a trigger, like a Move.
+- **Wake.** When an update flips that flag from true to false or unset, the dependencies are Done, the Story is not claimed, and the Stage has an enabled, non-empty Stage Prompt, sf spawns a Worker exactly as for a Move into the Stage (claim, Story Worktree, queueing at max concurrent Workers). With no server running, the spawn is queued as a trigger, like a Move.
 
 ## Practical Example
 
@@ -193,3 +193,15 @@ Project settings are reachable from the sidebar; Board Settings has a Worker tab
 CLI: `sf project show|set`, `sf board show|set <board>`, `sf stage set`, and Story create/update support `--model <slug>` (`""` clears). Project/Board set support repeatable additive `--model-option <slug>`. Show output and Stage set expose effective model/source/catalogs as JSON; human output identifies the effective model/source. Typed API operations use GET/PATCH `/api/project/settings`, PATCH `/api/boards/:board`, Stage PATCH, and Story POST/PATCH. JSON model patches merge unrelated nested settings. Commands work online/offline.
 
 Spawns read persisted selections for immediate create/Move, retry, HIL wake, queue drain and offline replay. Moving an inheriting Story changes the next model; a Story override survives. Settings edits do not restart active Workers or trigger a new one. The exact resolved slug goes in `worker.spawn.model`; the Worker Brief names model/source. The Supervisor must honor supported explicit requests and report unsupported/spawn failures visibly, never claim a substituted model was used. Provider discovery, credentials, inference parameters and catalog editing below Board level are outside this feature.
+
+### Story dependencies and automatic wake-up
+
+Stories optionally persist `dependsOn: [DEV-7]` in frontmatter. Omission/empty lists retain legacy behavior. Create/update API and CLI accept complete replacement lists (`--depends-on DEV-7,DEV-8`; empty string clears); unrelated edits preserve them. The Story editor provides the same workflow. Shared service validation applies online/offline: keys must exist in this Project (cross-Board allowed), with no self reference or cycle; errors identify the bad key or cycle. `dependsOn` is reserved and cannot be a custom field. Supported deletion rejects referenced prerequisites and names their dependents. A prerequisite removed or unreadable outside sf remains unresolved; restore it or explicitly remove its reference rather than treating absence as Done.
+
+Worker dispatch requires every dependency Done in addition to the existing enabled/nonblank prompt, Claim, capacity and HIL rules. Dependency holds and HIL are displayed independently, together when both apply. Resolving dependencies never clears HIL; clearing HIL never bypasses dependencies. Story JSON exposes dependency keys, unresolved keys and a dependency-wait boolean; `hil` and `queued` identify human input and Worker capacity independently.
+
+Dependency waits retain their Stage intent in runtime state. Changes reconcile waits under the same Project mutation lock and use the existing spawn queue and FIFO capacity rules. Startup discovers unresolved dependencies and replays persisted wake intent, including offline completion. Repeated/concurrent completions and restarts do not create a second live Claim. Both capacity-queued Workers and dispatched commands recheck eligibility before launch; reopening a prerequisite does not terminate an already active Worker. No new polling loop, external condition watcher, or automatic Stage Move is introduced.
+
+`sf story wait <KEY> --depends-on <KEY,KEY> --worker <id> --project <root>` (POST `/api/stories/:key/wait`) validates and persists dependencies, records wake intent and releases the caller's own Claim atomically. If completion wins the race, the released Story is queued immediately; if wait wins, completion queues it later. Empty lists are rejected by wait (use update to clear). Briefs include dependency keys, the command and instructions to reread current Story/prerequisite delivery before advancing. HIL is reserved for a specific human decision/action, including necessary external access/configuration; it is never inferred from arbitrary dependency comment text.
+
+Repository Stage Prompt templates live in `.agents/stage-prompts/`. Install with the supported Stage CLI after upgrading sf, as documented in [the migration runbook](../dependency-waits.md). That runbook deliberately migrates dependency-only HIL holds and preserves mixed human requests.
