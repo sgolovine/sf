@@ -16,7 +16,7 @@ sf story move DEV-3 in_review --worker w-1a2b --project /abs/repo   # ends the C
 sf story release DEV-3 --worker w-1a2b --project /abs/repo         # ends the Claim without a Move
 ```
 
-Each Worker command refreshes the Claim. After the Claim ends, every command from that Worker fails with `claim is gone` (exit 3); the Worker should stop.
+Each Worker command refreshes the Claim. After the Claim ends, every command from that Worker fails with `claim is gone` (exit 3); the Worker should stop. The next Stage's Worker starts only after the Supervisor reports that this Worker's thread or subagent ended.
 
 ## Boards and Stages
 

@@ -11,6 +11,7 @@ export function supervisorRouter(store: Store, service: Service) {
   router.post("/capabilities", async (req, res) => {
     StoreService.setCapabilities(store, req.body as Capabilities);
     // The Supervisor is back: run triggers that Workers queued while the server was down.
+    // The mutation also issues due execution lookups and drains with fresh eligibility.
     if (service.hasProject()) await service.drainPending();
     res.json(store.state.supervisor);
   });

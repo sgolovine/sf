@@ -13,8 +13,12 @@ An agent thread spawned by the Supervisor to carry out one Stage Prompt for one 
 _Avoid_: Child, job, runner
 
 **Claim**:
-The hold an active Worker has on its Story. While a Story is claimed, no one else can Move it. The claim ends when the Worker Moves the Story, releases it, the user force-releases it, or it goes without any sf command from the Worker for the claim timeout.
+The hold an active Worker has on its Story. While a Story is claimed, no one else can Move it. The claim ends when the Worker Moves the Story, releases it, the user force-releases it, or it goes without any sf command from the Worker for the claim timeout. A Claim is command authority only; ending it does not end the Worker's Execution.
 _Avoid_: Lock, lease
+
+**Execution**:
+One launch of a Worker (a launch generation), recorded durably in the runtime ledger with its machine, identities, Story branch and task/thread IDs. A non-terminal Execution occupies a Worker slot on its machine and fences its Story branch until correlated evidence from the Supervisor confirms it ended or never started. See [the execution ledger](docs/execution-ledger.md).
+_Avoid_: Job, run, lease
 
 **Worker Brief**:
 What a Worker receives: an sf preamble (Story key, Board, Stages, and the sf commands), the resolved configured `briefPreamble` when present, optional `## SF.md` and `## BOARD.md` sections, then `## Stage Prompt` and `## Story`.
@@ -75,5 +79,5 @@ A Story's built-in `dependsOn` list names prerequisite Story keys in the same Pr
 Optional Project `scheduling` defines local/remote capacities, stable environment/project mappings,
 and explicit machine order. Built-in Story `placement` inherits, selects local-only, requires a remote,
 or prefers a remote with ordered fallback. DEV-9 persists/validates these and provides a pure selector;
-runtime dispatch still uses local `maxConcurrentWorkers` until DEV-10. Remote launches require DEV-11's
-verified adapter/command channel. See the core spec for schema, precedence and eligibility reasons.
+dispatch uses it to reserve capacity per machine (DEV-10), with only local eligible. Remote launches
+require DEV-11's verified adapter/command channel. See the core spec for schema, precedence and eligibility reasons.

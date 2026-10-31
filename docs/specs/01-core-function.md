@@ -14,7 +14,7 @@ Now that we have the basics of the app in place, this document describes the cor
 ```sh
 SF.md                 # Optional shared Worker instructions.
 sf.config.json        # Project configuration.
-runtime/              # gitignored: Claims, Worker thread ids, spawn failures, queued spawns.
+runtime/              # gitignored: Claims, the execution ledger, spawn failures, queued spawns.
 boards/
   development/
     BOARD.md          # Optional instructions for this Board.
@@ -57,13 +57,13 @@ Attachments belong to the Supervisor's Project, outside runtime and Story Worktr
 | Max concurrent Workers (legacy Project-wide total, default 3) | **no** | no |
 | Optional machine scheduling policy | **no** | no |
 
-### Machine scheduling policy (DEV-9; dispatch activation deferred)
+### Machine scheduling policy (DEV-9 policy, DEV-10 dispatch)
 
-Optional Project-only `scheduling` is validated and persisted policy data. It does **not** activate
-remote launches or change `requestSpawn`/`drainQueue` in DEV-9: those still dispatch locally using
-`maxConcurrentWorkers` (default 3), even when scheduling or a Story override is present.
-DEV-10 integrates policy with reservations/dispatch; DEV-11 requires a positively verified adapter
-and authoritative remote Worker commands. See [the compatibility report](../remote-workers.md)
+Optional Project-only `scheduling` is validated and persisted policy data. Dispatch (DEV-10) selects
+with it and reserves per-machine capacity in the execution ledger; see
+[the execution ledger](../execution-ledger.md). It does **not** activate remote launches: until DEV-11
+provides a positively verified adapter and authoritative remote Worker commands, every remote is
+`incompatible`, so required remotes wait and preferred remotes fall back before reservation. See [the compatibility report](../remote-workers.md)
 and [ADR 0003](../adr/0003-remote-worker-boundaries.md). Configured mappings alone prove no capability.
 
 Complete example `.sf/sf.config.json` (IDs are illustrative catalog values):
@@ -129,8 +129,8 @@ Scheduling cannot be set in Board overrides or Stage configuration/frontmatter.
 The pure `normalizePlacementPolicy` presents local alone at the legacy capacity/default 3 when
 scheduling is absent. When scheduling is present, **only** per-machine capacities apply in the policy;
 even an explicitly stored legacy `maxConcurrentWorkers` is ignored and preserved for compatibility.
-There is no additional overall cap in v1. This precedence applies to the policy now and to future
-dispatch integration; current dispatch retains the legacy limit until DEV-10.
+There is no additional overall cap in v1. Dispatch applies the same precedence: every non-terminal
+execution across all Boards counts against its machine.
 
 ### Story placement
 
@@ -198,7 +198,7 @@ reason `detail`. With no candidates, the only reason is `{ code: "no-candidates"
 Malformed Project configuration is rejected as `SfError("invalid", ...)` at shared load/validation,
 not disguised as a wait. Tests simulate caller-owned usage to produce four build-server selections,
 two spare-server selections, two local selections, then wait regardless of legacy cap 3. This is
-policy evidence, not a claim that current runtime dispatch performs remote 4+2+2 allocation.
+policy evidence; production dispatch performs no remote allocation until DEV-11.
 
 ### Shared Worker instructions
 
@@ -240,6 +240,7 @@ Agent threads spawned by the Supervisor. A Worker runs as a new top-level thread
   - the user force-releases the Story in the UI, or
   - the Worker runs no sf command for the claim timeout.
 - When a claim ends without the Worker's knowledge, sf does not interrupt the thread. Any later sf command from that Worker is rejected with "claim is gone".
+- **Execution.** A claim end revokes authority but does not prove the Worker stopped. Its execution keeps its Worker slot and fences the Story branch (the next Stage waits, Done cleanup is deferred) until the Supervisor reports correlated terminal evidence. Timeouts, force-releases and lost launch results become `unknown` and are reconciled through the Supervisor, never relaunched. See [the execution ledger](../execution-ledger.md).
 
 ### Project
 

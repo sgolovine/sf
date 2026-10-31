@@ -2,9 +2,10 @@ import type { StoryPlacement } from "#model/placement";
 import type { AttachmentSubmission } from "./attachment.ts";
 import type { CommandRecord, SupervisorCommand } from "./commands.ts";
 import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig } from "./config.ts";
+import type { ExecutionReport } from "./execution.ts";
 import type { ModelOption, ResolvedModel } from "./models.ts";
 import type { StoryView } from "./project.ts";
-import type { Claim, RuntimeState } from "./runtime.ts";
+import type { Claim, Execution, QueueWait, RuntimeState } from "./runtime.ts";
 import type { FileChange } from "./session.ts";
 import type { SupervisorMessage } from "./supervisor.ts";
 
@@ -41,13 +42,21 @@ export const routes = {
   storyRetry: (key: string) => `/api/stories/${enc(key)}/retry`,
   storyWorktree: (key: string) => `/api/stories/${enc(key)}/worktree`,
   search: (q: string) => `/api/search?q=${enc(q)}`,
+  executions: "/api/executions",
+  execution: (id: string) => `/api/executions/${enc(id)}`,
+  executionReport: (id: string) => `/api/executions/${enc(id)}/report`,
+  executionReconcile: (id: string) => `/api/executions/${enc(id)}/reconcile`,
+  executionCancel: (id: string) => `/api/executions/${enc(id)}/cancel`,
 } as const;
 
 export type EnqueueCommandRequest = { command: SupervisorCommand };
 export type EnqueueCommandResponse = CommandRecord;
 /** GET /api/commands/next?wait=<seconds> → 200 with a claimed command, or 204 on timeout. */
 export type NextCommandResponse = CommandRecord;
-export type CommandResultRequest = { ok: true; result?: string } | { ok: false; error: string };
+/** `execution` carries structured launch/terminal evidence; launch accepted is never completion. */
+export type CommandResultRequest =
+  | { ok: true; result?: string; execution?: ExecutionReport }
+  | { ok: false; error: string; execution?: ExecutionReport };
 export type PostMessageRequest = { text: string; level?: SupervisorMessage["level"]; commandId?: string };
 export type FileChangesResponse = { changes: FileChange[] };
 
@@ -146,8 +155,28 @@ export type StoryDetails = StoryView & {
   claim?: Claim;
   /** True while the Story waits for a Worker slot. */
   queued?: boolean;
+  /** Why the last drain skipped the queued Story. */
+  wait?: QueueWait;
+  /** The Story's occupying execution, if any. */
+  execution?: ExecutionView;
   failure?: RuntimeState["failures"][string];
   worktreeWarning?: RuntimeState["worktreeWarnings"][string];
   /** Set while the Story's HIL flag for its Stage is true: it waits for a human. */
   hil?: { flag: string; comment?: string };
 };
+
+/** An execution with what sf is waiting for. */
+export type ExecutionView = Execution & {
+  occupying: boolean;
+  /** True while the Worker still holds the Story's Claim. */
+  claimLive: boolean;
+  /** Plain-language reason sf still treats it as occupying, or why it ended. */
+  waitingFor: string;
+};
+export type ExecutionsResponse = {
+  identity: RuntimeState["identity"];
+  support: import("./execution.ts").AdapterSupport;
+  executions: ExecutionView[];
+  usage: Record<string, number>;
+};
+export type ExecutionReportRequest = ExecutionReport;

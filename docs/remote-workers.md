@@ -225,13 +225,14 @@ Required targets never fallback; scan past ineligible/full pins to preserve elig
 Source inspected initially at `81662720545c29e3d53561636bcdc739890a7cbd`, then reconciled
 with `origin/main` at `3da70ca0c1d7b057d7af71a62d779071e4790d4b` before handoff:
 
-- [service](../src/server/project/service.ts): `mutate`, `requestSpawn`, `drainQueue`,
-  `spawnNow` serialize local Claim-based capacity; `onSpawn` enqueues before Claims are saved.
-  `sweep/endClaim` deletes expired Claims and marks Workers ended without stopping external work.
-  **DEV-10 must change this occupancy behavior**, including release/Move/force-release.
+- [service](../src/server/project/service.ts): at inspection, `mutate`, `requestSpawn`, `drainQueue`,
+  `spawnNow` serialized local Claim-based capacity, `onSpawn` enqueued before Claims were saved, and
+  `sweep/endClaim` freed a slot on Claim end. **DEV-10 replaced this** with the
+  [execution ledger](execution-ledger.md): saved reservations before publication, occupancy
+  independent of Claims, and Supervisor reconciliation.
 - [runtime model](../src/model/runtime.ts), [persistence](../src/server/project/runtime.ts) and
-  [commands](../src/model/commands.ts) lack machine and durable external launch identities;
-  `spawnResult` stores a free-form thread label. Persisted Claims alone cannot reconcile remote work.
+  [commands](../src/model/commands.ts) lacked machine and durable external launch identities at
+  inspection; DEV-10 added them (runtime version 2). Remote transport is still DEV-11.
 - `prepareSpawn/ensureStoryWorktree` prepare locally;
   [worktree](../src/server/project/worktree.ts) retains dirty/unpushed work and deletes branches
   with `git branch -d`. DEV-11 must perform preparation/cleanup on the owning machine, verify the

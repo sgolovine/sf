@@ -4,13 +4,30 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import fuzzysort from "fuzzysort";
-import type { SearchResponse, StoryDetails, UpdateProjectRequest } from "#model/api";
+import type { ExecutionsResponse, ExecutionView, SearchResponse, StoryDetails, UpdateProjectRequest } from "#model/api";
 import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
+import type { CommandStatus, ExecutionReconcileCommand, SupervisorCommand, WorkerSpawnCommand } from "#model/commands";
 import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
+import { type AdapterSupport, type ExecutionReport, REMOTE_UNSUPPORTED, supportFor } from "#model/execution";
 import { modelCatalog, resolveModel } from "#model/models";
-import { type StoryPlacement, validatePlacement } from "#model/placement";
+import {
+  normalizePlacementPolicy,
+  type StoryPlacement,
+  selectPlacement,
+  type TargetEligibility,
+  validatePlacement,
+} from "#model/placement";
 import type { ProjectSnapshot, StoryView } from "#model/project";
-import type { RuntimeState, WorkerEndReason } from "#model/runtime";
+import {
+  type Execution,
+  type ExecutionAttempt,
+  type ExecutionOutcome,
+  occupies,
+  type QueueEntry,
+  type QueueWait,
+  type RuntimeState,
+  type WorkerEndReason,
+} from "#model/runtime";
 import { attachmentStore } from "./attachments.ts";
 import { composeBrief } from "./brief.ts";
 import {
@@ -59,17 +76,30 @@ import {
 
 export type Actor = { kind: "user" } | { kind: "supervisor" } | { kind: "worker"; id: string };
 
-export type SpawnRequest = {
-  workerId: string;
-  storyKey: string;
-  board: string;
-  stageId: string;
-  mode: "thread" | "subagent";
-  agent?: string;
-  model?: string;
-  worktree: { path: string; branch: string };
-  brief: string;
+/** A `worker.spawn` as published; `execution` is its durable launch identity. */
+export type SpawnRequest = Omit<WorkerSpawnCommand, "type">;
+
+/**
+ * The Supervisor side of execution. sf decides placement, capacity and Claims;
+ * the boundary delivers commands and reports what its tools can establish.
+ * Every call is local and fast: none may reach a machine over the network.
+ */
+export type ExecutionBoundary = {
+  support(): AdapterSupport;
+  /** Explicit evidence per machine; when omitted, derived from `support()`. */
+  eligibility?(machineIds: string[], request: { agent?: string; model?: string }): Record<string, TargetEligibility>;
+  /** Publishes a command, deduplicated by `key`. Returns its id. Throws when it cannot be persisted. */
+  publish(command: SupervisorCommand, key: string): string;
+  /** Where a published command is; undefined when unknown. */
+  commandState?(id: string): CommandStatus | undefined;
 };
+
+const ATTEMPT_BACKOFF_MS = 60_000;
+const MAX_BACKOFF_MS = 30 * 60_000;
+const ATTEMPT_TIMEOUT_MS = 10 * 60_000;
+const MAX_OUTSTANDING_ATTEMPTS = 4;
+/** Terminal executions kept as history; occupying ones are never trimmed. */
+const MAX_ENDED_EXECUTIONS = 500;
 
 export type ServiceOptions = {
   root: string;
@@ -77,8 +107,10 @@ export type ServiceOptions = {
   online: boolean;
   now?: () => number;
   git?: Git;
-  /** Online: queues a `worker.spawn` command and returns its id. */
+  /** Online: queues a `worker.spawn` command and returns its id. Used when `execution` is not given. */
   onSpawn?: (request: SpawnRequest) => string;
+  /** The execution adapter boundary; defaults to a local one that publishes through `onSpawn`. */
+  execution?: ExecutionBoundary;
   /** How new Workers run, from the Supervisor's capabilities. */
   spawnMode?: () => "thread" | "subagent";
   /** Shell-ready sf command for Worker Briefs. */
@@ -133,6 +165,12 @@ export function createService(opts: ServiceOptions) {
   const now = opts.now ?? Date.now;
   const git = opts.git ?? runGit;
   const paths = sfPaths(root);
+  let localIds = 0;
+  const boundary: ExecutionBoundary = opts.execution ?? {
+    support: () => supportFor(null),
+    publish: (command) =>
+      (command.type === "worker.spawn" ? opts.onSpawn?.(command) : undefined) ?? `local-${++localIds}`,
+  };
 
   // ---------- reads ----------
 
@@ -290,7 +328,11 @@ export function createService(opts: ServiceOptions) {
       modelOptions: modelCatalog(project, board, [v.model]),
     };
     if (rt.claims[v.key]) d.claim = rt.claims[v.key];
-    if (rt.queue.some((q) => q.storyKey === v.key)) d.queued = true;
+    const entry = rt.queue.find((q) => q.storyKey === v.key);
+    if (entry) d.queued = true;
+    if (entry?.wait) d.wait = entry.wait;
+    const busy = occupant(rt, v.key);
+    if (busy) d.execution = executionView(rt, busy);
     if (rt.failures[v.key]) d.failure = rt.failures[v.key];
     if (rt.worktreeWarnings[v.key]) d.worktreeWarning = rt.worktreeWarnings[v.key];
     const hil = board && activeHil(board, v);
@@ -329,10 +371,11 @@ export function createService(opts: ServiceOptions) {
 
   // ---------- runtime transitions (always inside mutate) ----------
 
-  async function mutate<T>(fn: (tx: Tx) => T, drain = true): Promise<T> {
+  async function mutate<T>(fn: (tx: Tx) => T, drain = true, published = new Set<string>()): Promise<T> {
     loadProjectConfig(root);
     const after: Tx["after"] = [];
     let result: T;
+    let outbox: Publication[] = [];
     try {
       result = await withLock(root, () => {
         const tx: Tx = { rt: loadRuntime(root), project: loadProjectConfig(root), after };
@@ -341,28 +384,343 @@ export function createService(opts: ServiceOptions) {
           if (drain) drainQueue(tx);
           const result = fn(tx);
           reconcileDependencies(tx);
+          // Placement, configuration and Claim changes made by `fn` wake the queue too.
+          if (drain) drainQueue(tx);
+          scheduleAttempts(tx);
           return result;
         } finally {
           saveRuntime(root, tx.rt);
+          outbox = publications(tx.rt).filter((p) => !published.has(p.key));
         }
       });
-    } finally {
+    } catch (err) {
+      // The runtime was saved anyway: publish what it reserved before reporting the error.
       opts.onChange?.();
+      if (outbox.length) await publish(outbox, published);
+      throw err;
     }
+    opts.onChange?.();
+    // Commands leave the outbox only after their reservation is saved, and never under the lock.
+    if (outbox.length) await publish(outbox, published);
     for (const task of after) await task();
     return result;
   }
 
+  type Publication = { executionId: string; attemptId?: string; command: SupervisorCommand; key: string };
+
+  /** Saved intents not yet acknowledged by the boundary: undelivered launches and new attempts. */
+  function publications(rt: RuntimeState): Publication[] {
+    if (!online) return [];
+    const list: Publication[] = [];
+    for (const e of Object.values(rt.executions)) {
+      if (e.status === "reserved" && e.intent && !e.commandId)
+        list.push({ executionId: e.id, command: e.intent, key: `spawn:${e.id}` });
+      if (e.attempt && !e.attempt.commandId)
+        list.push({
+          executionId: e.id,
+          attemptId: e.attempt.id,
+          command: attemptCommand(e, e.attempt),
+          key: `${e.attempt.kind}:${e.attempt.id}`,
+        });
+    }
+    return list;
+  }
+
+  async function publish(list: Publication[], published: Set<string>) {
+    // Publication is deduplicated by key; a failure leaves the intent for the next mutation.
+    const ids = list.map((p) => boundary.publish(p.command, p.key));
+    for (const p of list) published.add(p.key);
+    await mutate(
+      ({ rt }) => {
+        list.forEach((p, i) => {
+          const e = rt.executions[p.executionId];
+          const id = ids[i];
+          if (!e || !id) return;
+          if (p.attemptId) {
+            if (e.attempt?.id === p.attemptId) e.attempt.commandId = id;
+            return;
+          }
+          if (e.status !== "reserved" || e.commandId) return;
+          e.commandId = id;
+          const claim = rt.claims[e.storyKey];
+          if (claim?.executionId === e.id) claim.commandId = id;
+        });
+      },
+      false,
+      published,
+    );
+  }
+
+  function attemptCommand(e: Execution, attempt: ExecutionAttempt): SupervisorCommand {
+    return {
+      type: attempt.kind === "cancel" ? "execution.cancel" : "execution.reconcile",
+      execution: executionRef(e),
+      attemptId: attempt.id,
+      workerId: e.workerId,
+      storyKey: e.storyKey,
+      mode: e.mode,
+      worktree: e.worktree,
+      ...(e.taskId ? { taskId: e.taskId } : {}),
+      ...(e.threadId ? { threadId: e.threadId } : {}),
+      ...(e.label ? { label: e.label } : {}),
+    };
+  }
+
+  function executionRef(e: Execution) {
+    return { id: e.id, machineId: e.machineId, environmentId: e.environmentId, projectId: e.projectId };
+  }
+
+  /** The execution occupying the Story's branch, if any. */
+  function occupant(rt: RuntimeState, key: string): Execution | undefined {
+    return Object.values(rt.executions).find((e) => e.storyKey === key && occupies(e));
+  }
+
+  /** Rejects work on the Story branch while an execution other than `owner` occupies it. */
+  function fence(rt: RuntimeState, key: string, owner?: string) {
+    const busy = occupant(rt, key);
+    if (busy && busy.id !== owner)
+      throw new SfError(
+        "claimed",
+        `${key}'s Story branch is occupied by execution ${busy.id} (${busy.status}); wait for it to end or reconcile it with \`sf execution\``,
+      );
+  }
+
+  /** Why a reservation no longer matches its request, checked again after asynchronous preparation. */
+  function staleSelection(tx: Tx, e: Execution, found: NonNullable<ReturnType<typeof tryLocate>>): string | null {
+    const stage = found.board.stages.find((s) => s.id === e.stageId);
+    const settings = resolveSettings(tx.project, found.board, stage, found.story);
+    if ((settings.agent ?? undefined) !== e.agent || (settings.model ?? undefined) !== e.model)
+      return "the resolved agent or model changed";
+    const policy = normalizePlacementPolicy(tx.project);
+    const placement = found.story.placement;
+    const allowed =
+      placement?.mode === "local-only"
+        ? ["local"]
+        : placement?.mode === "required"
+          ? [placement.machineId]
+          : placement?.mode === "preferred"
+            ? [placement.machineId, ...policy.order]
+            : policy.order;
+    if (!allowed.includes(e.machineId)) return `placement no longer allows ${e.machineId}`;
+    if (!policy.machines[e.machineId]?.enabled) return `${e.machineId} is no longer configured and enabled`;
+    const evidence = eligibilityFor(tx, {
+      ...(e.agent ? { agent: e.agent } : {}),
+      ...(e.model ? { model: e.model } : {}),
+    })[e.machineId];
+    if (!evidence || evidence.failures.length)
+      return `${e.machineId} is no longer eligible${evidence?.detail ? `: ${evidence.detail}` : ""}`;
+    return null;
+  }
+
+  async function requestAttempt(id: string, kind: ExecutionAttempt["kind"]) {
+    return mutate((tx) => {
+      const e = tx.rt.executions[id];
+      if (!e) throw new SfError("not_found", `no execution ${id}`);
+      if (!occupies(e)) throw new SfError("invalid", `execution ${id} already ended (${e.outcome})`);
+      if (e.status === "reserved")
+        throw new SfError("invalid", `execution ${id} was never delivered; release or Move its Story instead`);
+      if (e.attempt?.kind === kind && (!e.attempt.commandId || isOutstanding(e.attempt)))
+        return executionView(tx.rt, e);
+      newAttempt(e, kind);
+      return executionView(tx.rt, e);
+    });
+  }
+
+  function isOutstanding(attempt: ExecutionAttempt) {
+    const state = attempt.commandId ? boundary.commandState?.(attempt.commandId) : undefined;
+    if (state === "pending") return true;
+    return (state === "claimed" || state === undefined) && now() - attempt.requestedAt < ATTEMPT_TIMEOUT_MS;
+  }
+
+  function executionView(rt: RuntimeState, e: Execution): ExecutionView {
+    const live = claimLive(rt, e);
+    const { intent: _, ...rest } = e;
+    const pending = e.attempt
+      ? `; ${e.attempt.kind} ${e.attempt.id} is with the Supervisor`
+      : e.recovery
+        ? `; recovery needed: ${e.recovery}`
+        : e.nextAttemptAt
+          ? `; next lookup after ${new Date(e.nextAttemptAt).toISOString()}`
+          : "";
+    const waitingFor =
+      e.status === "terminal"
+        ? `ended (${e.outcome})${e.conflict ? `; conflicting report: ${e.conflict}` : ""}`
+        : e.status === "reserved"
+          ? "waiting for the Supervisor to receive the launch command"
+          : e.status === "launching"
+            ? "waiting for the Supervisor's launch result"
+            : e.status === "running" && live
+              ? "running; the Worker holds the Claim"
+              : `${e.status === "running" ? "the Claim ended; waiting for evidence that the execution ended" : `unconfirmed: ${e.evidence ?? "no evidence"}`}${pending}`;
+    return { ...rest, occupying: occupies(e), claimLive: live, waitingFor };
+  }
+
+  function executionOf(rt: RuntimeState, workerId: string): Execution | undefined {
+    const id = rt.workers[workerId]?.executionId;
+    return (id && rt.executions[id]) || Object.values(rt.executions).find((e) => e.workerId === workerId);
+  }
+
+  function usageOf(rt: RuntimeState) {
+    const usage: Record<string, number> = {};
+    for (const e of Object.values(rt.executions)) if (occupies(e)) usage[e.machineId] = (usage[e.machineId] ?? 0) + 1;
+    return usage;
+  }
+
+  function claimLive(rt: RuntimeState, e: Execution) {
+    return rt.claims[e.storyKey]?.workerId === e.workerId;
+  }
+
+  /** Ends the Claim's authority. Its execution keeps occupying until terminal evidence arrives. */
   function endClaim(tx: Tx, key: string, reason: WorkerEndReason) {
     const claim = tx.rt.claims[key];
     if (!claim) return;
     delete tx.rt.claims[key];
     const worker = tx.rt.workers[claim.workerId];
     if (worker) Object.assign(worker, { endedAt: now(), endReason: reason });
+    const e = claim.executionId ? tx.rt.executions[claim.executionId] : executionOf(tx.rt, claim.workerId);
+    if (!e || !occupies(e)) return;
+    if (e.status === "reserved") {
+      // Never delivered: the delivery gate rejects it from now on.
+      finishExecution(tx, e, "not-started", `Claim ended (${reason}) before the launch command was delivered`);
+    } else if (reason === "timeout" || reason === "force-released") {
+      Object.assign(e, {
+        status: "unknown",
+        updatedAt: now(),
+        evidence: `Claim ${reason === "timeout" ? "timed out" : "force-released"}; the execution may still be running`,
+      });
+    } else
+      Object.assign(e, { updatedAt: now(), evidence: `Claim ended (${reason}); waiting for the execution to end` });
   }
 
-  /** Ends Claims whose Worker ran no sf command for the claim timeout. */
+  function finishExecution(tx: Tx, e: Execution, outcome: ExecutionOutcome, evidence: string) {
+    Object.assign(e, { status: "terminal", outcome, evidence, endedAt: now(), updatedAt: now() });
+    delete e.intent;
+    delete e.attempt;
+    delete e.recovery;
+    delete e.nextAttemptAt;
+    if (claimLive(tx.rt, e)) endClaim(tx, e.storyKey, outcome === "not-started" ? "spawn-failed" : "execution-ended");
+    if (tx.rt.deferredCleanups[e.storyKey] && !occupant(tx.rt, e.storyKey)) {
+      delete tx.rt.deferredCleanups[e.storyKey];
+      scheduleCleanup(tx, e.storyKey);
+    }
+  }
+
+  /** Applies correlated evidence to its launch generation. Throws on mismatched identity. */
+  function applyReport(tx: Tx, e: Execution, report: ExecutionReport): { applied: boolean; reason?: string } {
+    const mismatch = (
+      [
+        ["executionId", report.executionId, e.id],
+        ["machineId", report.machineId, e.machineId],
+        ["environmentId", report.environmentId, e.environmentId],
+        ["projectId", report.projectId, e.projectId],
+        ["worktree.path", report.worktree?.path, e.worktree.path],
+        ["worktree.branch", report.worktree?.branch, e.worktree.branch],
+        ["taskId", report.taskId, e.taskId ?? report.taskId],
+        ["threadId", report.threadId, e.threadId ?? report.threadId],
+      ] as const
+    ).find(([, given, recorded]) => given !== undefined && given !== recorded);
+    if (mismatch)
+      throw new SfError(
+        "invalid",
+        `execution ${e.id}: ${mismatch[0]} "${mismatch[1]}" does not match the recorded "${mismatch[2]}"`,
+      );
+    if (report.attemptId !== undefined && e.attempt?.id !== report.attemptId)
+      return { applied: false, reason: `attempt ${report.attemptId} is not the outstanding attempt` };
+    if (report.taskId) e.taskId = report.taskId;
+    if (report.threadId) e.threadId = report.threadId;
+    if (report.adapterEnvironmentId || report.adapterProjectId)
+      e.adapter = {
+        ...e.adapter,
+        ...(report.adapterEnvironmentId ? { environmentId: report.adapterEnvironmentId } : {}),
+        ...(report.adapterProjectId ? { projectId: report.adapterProjectId } : {}),
+      };
+    const evidence = report.evidence ?? `reported ${report.status}`;
+    const answered = report.attemptId !== undefined;
+    if (!occupies(e)) {
+      const outcome = report.status === "terminal" ? report.outcome : report.status;
+      if (outcome === e.outcome) return { applied: false, reason: "already recorded" };
+      if (report.status === "terminal" || report.status === "not-started") {
+        e.conflict = `reported ${outcome} after ${e.outcome}: ${evidence}`;
+        return { applied: true };
+      }
+      // A live report contradicts the recorded end: occupy again until reconciled.
+      Object.assign(e, {
+        status: "unknown",
+        conflict: `reported ${report.status} after ${e.outcome}: ${evidence}`,
+        evidence,
+        updatedAt: now(),
+      });
+      delete e.endedAt;
+      delete e.outcome;
+      return { applied: true };
+    }
+    if (report.status === "terminal" || report.status === "not-started") {
+      if (report.status === "not-started" && claimLive(tx.rt, e))
+        tx.rt.failures[e.storyKey] = { stageId: e.stageId, error: evidence, at: now() };
+      finishExecution(tx, e, report.status === "terminal" ? report.outcome! : "not-started", evidence);
+      delete e.conflict;
+      drainQueue(tx);
+      return { applied: true };
+    }
+    if (report.status === "running") {
+      if (e.status !== "running") e.acceptedAt = now();
+      e.status = "running";
+      const claim = tx.rt.claims[e.storyKey];
+      if (claim?.workerId === e.workerId && claim.status === "spawning")
+        Object.assign(claim, { status: "active", lastSeenAt: now() });
+    } else e.status = "unknown";
+    Object.assign(e, { evidence, updatedAt: now() });
+    if (answered) completeAttempt(e);
+    return { applied: true };
+  }
+
+  function completeAttempt(e: Execution) {
+    delete e.attempt;
+    e.attempts++;
+    e.nextAttemptAt = now() + Math.min(ATTEMPT_BACKOFF_MS * 2 ** (e.attempts - 1), MAX_BACKOFF_MS);
+  }
+
+  /** Issues bounded lookups for executions whose end sf cannot confirm on its own. */
+  function scheduleAttempts(tx: Tx) {
+    if (!online) return;
+    const support = boundary.support();
+    let outstanding = Object.values(tx.rt.executions).filter((e) => e.attempt).length;
+    for (const e of Object.values(tx.rt.executions)) {
+      if (!occupies(e)) continue;
+      if (e.attempt) {
+        const state = e.attempt.commandId ? boundary.commandState?.(e.attempt.commandId) : "pending";
+        // Only a still-queued command is exempt: a claimed one the Supervisor never answers expires.
+        if (state === "pending" || now() - e.attempt.requestedAt < ATTEMPT_TIMEOUT_MS) continue;
+        e.evidence = `${e.attempt.kind} attempt ${e.attempt.id} got no answer`;
+        completeAttempt(e);
+        outstanding--;
+      }
+      const needs =
+        e.status === "unknown" || ((e.status === "running" || e.status === "launching") && !claimLive(tx.rt, e));
+      if (!needs || now() < (e.nextAttemptAt ?? 0)) continue;
+      if (!e.taskId && !e.threadId && !e.label && support.lookupByRequest !== true) {
+        e.recovery =
+          `no task or thread identity was reported and ${support.lookupByRequest}; ` +
+          `report confirmed evidence with \`sf execution report ${e.id}\` or ask the Supervisor with \`sf execution reconcile ${e.id}\``;
+        continue;
+      }
+      if (outstanding >= MAX_OUTSTANDING_ATTEMPTS) continue;
+      newAttempt(e, "reconcile");
+      outstanding++;
+    }
+  }
+
+  function newAttempt(e: Execution, kind: ExecutionAttempt["kind"]) {
+    e.attempt = { id: `a-${crypto.randomBytes(4).toString("hex")}`, kind, requestedAt: now() };
+    delete e.recovery;
+  }
+
+  /** Ends Claims whose Worker ran no sf command for the claim timeout, and trims old history. */
   function sweep(tx: Tx) {
+    const ended = Object.values(tx.rt.executions)
+      .filter((e) => !occupies(e))
+      .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+    for (const e of ended.slice(MAX_ENDED_EXECUTIONS)) delete tx.rt.executions[e.id];
     for (const [key, claim] of Object.entries(tx.rt.claims)) {
       let board: BoardConfig | undefined;
       try {
@@ -375,30 +733,100 @@ export function createService(opts: ServiceOptions) {
     }
   }
 
-  function liveClaims(tx: Tx) {
-    return Object.keys(tx.rt.claims).length;
+  /** Explicit eligibility evidence per configured machine. Missing evidence is incompatible. */
+  function eligibilityFor(tx: Tx, request: { agent?: string; model?: string }) {
+    const support = boundary.support();
+    const machines = ["local", ...(tx.project.scheduling?.remotes.map((r) => r.id) ?? [])];
+    const evidence: Record<string, TargetEligibility> = boundary.eligibility?.(machines, request) ?? {
+      local: support.local === true ? { failures: [] } : { failures: ["incompatible"], detail: support.local },
+      ...Object.fromEntries(
+        machines
+          .slice(1)
+          .map((id) => [
+            id,
+            support.remote === true ? { failures: [] } : { failures: ["incompatible"], detail: support.remote },
+          ]),
+      ),
+    };
+    // A changed mapping under an occupied slug keeps the old charge and blocks new launches there.
+    for (const remote of tx.project.scheduling?.remotes ?? []) {
+      const stale = Object.values(tx.rt.executions).find(
+        (e) =>
+          occupies(e) &&
+          e.machineId === remote.id &&
+          (e.environmentId !== remote.environmentId || e.projectId !== remote.project.projectId),
+      );
+      if (stale)
+        evidence[remote.id] = {
+          failures: [...(evidence[remote.id]?.failures ?? []), "unmapped"],
+          detail: `mapping changed while execution ${stale.id} still occupies ${remote.id}`,
+        };
+    }
+    return evidence;
   }
 
-  /** Starts queued spawns, oldest first, while there is capacity. */
+  function identityFor(tx: Tx, machineId: string) {
+    const remote = tx.project.scheduling?.remotes.find((r) => r.id === machineId);
+    return remote ? { environmentId: remote.environmentId, projectId: remote.project.projectId } : tx.rt.identity;
+  }
+
+  function enqueueSpawn(tx: Tx, key: string, boardId: string, stageId: string) {
+    tx.rt.queue.push({ storyKey: key, board: boardId, stageId, queuedAt: now(), seq: ++tx.rt.queueSeq });
+  }
+
+  /** Reserves capacity for queued spawns, oldest eligible first, skipping entries that must wait. */
   function drainQueue(tx: Tx) {
-    if (!online) return;
-    while (tx.rt.queue.length && liveClaims(tx) < tx.project.maxConcurrentWorkers) {
-      const entry = tx.rt.queue.shift()!;
+    if (!online || !tx.rt.queue.length) return;
+    const policy = normalizePlacementPolicy(tx.project);
+    const usage = usageOf(tx.rt);
+    const ordered = [...tx.rt.queue].sort((a, b) => a.queuedAt - b.queuedAt || (a.seq ?? 0) - (b.seq ?? 0));
+    for (const entry of ordered) {
+      const drop = () => {
+        tx.rt.queue = tx.rt.queue.filter((q) => q !== entry);
+      };
       const found = tryLocate(entry.storyKey);
-      if (!found || tx.rt.claims[entry.storyKey] || found.story.stage !== entry.stageId) continue;
-      if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) {
-        if (unresolved(found.story).length) tx.rt.dependencyWaits[entry.storyKey] = { stageId: entry.stageId };
+      if (!found || tx.rt.claims[entry.storyKey] || found.story.stage !== entry.stageId) {
+        drop();
         continue;
       }
+      if (!spawnsFor(found.boardId, found.board, entry.stageId, found.story)) {
+        if (unresolved(found.story).length) tx.rt.dependencyWaits[entry.storyKey] = { stageId: entry.stageId };
+        drop();
+        continue;
+      }
+      const busy = occupant(tx.rt, entry.storyKey);
+      if (busy) {
+        setWait(entry, [{ code: "branch-occupied", executionId: busy.id }]);
+        continue;
+      }
+      const stage = found.board.stages.find((s) => s.id === entry.stageId);
+      const settings = resolveSettings(tx.project, found.board, stage, found.story);
+      const request = {
+        ...(settings.agent ? { agent: settings.agent } : {}),
+        ...(settings.model ? { model: settings.model } : {}),
+      };
+      const placement = selectPlacement(policy, found.story.placement, eligibilityFor(tx, request), usage);
+      if (placement.kind === "wait") {
+        setWait(entry, placement.reasons);
+        continue;
+      }
+      // Runtime is saved even on error; a failed spawn keeps its entry and age for the next drain.
       try {
-        spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
-        delete tx.rt.dependencyWaits[entry.storyKey];
+        spawnNow(tx, entry.storyKey, found.boardId, entry.stageId, placement.machineId);
       } catch (err) {
-        // Runtime is saved even on error; keep this spawn first for the next drain.
-        tx.rt.queue.unshift(entry);
+        failedSpawn = entry;
         throw err;
       }
+      drop();
+      delete tx.rt.dependencyWaits[entry.storyKey];
+      usage[placement.machineId] = (usage[placement.machineId] ?? 0) + 1;
     }
+  }
+
+  let failedSpawn: QueueEntry | undefined;
+
+  function setWait(entry: QueueEntry, reasons: QueueWait["reasons"]) {
+    if (JSON.stringify(entry.wait?.reasons) !== JSON.stringify(reasons)) entry.wait = { at: now(), reasons };
   }
 
   function requestSpawn(tx: Tx, key: string, boardId: string, stageId: string) {
@@ -422,21 +850,31 @@ export function createService(opts: ServiceOptions) {
       delete rt.dependencyWaits[key];
       return;
     }
-    if (rt.queue.length || liveClaims(tx) >= tx.project.maxConcurrentWorkers) {
-      rt.queue.push({ storyKey: key, board: boardId, stageId, queuedAt: now() });
-      delete rt.dependencyWaits[key];
-      drainQueue(tx);
-      return;
-    }
-    spawnNow(tx, key, boardId, stageId);
+    // Every request takes its place in FIFO order, behind older eligible work.
+    enqueueSpawn(tx, key, boardId, stageId);
+    const wait = rt.dependencyWaits[key];
     delete rt.dependencyWaits[key];
+    const entry = rt.queue.at(-1);
+    failedSpawn = undefined;
+    try {
+      drainQueue(tx);
+    } catch (err) {
+      // The caller retains a request that failed to start (as a pending trigger or by rethrowing).
+      if (failedSpawn === entry) {
+        rt.queue = rt.queue.filter((q) => q !== entry);
+        if (wait) rt.dependencyWaits[key] = wait;
+      }
+      throw err;
+    }
   }
 
-  function spawnNow(tx: Tx, key: string, boardId: string, stageId: string) {
+  /** Reserves the machine, Claim and launch identity. The command is published after the save. */
+  function spawnNow(tx: Tx, key: string, boardId: string, stageId: string, machineId: string) {
     const { board, story } = locate(key);
     const stage = board.stages.find((s) => s.id === stageId)!;
     const settings = resolveSettings(tx.project, board, stage, story);
     const workerId = `w-${crypto.randomBytes(4).toString("hex")}`;
+    const executionId = `x-${crypto.randomBytes(6).toString("hex")}`;
     const worktree = { path: worktreePath(root, key), branch: storyBranch(key) };
     const mode = opts.spawnMode?.() ?? "subagent";
     const brief = composeBrief({
@@ -455,7 +893,26 @@ export function createService(opts: ServiceOptions) {
       prompt: promptText(boardId, stageId),
       effectiveModel: resolveModel(tx.project, board, stage, story),
     });
-    const commandId = opts.onSpawn?.({
+    const t = now();
+    const execution: Execution = {
+      id: executionId,
+      workerId,
+      storyKey: key,
+      board: boardId,
+      stageId,
+      machineId,
+      ...identityFor(tx, machineId),
+      worktree,
+      mode,
+      ...(settings.agent ? { agent: settings.agent } : {}),
+      ...(settings.model ? { model: settings.model } : {}),
+      status: "reserved",
+      createdAt: t,
+      updatedAt: t,
+      attempts: 0,
+    };
+    execution.intent = {
+      type: "worker.spawn",
       workerId,
       storyKey: key,
       board: boardId,
@@ -465,8 +922,9 @@ export function createService(opts: ServiceOptions) {
       ...(settings.model ? { model: settings.model } : {}),
       worktree,
       brief,
-    });
-    const t = now();
+      execution: executionRef(execution),
+    };
+    tx.rt.executions[executionId] = execution;
     tx.rt.claims[key] = {
       workerId,
       board: boardId,
@@ -474,9 +932,10 @@ export function createService(opts: ServiceOptions) {
       status: "spawning",
       claimedAt: t,
       lastSeenAt: t,
-      ...(commandId ? { commandId } : {}),
+      executionId,
+      machineId,
     };
-    tx.rt.workers[workerId] = { storyKey: key, stageId, mode, startedAt: t };
+    tx.rt.workers[workerId] = { storyKey: key, stageId, mode, startedAt: t, executionId, machineId };
     delete tx.rt.failures[key];
   }
 
@@ -490,9 +949,11 @@ export function createService(opts: ServiceOptions) {
     return worker.storyKey;
   }
 
+  /** Done cleanup waits while an execution still occupies the Story branch. */
   function scheduleCleanup(tx: Tx, key: string) {
-    if (online) tx.after.push(() => removeWorktree(key, false, true));
-    else tx.rt.pendingTriggers.push({ type: "cleanup", storyKey: key, at: now() });
+    if (!online) tx.rt.pendingTriggers.push({ type: "cleanup", storyKey: key, at: now() });
+    else if (occupant(tx.rt, key)) tx.rt.deferredCleanups[key] = { at: now() };
+    else tx.after.push(() => removeWorktree(key, false, true));
   }
 
   /** What follows a Story entering a Stage (a Move or a create). A Story held for HIL waits. */
@@ -502,8 +963,7 @@ export function createService(opts: ServiceOptions) {
     if (stageId === DONE) scheduleCleanup(tx, key);
     if (claimEnded && online) {
       // Persist this Story's intent before a drain can fail, behind older spawns.
-      if (spawnsFor(boardId, board, stageId, story))
-        tx.rt.queue.push({ storyKey: key, board: boardId, stageId, queuedAt: now() });
+      if (spawnsFor(boardId, board, stageId, story)) enqueueSpawn(tx, key, boardId, stageId);
       drainQueue(tx);
     } else if (spawnsFor(boardId, board, stageId, story)) requestSpawn(tx, key, boardId, stageId);
   }
@@ -526,12 +986,21 @@ export function createService(opts: ServiceOptions) {
   }
 
   /** Removes the Story Worktree; for a Story in Done, also deletes its branch once merged. */
-  async function removeWorktree(key: string, force: boolean, onlyIfDone = false): Promise<CleanupResult> {
+  async function removeWorktree(
+    key: string,
+    force: boolean,
+    onlyIfDone = false,
+  ): Promise<CleanupResult | (CleanupResult & { deferred: string })> {
     // Serialize the existence check and git operation with deletion. A deferred
     // Done cleanup must never remove artifacts after its Story has been deleted.
-    const result = await withLock(root, async (): Promise<CleanupResult> => {
+    const result = await withLock(root, async (): Promise<CleanupResult | (CleanupResult & { deferred: string })> => {
       const found = tryLocate(key);
       if (!found && onlyIfDone) return { removed: false, path: worktreePath(root, key), branch: storyBranch(key) };
+      const busy = occupant(loadRuntime(root), key);
+      // A deferred Done cleanup runs again once the execution ends; explicit removal is refused.
+      if (busy && onlyIfDone)
+        return { removed: false, path: worktreePath(root, key), branch: storyBranch(key), deferred: busy.id };
+      if (busy) fence(loadRuntime(root), key);
       const { board, story } = found ?? locate(key);
       if (onlyIfDone && story.stage !== DONE)
         return { removed: false, path: worktreePath(root, key), branch: storyBranch(key) };
@@ -548,8 +1017,14 @@ export function createService(opts: ServiceOptions) {
         };
       }
     });
-    await mutate(({ rt }) => {
+    await mutate((tx) => {
+      const { rt } = tx;
       if (!tryLocate(key)) return;
+      if ("deferred" in result) {
+        if (!occupant(rt, key)) scheduleCleanup(tx, key);
+        else rt.deferredCleanups[key] = { at: now() };
+        return;
+      }
       if (result.reason)
         rt.worktreeWarnings[key] = { path: result.path, branch: result.branch, reason: result.reason, at: now() };
       else delete rt.worktreeWarnings[key];
@@ -1097,42 +1572,77 @@ export function createService(opts: ServiceOptions) {
     },
 
     /**
-     * Called when the Supervisor claims a `worker.spawn`. Creates or reuses the
-     * Story Worktree and records the branch. Returns "cancelled" if the Claim is
-     * gone, or an error to fail the spawn with.
+     * The delivery gate, called when the Supervisor claims a `worker.spawn`.
+     * Creates or reuses the Story Worktree and records the branch, then marks the
+     * execution `launching` under the lock just before the command is delivered.
+     * Returns "cancelled" when the reservation is no longer valid (it never
+     * started), or an error to fail the spawn with (it never started either).
      */
     async prepareSpawn(workerId: string): Promise<{ ok: true } | { cancelled: true } | { error: string }> {
       // Git preparation releases the mutation lock. Check both before that work
       // and after it, immediately before the command can be delivered.
-      const eligibleKey = () =>
+      const gate = (deliver: boolean) =>
         mutate((tx) => {
-          const key = tx.rt.workers[workerId]?.storyKey;
+          const e = executionOf(tx.rt, workerId);
+          const key = e?.storyKey;
           const claim = key && tx.rt.claims[key];
-          if (!key || !claim || claim.workerId !== workerId || claim.status !== "spawning") return null;
-          const found = tryLocate(key);
-          if (
-            !found ||
-            found.story.stage !== claim.stageId ||
-            !spawnsFor(found.boardId, found.board, claim.stageId, found.story)
-          ) {
-            if (found && unresolved(found.story).length) tx.rt.dependencyWaits[key] = { stageId: found.story.stage };
-            endClaim(tx, key, "released");
+          if (e?.status !== "reserved") return null;
+          if (!claim || claim.workerId !== workerId || claim.status !== "spawning") {
+            finishExecution(tx, e, "not-started", "the reservation ended before delivery");
             return null;
           }
-          return key;
+          const found = tryLocate(e.storyKey);
+          const stale = !found
+            ? "the Story is gone"
+            : found.story.stage !== claim.stageId
+              ? "the Story left the Stage"
+              : !spawnsFor(found.boardId, found.board, claim.stageId, found.story)
+                ? "the Stage no longer starts a Worker for this Story"
+                : staleSelection(tx, e, found);
+          if (stale) {
+            if (found && unresolved(found.story).length)
+              tx.rt.dependencyWaits[e.storyKey] = { stageId: found.story.stage };
+            endClaim(tx, e.storyKey, "released");
+            e.evidence = `cancelled before delivery: ${stale}`;
+            // Ask again with the current settings, behind older work.
+            if (found && found.story.stage === claim.stageId)
+              requestSpawn(tx, e.storyKey, found.boardId, claim.stageId);
+            return null;
+          }
+          // Remote preparation happens on the owning machine through a verified adapter (DEV-11).
+          if (e.machineId !== "local") return { error: `cannot prepare ${e.machineId}: ${REMOTE_UNSUPPORTED}` };
+          if (deliver) {
+            Object.assign(e, { status: "launching", dispatchedAt: now(), updatedAt: now() });
+            delete e.intent;
+          }
+          return e;
         }, false);
-      const key = await eligibleKey();
-      if (!key) return { cancelled: true };
+      const e = await gate(false);
+      if (!e) return { cancelled: true };
+      if ("error" in e) return e;
       try {
-        await service.ensureStoryWorktree(key);
+        await service.ensureStoryWorktree(e.storyKey, e.id);
       } catch (err) {
         return { error: `could not prepare the Story Worktree: ${(err as Error).message}` };
       }
-      return (await eligibleKey()) ? { ok: true } : { cancelled: true };
+      const delivered = await gate(true);
+      if (!delivered) return { cancelled: true };
+      return "error" in delivered ? delivered : { ok: true };
     },
 
-    async ensureStoryWorktree(key: string) {
+    /** Undoes delivery when the command never reached the Supervisor (its long-poll closed). */
+    async undeliver(workerId: string) {
+      return mutate(({ rt }) => {
+        const e = executionOf(rt, workerId);
+        if (e?.status === "launching" && !e.acceptedAt)
+          Object.assign(e, { status: "reserved", updatedAt: now(), evidence: "the long-poll closed before delivery" });
+      }, false);
+    },
+
+    /** Creates or reuses the Story Worktree. Refused while another execution occupies the branch. */
+    async ensureStoryWorktree(key: string, owner?: string) {
       const { board } = locate(key);
+      fence(loadRuntime(root), key, owner);
       const base = await resolveBaseBranch(git, root, resolveSettings(loadProjectConfig(root), board).baseBranch);
       const wt = await ensureWorktree(git, root, key, base);
       await mutate(() => {
@@ -1144,22 +1654,141 @@ export function createService(opts: ServiceOptions) {
 
     removeWorktree,
 
-    /** The Supervisor's `done` (ok) or `fail` for a `worker.spawn`. */
-    async spawnResult(workerId: string, ok: boolean, text?: string) {
+    /**
+     * The Supervisor's `done` (ok: launch accepted, never completion) or `fail`
+     * for a `worker.spawn`. Applies only to the Worker's own launch generation;
+     * it may attach identities after the Claim ended but never restores it.
+     * A failure without structured evidence is definite only before delivery.
+     */
+    async spawnResult(workerId: string, ok: boolean, text?: string, report?: ExecutionReport, duplicate = false) {
       return mutate((tx) => {
         const { rt } = tx;
+        const e = executionOf(rt, workerId);
+        if (!e) return { applied: false, reason: "no such launch" };
+        // A repeated result only contributes structured, generation-checked evidence.
+        if (duplicate) return report ? applyReport(tx, e, report) : { applied: false, reason: "duplicate result" };
+        if (ok && report && report.status === "not-started")
+          throw new SfError("invalid", "a successful launch cannot report not-started; use fail");
         const worker = rt.workers[workerId];
-        const claim = worker && rt.claims[worker.storyKey];
-        if (!worker || !claim || claim.workerId !== workerId) return;
-        if (ok) {
-          Object.assign(claim, { status: "active", lastSeenAt: now() });
-          if (text) worker.threadId = text;
-          return;
+        if (ok && text && worker && !worker.threadId) worker.threadId = text;
+        if (ok && text && !e.label) e.label = text;
+        const failedLive = !ok && claimLive(rt, e);
+        const evidence = report ?? {
+          ...(ok
+            ? { status: "running" as const, evidence: "launch accepted" }
+            : e.status === "reserved"
+              ? { status: "not-started" as const, evidence: text || "spawn failed" }
+              : {
+                  status: "unknown" as const,
+                  evidence: `launch failed without launch evidence: ${text || "spawn failed"}`,
+                }),
+        };
+        const result = applyReport(tx, e, evidence);
+        if (failedLive) {
+          rt.failures[e.storyKey] = { stageId: e.stageId, error: text || "spawn failed", at: now() };
+          endClaim(tx, e.storyKey, "spawn-failed");
+          drainQueue(tx);
         }
-        endClaim(tx, worker.storyKey, "spawn-failed");
-        rt.failures[worker.storyKey] = { stageId: claim.stageId, error: text || "spawn failed", at: now() };
-        drainQueue(tx);
+        return result;
       });
+    },
+
+    /** The Supervisor's answer to an `execution.reconcile` or `execution.cancel`. */
+    async attemptResult(
+      command: ExecutionReconcileCommand | (Omit<ExecutionReconcileCommand, "type"> & { type: "execution.cancel" }),
+      ok: boolean,
+      text?: string,
+      report?: ExecutionReport,
+    ) {
+      return mutate((tx) => {
+        const e = tx.rt.executions[command.execution.id];
+        if (!e) return { applied: false, reason: "no such execution" };
+        if (e.attempt?.id !== command.attemptId) {
+          // A stale answer changes nothing; a mismatched identity is still rejected.
+          if (report) applyReport(tx, e, { ...report, attemptId: command.attemptId });
+          return { applied: false, reason: `attempt ${command.attemptId} is not outstanding` };
+        }
+        if (!ok && !report) {
+          e.evidence = `${e.attempt.kind} failed: ${text || "no reason"}`;
+          completeAttempt(e);
+          return { applied: true };
+        }
+        return applyReport(tx, e, {
+          ...(report ?? { status: "unknown", evidence: text || "no structured status reported" }),
+          attemptId: command.attemptId,
+        });
+      });
+    },
+
+    /** Correlated evidence about an execution, from the Supervisor or an operator through it. */
+    async reportExecution(id: string, report: ExecutionReport) {
+      return mutate((tx) => {
+        const e = tx.rt.executions[id];
+        if (!e) throw new SfError("not_found", `no execution ${id}`);
+        const result = applyReport(tx, e, report);
+        return { ...result, execution: executionView(tx.rt, e) };
+      });
+    },
+
+    /** Asks the Supervisor to look the execution up now. Never relaunches it. */
+    async requestReconcile(id: string) {
+      return requestAttempt(id, "reconcile");
+    },
+
+    /** Asks the Supervisor to stop the execution. Its capacity is freed only on terminal evidence. */
+    async requestCancel(id: string) {
+      return requestAttempt(id, "cancel");
+    },
+
+    /**
+     * Startup recovery: reconnects the outbox with the Supervisor's command
+     * records. Undelivered launches are republished under the same identity;
+     * delivered ones without a result become `unknown`.
+     */
+    async recover() {
+      // Without command records there is nothing to reconnect with.
+      if (!boundary.commandState) return;
+      return mutate(({ rt }) => {
+        for (const e of Object.values(rt.executions)) {
+          if (!occupies(e)) continue;
+          const state = e.commandId ? boundary.commandState?.(e.commandId) : undefined;
+          if (e.status === "reserved" && e.commandId && state !== "pending") delete e.commandId;
+          if (e.status === "launching") {
+            if (e.migrated && state === "pending") Object.assign(e, { status: "reserved", updatedAt: now() });
+            else
+              Object.assign(e, {
+                status: "unknown",
+                updatedAt: now(),
+                evidence: "sf restarted after delivering the launch command and before its result",
+              });
+          }
+          if (e.attempt?.commandId) {
+            const attempt = boundary.commandState?.(e.attempt.commandId);
+            if (attempt !== "pending" && attempt !== "claimed") delete e.attempt;
+          }
+        }
+      }, false);
+    },
+
+    executions(): ExecutionsResponse {
+      loadProjectConfig(root);
+      const rt = loadRuntime(root);
+      return {
+        identity: rt.identity,
+        support: boundary.support(),
+        usage: usageOf(rt),
+        executions: Object.values(rt.executions)
+          .sort((a, b) => Number(occupies(b)) - Number(occupies(a)) || b.createdAt - a.createdAt)
+          .map((e) => executionView(rt, e)),
+      };
+    },
+
+    showExecution(id: string): ExecutionView {
+      loadProjectConfig(root);
+      const rt = loadRuntime(root);
+      const e = rt.executions[id];
+      if (!e) throw new SfError("not_found", `no execution ${id}`);
+      return executionView(rt, e);
     },
 
     snapshot(): ProjectSnapshot | null {

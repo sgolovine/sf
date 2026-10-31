@@ -5,6 +5,7 @@ import type { Service } from "../project/service.ts";
 import type { Store } from "../services/StoreService.ts";
 import { boardsRouter } from "./boards.ts";
 import { commandsRouter } from "./commands.ts";
+import { executionsRouter } from "./executions.ts";
 import { projectRouter } from "./project.ts";
 import { searchRouter } from "./search.ts";
 import { sessionRouter } from "./session.ts";
@@ -30,6 +31,7 @@ export function apiRouter({ store, service, token, onStop }: ApiOptions) {
   router.use("/project", projectRouter(store, service));
   router.use("/boards", boardsRouter(service));
   router.use("/stories", storiesRouter(service));
+  router.use("/executions", executionsRouter(service));
   router.use("/search", searchRouter(service));
 
   router.use((_req, res) => {

@@ -28,7 +28,12 @@ test("search matches titles across Boards, best first, with Board and Stage name
   assert.deepEqual(results.map((r) => r.key).sort(), ["DEV-1", "DEV-3", "WEB-1"]);
   assert.deepEqual(
     results.find((r) => r.key === "WEB-1"),
-    { key: "WEB-1", title: "Search bar", board: { id: "website", name: "Website" }, stage: { id: "todo", name: "TODO" } },
+    {
+      key: "WEB-1",
+      title: "Search bar",
+      board: { id: "website", name: "Website" },
+      stage: { id: "todo", name: "TODO" },
+    },
   );
   // A prefix match ("Search…") outranks a match later in the title ("Story Search").
   assert.ok(results.findIndex((r) => r.key === "WEB-1") < results.findIndex((r) => r.key === "DEV-1"));
