@@ -70,3 +70,10 @@ A file belonging to a Story, stored with display metadata under the Supervisorâ€
 
 **Dependency wait**:
 A Story's built-in `dependsOn` list names prerequisite Story keys in the same Project, across Boards. sf starts no Worker until every key is Done. The current Stage stays unchanged. Workers record a wait and release atomically with `sf story wait`; dependency completion resumes that Stage through the normal capacity queue. HIL is independent and is never automatically cleared. Missing prerequisites remain unresolved; supported deletion rejects referenced Stories.
+
+**Placement policy**:
+Optional Project `scheduling` defines local/remote capacities, stable environment/project mappings,
+and explicit machine order. Built-in Story `placement` inherits, selects local-only, requires a remote,
+or prefers a remote with ordered fallback. DEV-9 persists/validates these and provides a pure selector;
+runtime dispatch still uses local `maxConcurrentWorkers` until DEV-10. Remote launches require DEV-11's
+verified adapter/command channel. See the core spec for schema, precedence and eligibility reasons.
