@@ -527,9 +527,8 @@ export function createService(opts: ServiceOptions) {
 
   function isOutstanding(attempt: ExecutionAttempt) {
     const state = attempt.commandId ? boundary.commandState?.(attempt.commandId) : undefined;
-    return state === undefined
-      ? now() - attempt.requestedAt < ATTEMPT_TIMEOUT_MS
-      : state === "pending" || state === "claimed";
+    if (state === "pending") return true;
+    return (state === "claimed" || state === undefined) && now() - attempt.requestedAt < ATTEMPT_TIMEOUT_MS;
   }
 
   function executionView(rt: RuntimeState, e: Execution): ExecutionView {
@@ -689,7 +688,8 @@ export function createService(opts: ServiceOptions) {
       if (!occupies(e)) continue;
       if (e.attempt) {
         const state = e.attempt.commandId ? boundary.commandState?.(e.attempt.commandId) : "pending";
-        if (state === "pending" || state === "claimed" || now() - e.attempt.requestedAt < ATTEMPT_TIMEOUT_MS) continue;
+        // Only a still-queued command is exempt: a claimed one the Supervisor never answers expires.
+        if (state === "pending" || now() - e.attempt.requestedAt < ATTEMPT_TIMEOUT_MS) continue;
         e.evidence = `${e.attempt.kind} attempt ${e.attempt.id} got no answer`;
         completeAttempt(e);
         outstanding--;

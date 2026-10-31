@@ -390,6 +390,39 @@ test("restart recovery: republish undelivered intents once, never redeliver a de
   assert.equal(runtime(restarted).claims["DEV-3"]?.status, "active");
 });
 
+test("a reconcile attempt the Supervisor claims but never answers expires and is reissued", async () => {
+  const { svc, spawns, of, clock } = await project({ maxConcurrentWorkers: 1, claimTimeoutMinutes: 10 });
+  await svc.createStory("DEV", { title: "One", stage: "todo" }, user);
+  const first = spawns()[0]!;
+  await launch(svc, first);
+  clock.advance(11 * 60_000);
+  await svc.sweep();
+  const lookup = of("execution.reconcile")[0]!;
+  lookup.status = "claimed";
+  // Still within the timeout: neither the sweep nor an operator request adds another attempt.
+  clock.advance(9 * 60_000);
+  await svc.sweep();
+  await svc.requestReconcile(first.execution!.id);
+  assert.equal(of("execution.reconcile").length, 1);
+  // Past the timeout the claimed attempt is given up and a new one is issued after backoff.
+  clock.advance(2 * 60_000);
+  await svc.sweep();
+  assert.match(String(runtime(svc).executions[first.execution!.id]!.evidence), /got no answer/);
+  clock.advance(61_000);
+  await svc.sweep();
+  const lookups = of("execution.reconcile");
+  assert.equal(lookups.length, 2);
+  const again = lookups[1]!.command as Extract<SupervisorCommand, { type: "execution.reconcile" }>;
+  assert.notEqual(again.attemptId, (lookup.command as typeof again).attemptId);
+  // An operator can re-request once that attempt is claimed and unanswered too.
+  lookups[1]!.status = "claimed";
+  clock.advance(11 * 60_000);
+  await svc.requestReconcile(first.execution!.id);
+  assert.equal(of("execution.reconcile").length, 3);
+  assert.equal(runtime(svc).executions[first.execution!.id]!.status, "unknown", "expiry never frees the slot");
+  assert.equal(of("worker.spawn").length, 1);
+});
+
 test("a lost launch response without identity waits for explicit recovery", async () => {
   const { svc, spawns, of, make } = await project();
   await svc.createStory("DEV", { title: "One", stage: "todo" }, user);
