@@ -234,3 +234,45 @@ test("online CLI/API dependencies share validation, atomic wait and independent 
   await run("story", "update", dependent.key, "--depends-on", "");
   assert.ok((await call<StoryDetails>("GET", routes.story(dependent.key))).claim);
 });
+
+test("HTTP forwards placement, validates shared policy and preserves it through reload", async () => {
+  const { scheduling } = await import("./scheduling-fixture.ts");
+  const { sfPaths } = await import("../src/server/project/paths.ts");
+  const file = sfPaths(root).config;
+  const original = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(original), scheduling: scheduling() }));
+  try {
+    await call("POST", routes.boards, { name: "Placement", key: "PLC" });
+    const placement = { mode: "required", machineId: "b" };
+    const created = await call<StoryDetails>("POST", routes.stories, { board: "PLC", title: "Placed", placement });
+    assert.deepEqual(created.placement, placement);
+    await call("PATCH", routes.story(created.key), { title: "Edited", fields: { extra: "kept" } });
+    assert.deepEqual((await call<StoryDetails>("GET", routes.story(created.key))).placement, placement);
+    const preferred = { mode: "preferred", machineId: "a" };
+    assert.deepEqual(
+      (await call<StoryDetails>("PATCH", routes.story(created.key), { placement: preferred })).placement,
+      preferred,
+    );
+    for (const bad of [
+      { mode: "required", machineId: "missing" },
+      { mode: "inherit", machineId: "a" },
+    ]) {
+      await assert.rejects(call("POST", routes.stories, { board: "PLC", title: "Bad", placement: bad }), {
+        code: "invalid",
+      });
+      await assert.rejects(call("PATCH", routes.story(created.key), { placement: bad }), { code: "invalid" });
+    }
+    assert.equal(
+      (await call<StoryDetails>("PATCH", routes.story(created.key), { placement: null })).placement,
+      undefined,
+    );
+    await call("PATCH", routes.story(created.key), { placement });
+    assert.equal(
+      (await call<StoryDetails>("PATCH", routes.story(created.key), { placement: { mode: "inherit" } })).placement,
+      undefined,
+    );
+    await assert.rejects(call("PATCH", routes.story(created.key), { fields: { placement } }), { code: "invalid" });
+  } finally {
+    fs.writeFileSync(file, original);
+  }
+});

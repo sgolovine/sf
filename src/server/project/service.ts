@@ -7,6 +7,7 @@ import type { StoryDetails, UpdateProjectRequest } from "#model/api";
 import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
 import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
 import { modelCatalog, resolveModel } from "#model/models";
+import { type StoryPlacement, validatePlacement } from "#model/placement";
 import type { ProjectSnapshot, StoryView } from "#model/project";
 import type { RuntimeState, WorkerEndReason } from "#model/runtime";
 import { attachmentStore } from "./attachments.ts";
@@ -41,6 +42,7 @@ import {
   parseStoryKey,
   type StoryData,
   serializeStory,
+  validateBuiltinFields,
   validateFields,
 } from "./story.ts";
 import {
@@ -85,6 +87,7 @@ export type ServiceOptions = {
 };
 
 export type StoryInput = AttachmentSubmission & {
+  placement?: StoryPlacement | null;
   dependsOn?: string[];
   model?: string | null;
   title: string;
@@ -93,6 +96,7 @@ export type StoryInput = AttachmentSubmission & {
   body?: string;
 };
 export type StoryPatch = AttachmentSubmission & {
+  placement?: StoryPlacement | null;
   dependsOn?: string[];
   model?: string | null;
   title?: string;
@@ -262,6 +266,7 @@ export function createService(opts: ServiceOptions) {
       stage: story.stage,
       ...(story.branch ? { branch: story.branch } : {}),
       ...(story.model ? { model: story.model } : {}),
+      ...(story.placement ? { placement: story.placement } : {}),
       dependsOn: story.dependsOn ?? [],
       unresolvedDependencies: unresolved(story),
       waitingOnDependencies: unresolved(story).length > 0,
@@ -515,8 +520,7 @@ export function createService(opts: ServiceOptions) {
   }
 
   function cleanFields(fields: Record<string, unknown>) {
-    if (Object.hasOwn(fields, "dependsOn"))
-      throw new SfError("invalid", "dependsOn is a built-in property; use --depends-on");
+    validateBuiltinFields(fields);
     return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== null && v !== undefined));
   }
 
@@ -760,6 +764,7 @@ export function createService(opts: ServiceOptions) {
         requireStage(config, stageId);
         const title = input.title?.trim();
         if (!title) throw new SfError("invalid", "a Story needs a title");
+        const placement = validatePlacement(input.placement, tx.project.scheduling);
         validateModel(input.model);
         checkStoryModel(config, input.model, input.fields);
         const fields = cleanFields(input.fields ?? {});
@@ -775,6 +780,7 @@ export function createService(opts: ServiceOptions) {
           stage: stageId,
           dependsOn,
           ...(input.model ? { model: input.model } : {}),
+          ...(placement ? { placement } : {}),
           fields,
           body: input.body ?? "",
         };
@@ -828,6 +834,9 @@ export function createService(opts: ServiceOptions) {
         const { boardId, board, story } = locate(key);
         const storage = attachmentStore(paths.attachments(boardId, key));
         if (storage.hasSubmission(patch.submissionId)) return details(tx.rt, view(key, boardId, story));
+        const placement =
+          patch.placement === undefined ? story.placement : validatePlacement(patch.placement, tx.project.scheduling);
+        validateBuiltinFields(patch.fields ?? {});
         validateModel(patch.model);
         checkStoryModel(board, patch.model, patch.fields);
         if (patch.model !== undefined && Object.hasOwn(story.fields, "model"))
@@ -835,8 +844,6 @@ export function createService(opts: ServiceOptions) {
             "invalid",
             "existing model metadata conflicts with the built-in model; rename it and its data first",
           );
-        if (patch.fields && Object.hasOwn(patch.fields, "dependsOn"))
-          throw new SfError("invalid", "dependsOn is a built-in property; use --depends-on");
         const fields = { ...story.fields };
         for (const [k, v] of Object.entries(patch.fields ?? {})) {
           if (v === null || v === undefined) delete fields[k];
@@ -846,6 +853,7 @@ export function createService(opts: ServiceOptions) {
         if (patch.title !== undefined && !patch.title.trim()) throw new SfError("invalid", "a Story needs a title");
         const next: StoryData = {
           ...story,
+          placement,
           title: patch.title?.trim() ?? story.title,
           ...(patch.dependsOn !== undefined ? { dependsOn: validateDependencies(key, patch.dependsOn) } : {}),
           ...(patch.model !== undefined ? { model: patch.model || undefined } : {}),

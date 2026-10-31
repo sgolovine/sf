@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import { parse, stringify } from "yaml";
 import type { FieldDef } from "#model/config";
+import { parsePlacement, type StoryPlacement } from "#model/placement";
 import { SfError } from "./errors.ts";
 
 /** A Story file's content. `fields` holds custom values and any keys the schema does not know. */
 export type StoryData = {
   title: string;
   stage: string;
+  placement?: StoryPlacement;
   dependsOn?: string[];
   branch?: string;
   model?: string | null;
@@ -21,8 +23,10 @@ export function parseStory(text: string, legacyModelField = false): StoryData {
   const data = match ? (parse(match[1]!) ?? {}) : {};
   if (typeof data !== "object" || Array.isArray(data))
     throw new SfError("invalid", "Story frontmatter must be a mapping");
-  const { title, stage, branch, dependsOn, ...fields } = data as Record<string, unknown>;
+  const { title, stage, branch, dependsOn, placement, ...fields } = data as Record<string, unknown>;
+  const parsedPlacement = parsePlacement(placement);
   return {
+    ...(parsedPlacement ? { placement: parsedPlacement } : {}),
     ...(dependsOn === undefined ? {} : { dependsOn: dependencyKeys(dependsOn) }),
     title: title == null ? "" : String(title),
     stage: stage == null ? "" : String(stage),
@@ -40,11 +44,14 @@ export function parseStory(text: string, legacyModelField = false): StoryData {
 }
 
 export function serializeStory(story: StoryData): string {
+  validateBuiltinFields(story.fields);
   const front: Record<string, unknown> = { title: story.title, stage: story.stage };
   if (story.dependsOn?.length) front.dependsOn = story.dependsOn;
   if (story.branch) front.branch = story.branch;
   for (const [k, v] of Object.entries(story.fields)) if (v !== undefined) front[k] = v;
   if (story.model) front.model = story.model;
+  const placement = parsePlacement(story.placement);
+  if (placement) front.placement = placement;
   const body = story.body.trim() ? `${story.body.replace(/\s+$/, "")}\n` : "";
   return `---\n${stringify(front).trimEnd()}\n---\n${body}`;
 }
@@ -135,4 +142,15 @@ export function dependencyKeys(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((key) => typeof key !== "string" || !parseStoryKey(key)))
     throw new SfError("invalid", "dependsOn must be a list of Story keys, e.g. [DEV-7]; use [] to clear it");
   return [...new Set(value)];
+}
+
+/** Built-ins must be supplied as properties, never as custom fields. Model retains its legacy migration path. */
+export function validateBuiltinFields(fields: Record<string, unknown>) {
+  for (const key of ["title", "stage", "branch", "dependsOn", "placement"]) {
+    if (Object.hasOwn(fields, key))
+      throw new SfError(
+        "invalid",
+        `${key} is a built-in property; supply it separately and rename any legacy custom field and its data`,
+      );
+  }
 }
