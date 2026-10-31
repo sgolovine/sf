@@ -4,7 +4,9 @@ import type { Attachment } from "#model/attachment";
 import type { ProjectConfig } from "#model/config";
 import { activeHil, type FieldDef } from "#model/config";
 import { modelCatalog, resolveModel } from "#model/models";
+import type { StoryPlacement } from "#model/placement";
 import type { BoardSnapshot, StoryView } from "#model/project";
+import type { Execution } from "#model/runtime";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, sfApi } from "../api/client.ts";
+import { reportedIds } from "../lib/execution.ts";
 import { DependencyPicker } from "./DependencyPicker.tsx";
 import type { Act } from "./ErrorBanner.tsx";
 import { Markdown } from "./Markdown.tsx";
@@ -44,6 +47,8 @@ type Props = {
   /** Every Board in the Project, for cross-Board dependency candidates. */
   boards: BoardSnapshot[];
   story: StoryView | null;
+  /** The Story's occupying execution, if any. */
+  execution?: Execution;
   initialStage?: string;
   act: Act;
   onClose: () => void;
@@ -53,12 +58,22 @@ type Props = {
 const NONE = "__none__";
 
 /** Create or edit a Story. Custom field inputs follow the Board's Story schema. */
-export function StoryEditor({ project, board, boards, story, initialStage = "backlog", act, onClose }: Props) {
+export function StoryEditor({
+  project,
+  board,
+  boards,
+  story,
+  execution,
+  initialStage = "backlog",
+  act,
+  onClose,
+}: Props) {
   const id = useId();
   const [title, setTitle] = useState(story?.title ?? "");
   const [stage, setStage] = useState(story?.stage ?? initialStage);
   const [dependsOn, setDependsOn] = useState<string[]>(story?.dependsOn ?? []);
   const [model, setModel] = useState(story?.model ?? "");
+  const [placement, setPlacement] = useState<StoryPlacement>(story?.placement ?? { mode: "inherit" });
   const legacyModel = board.config.schema.some((f) => f.id === "model");
   useEffect(() => {
     setModel(story?.model ?? "");
@@ -101,6 +116,10 @@ export function StoryEditor({ project, board, boards, story, initialStage = "bac
         stage,
         body,
         dependsOn,
+        // Unchanged placement is omitted so a Story with an unresolved target stays editable.
+        ...(samePlacement(placement, story?.placement)
+          ? {}
+          : { placement: placement.mode === "inherit" ? null : placement }),
         fields: values,
         ...(!legacyModel ? { model: model || null } : {}),
         attachments: await encodeAttachments(pending),
@@ -230,6 +249,15 @@ export function StoryEditor({ project, board, boards, story, initialStage = "bac
                       Stories in this Project. Workers wait until all are Done.
                     </p>
                   </div>
+                  <PlacementInput id={`${id}-placement`} project={project} value={placement} onChange={setPlacement} />
+                  {execution && execution.machineId !== "local" && (
+                    <p className="text-sm">
+                      Requested: {machineName(project, execution.machineId)} ({execution.status})
+                      {reportedIds(execution) && (
+                        <span className="text-muted-foreground"> · Supervisor reported {reportedIds(execution)}</span>
+                      )}
+                    </p>
+                  )}
                   <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor={`${id}-body`}>Description</Label>
@@ -354,6 +382,99 @@ export function StoryEditor({ project, board, boards, story, initialStage = "bac
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const PLACEMENT_LABELS = {
+  inherit: "Inherit the Project's machine order",
+  "local-only": "Local only",
+  required: "Required machine",
+  preferred: "Preferred machine",
+} as const;
+
+function samePlacement(a: StoryPlacement, b: StoryPlacement | undefined) {
+  return JSON.stringify(a) === JSON.stringify(b ?? { mode: "inherit" });
+}
+
+function machineName(project: ProjectConfig, machineId: string) {
+  const remote = project.scheduling?.remotes.find((r) => r.id === machineId);
+  return remote ? `${remote.name} (${remote.id})` : machineId;
+}
+
+/** Built-in Story placement. Required/preferred need a configured remote; stale targets stay visible to clear. */
+function PlacementInput({
+  id,
+  project,
+  value,
+  onChange,
+}: {
+  id: string;
+  project: ProjectConfig;
+  value: StoryPlacement;
+  onChange: (placement: StoryPlacement) => void;
+}) {
+  const remotes = project.scheduling?.remotes ?? [];
+  const target = "machineId" in value ? value.machineId : undefined;
+  const unresolved = target !== undefined && !remotes.some((r) => r.id === target);
+  const modes = (["inherit", "local-only", "required", "preferred"] as const).filter(
+    (m) => m === "inherit" || m === "local-only" || remotes.length > 0 || m === value.mode,
+  );
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>Placement</Label>
+      <div className="flex flex-wrap gap-2">
+        <Select
+          value={value.mode}
+          onValueChange={(mode) =>
+            onChange(
+              mode === "required" || mode === "preferred"
+                ? { mode, machineId: target ?? remotes[0]?.id ?? "" }
+                : { mode: mode as "inherit" | "local-only" },
+            )
+          }
+        >
+          <SelectTrigger id={id} className="min-w-48 flex-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {modes.map((m) => (
+              <SelectItem key={m} value={m}>
+                {PLACEMENT_LABELS[m]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {target !== undefined && (
+          <Select
+            value={target}
+            onValueChange={(machineId) => onChange({ mode: value.mode as "required" | "preferred", machineId })}
+          >
+            <SelectTrigger aria-label="Placement machine" className="min-w-48 flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {unresolved && <SelectItem value={target}>{target} (unresolved)</SelectItem>}
+              {remotes.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.name} ({r.id}){r.enabled ? "" : " (disabled)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {unresolved
+          ? `Machine ${target} is no longer configured. Choose another machine or another placement.`
+          : value.mode === "required"
+            ? "Workers wait for this machine; they never start elsewhere."
+            : value.mode === "preferred"
+              ? "Workers try this machine first, then the Project's machine order."
+              : project.scheduling
+                ? "Where sf asks the Supervisor to start this Story's Workers."
+                : "Configure per-machine scheduling in Project settings to choose remote machines."}
+      </p>
+    </div>
   );
 }
 

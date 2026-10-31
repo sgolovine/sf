@@ -5,6 +5,7 @@ import type { RuntimeState } from "#model/runtime";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { sfApi } from "../api/client.ts";
+import { reportedIds } from "../lib/execution.ts";
 import type { Act } from "./ErrorBanner.tsx";
 
 type Props = { story: StoryView; board: BoardConfig; runtime: RuntimeState; act: Act; onOpen: () => void };
@@ -52,6 +53,12 @@ export function StoryCard({ story, board, runtime, act, onOpen }: Props) {
           <Button size="xs" variant="outline" onClick={() => act(() => sfApi.forceRelease(story.key))}>
             Force release
           </Button>
+        </Status>
+      )}
+      {busy && busy.machineId !== "local" && (
+        <Status className="bg-muted text-muted-foreground">
+          Requested: {busy.machineId}
+          {(busy.taskId || busy.threadId) && ` · reported ${reportedIds(busy)}`}
         </Status>
       )}
       {windingDown && (

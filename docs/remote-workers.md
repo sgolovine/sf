@@ -36,6 +36,18 @@ existing `sf done`/`sf fail`/`sf execution report` results. The reservation stay
 even if the harness used a permitted local fallback; the Supervisor says where the Worker started
 in its result or evidence text.
 
+### Controls and verification (DEV-12, 2026-10-31)
+
+Users configure machines with `sf project set --scheduling-file` or Project settings → Scheduling,
+and set Story placement with `--placement`/`--machine` or the Story editor. sf rejects changes that
+would orphan a Story's target or remap a machine an execution occupies; disabling is always allowed.
+Status shows per-machine used/max and, for each Story, the machine sf **requested**, with any
+Supervisor-reported task/thread IDs as text. sf never presents a remote ID as a link. Setup and
+semantics are in the [README](../README.md#machine-scheduling) and the
+[core spec](specs/01-core-function.md#editing-scheduling-dev-12). The
+[verification record](verification/machine-scheduling.md) replaces the DEV-12 checklist below: it
+marks each original criterion pass, unrun or retired by this boundary.
+
 ## Historical: DEV-7 compatibility and preflight (2026-10-29)
 
 The rest of this document is the DEV-7 report. It records what the installed T3 integration

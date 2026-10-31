@@ -4,18 +4,35 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import fuzzysort from "fuzzysort";
-import type { ExecutionsResponse, ExecutionView, SearchResponse, StoryDetails, UpdateProjectRequest } from "#model/api";
+import type {
+  ExecutionsResponse,
+  ExecutionView,
+  ProjectSettingsResponse,
+  SearchResponse,
+  StoryDetails,
+  UpdateProjectRequest,
+} from "#model/api";
 import type { AttachmentInput, AttachmentSubmission } from "#model/attachment";
 import type { CommandStatus, ExecutionReconcileCommand, SupervisorCommand, WorkerSpawnCommand } from "#model/commands";
-import { activeHil, type BoardConfig, type BoardOverrides, type FieldDef, type ProjectConfig } from "#model/config";
+import {
+  activeHil,
+  type BoardConfig,
+  type BoardOverrides,
+  type FieldDef,
+  type ProjectConfig,
+  type SchedulingConfig,
+} from "#model/config";
 import { type AdapterSupport, type ExecutionReport, supportFor } from "#model/execution";
 import { modelCatalog, resolveModel } from "#model/models";
 import {
+  machineUsage,
   normalizePlacementPolicy,
   type StoryPlacement,
   selectPlacement,
   type TargetEligibility,
+  validateCapacity,
   validatePlacement,
+  validateScheduling,
 } from "#model/placement";
 import type { ProjectSnapshot, StoryView } from "#model/project";
 import {
@@ -765,6 +782,39 @@ export function createService(opts: ServiceOptions) {
     return evidence;
   }
 
+  /**
+   * Rejects scheduling edits that would orphan a Story's remote target or change the identity of a
+   * remote an occupying execution holds. Renames, capacity, enable/disable and order are allowed.
+   */
+  function checkSchedulingReferences(tx: Tx, prev: SchedulingConfig | undefined, next: SchedulingConfig | undefined) {
+    const problems: string[] = [];
+    for (const remote of prev?.remotes ?? []) {
+      const kept = next?.remotes.find((r) => r.id === remote.id);
+      if (!kept)
+        for (const story of allStories())
+          if (story.placement && "machineId" in story.placement && story.placement.machineId === remote.id)
+            problems.push(
+              `${story.key} has ${story.placement.mode} placement on ${remote.id}; change or clear its placement, or disable ${remote.id} instead of removing it`,
+            );
+      const moved =
+        !kept ||
+        kept.environmentId !== remote.environmentId ||
+        kept.project.projectId !== remote.project.projectId ||
+        kept.project.repository !== remote.project.repository;
+      if (moved)
+        for (const e of Object.values(tx.rt.executions))
+          if (occupies(e) && e.machineId === remote.id)
+            problems.push(
+              `execution ${e.id} (${e.storyKey}, ${e.status}) occupies ${remote.id}; ${kept ? "keep its environment, project and repository" : "keep the remote"} until the execution ends or is reconciled with \`sf execution\``,
+            );
+    }
+    if (problems.length)
+      throw new SfError(
+        "invalid",
+        `scheduling: referenced machine identities cannot change:\n- ${problems.join("\n- ")}`,
+      );
+  }
+
   function identityFor(tx: Tx, machineId: string) {
     const remote = tx.project.scheduling?.remotes.find((r) => r.id === machineId);
     return remote ? { environmentId: remote.environmentId, projectId: remote.project.projectId } : tx.rt.identity;
@@ -1048,17 +1098,19 @@ export function createService(opts: ServiceOptions) {
       return loadProjectConfig(root);
     },
 
-    showProject() {
+    showProject(): ProjectSettingsResponse {
       const config = loadProjectConfig(root);
       return {
         config,
         effectiveModel: resolveModel(config),
         modelOptions: modelCatalog(config, undefined, [config.worker.model]),
+        policy: normalizePlacementPolicy(config),
+        machines: machineUsage(config, Object.values(loadRuntime(root).executions)),
       };
     },
 
     async updateProject(patch: UpdateProjectRequest) {
-      return mutate(() => {
+      await mutate((tx) => {
         const config = loadProjectConfig(root);
         if (patch.model !== undefined) {
           validateModel(patch.model);
@@ -1067,9 +1119,22 @@ export function createService(opts: ServiceOptions) {
         if (patch.modelOptions !== undefined) config.modelOptions = normalizeModelOptions(patch.modelOptions);
         if (patch.addModelOptions !== undefined)
           config.modelOptions = mergeOptions(config.modelOptions, patch.addModelOptions);
+        if (patch.maxConcurrentWorkers !== undefined) {
+          validateCapacity(patch.maxConcurrentWorkers, "maxConcurrentWorkers");
+          config.maxConcurrentWorkers = patch.maxConcurrentWorkers;
+        }
+        if (patch.scheduling !== undefined) {
+          if (patch.scheduling !== null) validateScheduling(patch.scheduling);
+          checkSchedulingReferences(tx, config.scheduling, patch.scheduling ?? undefined);
+          if (patch.scheduling === null) delete config.scheduling;
+          else config.scheduling = patch.scheduling;
+        }
         writeJson(paths.config, config);
-        return service.showProject();
+        // The closing drain reserves against the new policy: a raised cap launches queued work.
+        tx.project = config;
       });
+      // Read after the save so usage includes what the closing drain reserved.
+      return service.showProject();
     },
 
     hasProject() {

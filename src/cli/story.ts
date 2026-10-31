@@ -12,8 +12,9 @@ import {
   type WorktreeResponse,
 } from "#model/api";
 import { ATTACHMENT_LIMIT, type Attachment } from "#model/attachment";
-import type { ProjectConfig, StageConfig } from "#model/config";
+import type { ProjectConfig, SchedulingConfig, StageConfig } from "#model/config";
 import { modelDescription, type ResolvedModel } from "#model/models";
+import type { StoryPlacement } from "#model/placement";
 import type { ProjectSnapshot } from "#model/project";
 import { SfError } from "../server/project/errors.ts";
 import { type Actor, createService } from "../server/project/service.ts";
@@ -27,6 +28,7 @@ export const PROJECT_COMMANDS = new Set(["init", "project", "board", "stage", "s
 export const PROJECT_HELP = `Project commands (all accept --project <dir>, --json; Workers add --worker <id>):
   sf init
   sf project show | set [--model <slug>] [--model-option <slug>]...
+               [--max-workers <n>] [--scheduling-file <json-path>]  (file: a whole scheduling object, or null)
   sf board list | create <name> --key <KEY> | show <board>
   sf board set <board> [--model <slug>] [--model-option <slug>]...
   sf stage add <board> <name> [--after <stage-id>]
@@ -36,10 +38,12 @@ export const PROJECT_HELP = `Project commands (all accept --project <dir>, --jso
   sf stage reorder <board> <stage-id> --index <n>
   sf stage remove <board> <stage-id>
   sf story create <board> --title "<t>" [--stage <id>] [--model <slug>] [--depends-on <KEY,KEY>] [--field k=v]... [--body "<md>" | --body-file <p>]
+               [--placement inherit|local-only|required|preferred [--machine <remote-id>]]
   sf story list [<board>] [--stage <id>]
   sf story show <KEY>
   sf story move <KEY> <stage-id>
   sf story update <KEY> [--title "<t>"] [--model <slug>] [--depends-on <KEY,KEY>] [--field k=v]... [--body "<md>" | --body-file <p>]
+               [--placement inherit|local-only|required|preferred [--machine <remote-id>]]  (inherit clears)
   sf story attachment add <KEY> <path>  (regular file, up to 20 MiB)
   sf story attachment list <KEY>
   sf story attachment get <KEY> <attachment-id> --output <path>  (never overwrites)
@@ -78,13 +82,14 @@ export async function runProjectCommand(
 
     case "project": {
       if (sub !== "show" && sub !== "set") throw new SfError("invalid", "usage: sf project show|set");
+      const patch = sub === "set" ? { ...modelPatch(flags), ...schedulingPatch(flags) } : undefined;
       const result = await call<ProjectSettingsResponse>(
         sub === "set" ? "PATCH" : "GET",
         routes.projectSettings,
-        sub === "set" ? modelPatch(flags) : undefined,
-        () => (sub === "set" ? svc.updateProject(modelPatch(flags)) : svc.showProject()),
+        patch,
+        () => (patch ? svc.updateProject(patch) : svc.showProject()),
       );
-      return out(result, () => `Project model: ${modelDescription(result.effectiveModel)}`);
+      return out(result, () => formatProject(result));
     }
 
     case "board": {
@@ -244,6 +249,7 @@ export async function runProjectCommand(
           title: need(str(flags.title), 'story create <board> --title "<t>"'),
           ...(str(flags.stage) ? { stage: str(flags.stage) } : {}),
           ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
+          ...placementPatch(flags),
           fields: parseFields(schema, flags.field),
           ...readBody(flags),
           ...(workerId ? { worker: workerId } : {}),
@@ -270,6 +276,7 @@ export async function runProjectCommand(
         const patch = {
           ...dependencyPatch(flags),
           ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
+          ...placementPatch(flags),
           ...(str(flags.title) !== undefined ? { title: str(flags.title) } : {}),
           ...(flags.field ? { fields: parseFields(svc.showBoard(boardKey).config.schema, flags.field) } : {}),
           ...readBody(flags),
@@ -369,6 +376,27 @@ function formatBoard({ id, config, prompts, effectiveModel }: BoardResponse) {
   return lines.join("\n");
 }
 
+function formatProject({ config, effectiveModel, policy, machines }: ProjectSettingsResponse) {
+  const lines = [`Project model: ${modelDescription(effectiveModel)}`];
+  const used = (id: string) => machines.find((m) => m.id === id)?.used ?? 0;
+  if (!config.scheduling) {
+    lines.push(`Scheduling: legacy, ${used("local")}/${config.maxConcurrentWorkers} Workers on local`);
+  } else {
+    lines.push(
+      "Scheduling: per-machine capacities (maxConcurrentWorkers is ignored)",
+      `  local  cap ${config.scheduling.local.capacity}  used ${used("local")}`,
+    );
+    for (const r of config.scheduling.remotes)
+      lines.push(
+        `  ${r.id}  "${r.name}"  environment ${r.environmentId}  project ${r.project.projectId}  ${r.project.repository}` +
+          `  ${r.enabled ? "enabled" : "disabled"}  cap ${r.capacity}  used ${used(r.id)}`,
+      );
+    lines.push(`Order: ${policy.order.join(", ") || "(empty: Stories without a placement wait)"}`);
+  }
+  for (const m of machines) if (!m.configured) lines.push(`  ${m.id}  not configured  used ${m.used}`);
+  return lines.join("\n");
+}
+
 function statusText(s: StoryDetails) {
   return [
     s.claim && ` Claimed by Worker ${s.claim.workerId} (${s.claim.status}).`,
@@ -384,6 +412,7 @@ function statusText(s: StoryDetails) {
 function formatStoryLine(s: StoryDetails) {
   const tags = [
     s.claim && `claimed by ${s.claim.workerId} (${s.claim.status})`,
+    s.execution && `requested ${s.execution.machineId}`,
     s.queued && "waiting for Worker capacity",
     s.waitingOnDependencies && `dependencies: ${s.unresolvedDependencies?.join(", ")}`,
     s.failure && `failed: ${s.failure.error}`,
@@ -397,7 +426,17 @@ function formatStory(s: StoryDetails) {
   const lines = [`${s.key}: ${s.title}`, `stage: ${s.stage}`];
   if (s.effectiveModel) lines.push(`model: ${modelDescription(s.effectiveModel)}${s.model ? "" : " (inherited)"}`);
   if (s.dependsOn?.length) lines.push(`dependsOn: ${s.dependsOn.join(", ")}`);
+  if (s.placement)
+    lines.push(`placement: ${s.placement.mode}${"machineId" in s.placement ? ` ${s.placement.machineId}` : ""}`);
   if (s.branch) lines.push(`branch: ${s.branch}`);
+  const e = s.execution;
+  if (e) {
+    const reported = [e.taskId && `task ${e.taskId}`, e.threadId && `thread ${e.threadId}`].filter(Boolean);
+    lines.push(
+      `execution: ${e.id} requested machine ${e.machineId}, ${e.status}` +
+        (reported.length ? `; Supervisor reported ${reported.join(", ")}` : ""),
+    );
+  }
   for (const [k, v] of Object.entries(s.fields)) lines.push(`${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`);
   const status = statusText(s).trim();
   if (status) lines.push(status);
@@ -441,6 +480,57 @@ function modelPatch(flags: Flags) {
     ...(flags.model !== undefined ? { model: str(flags.model) || null } : {}),
     ...(list.length ? { addModelOptions: list.map((slug) => ({ slug, label: slug })) } : {}),
   };
+}
+
+const PLACEMENT_MODES = ["inherit", "local-only", "required", "preferred"];
+
+/** `--placement` and `--machine` as a Story placement patch; inherit sends null, which clears it. */
+function placementPatch(flags: Flags): { placement?: StoryPlacement | null } {
+  const mode = flags.placement;
+  const machine = flags.machine;
+  if (mode === undefined) {
+    if (machine !== undefined) throw new SfError("invalid", "--machine needs --placement required|preferred");
+    return {};
+  }
+  if (typeof mode !== "string" || !PLACEMENT_MODES.includes(mode))
+    throw new SfError("invalid", `--placement must be one of ${PLACEMENT_MODES.join(", ")}`);
+  if (mode === "required" || mode === "preferred") {
+    if (typeof machine !== "string" || !machine)
+      throw new SfError("invalid", `--placement ${mode} needs --machine <remote-id>`);
+    return { placement: { mode, machineId: machine } };
+  }
+  if (machine !== undefined) throw new SfError("invalid", `--placement ${mode} takes no --machine; remove it`);
+  return { placement: mode === "inherit" ? null : { mode: "local-only" } };
+}
+
+/** `--max-workers` and `--scheduling-file`; the service validates the values. */
+function schedulingPatch(flags: Flags): { maxConcurrentWorkers?: number; scheduling?: SchedulingConfig | null } {
+  const patch: { maxConcurrentWorkers?: number; scheduling?: SchedulingConfig | null } = {};
+  const max = flags["max-workers"];
+  if (max !== undefined) {
+    if (typeof max !== "string" || !/^\d+$/.test(max))
+      throw new SfError("invalid", "--max-workers needs a nonnegative integer");
+    patch.maxConcurrentWorkers = Number(max);
+  }
+  const file = flags["scheduling-file"];
+  if (file !== undefined) {
+    if (typeof file !== "string" || !file) throw new SfError("invalid", "--scheduling-file needs a JSON file path");
+    let text: string;
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch (err) {
+      throw new SfError("invalid", `--scheduling-file ${file}: ${(err as Error).message}`);
+    }
+    try {
+      patch.scheduling = JSON.parse(text);
+    } catch (err) {
+      throw new SfError(
+        "invalid",
+        `--scheduling-file ${file}: not valid JSON (${(err as Error).message}); it must hold a whole scheduling object or null`,
+      );
+    }
+  }
+  return patch;
 }
 
 function dependencyPatch(flags: Flags): { dependsOn?: string[] } {
