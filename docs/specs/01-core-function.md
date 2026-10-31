@@ -103,6 +103,10 @@ The data root for sf: the `.sf` directory.
 
 ### Board
 
+New Board opens a shared modal dialog over the current Board or settings screen. Name and Key are required; Key is uppercased as typed. Cancel, Close, Escape, and outside click discard the form and restore focus to the opening control. A pending creation prevents duplicate submission and dismissal; failures appear inside the dialog and retain the inputs for retry. Success selects the new Board through the live session refresh.
+
+Projects without Boards initially open this same dismissible dialog. Dismissal leaves an empty state with a New Board action; session refreshes do not reopen it. First Board creation initializes the Project through the existing API and uses the default Stages below. The dialog traps focus, starts on Name, and scrolls within short viewports.
+
 Work in sf is split into Boards.
 
 - Boards live within a Project.

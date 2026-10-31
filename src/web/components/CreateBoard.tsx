@@ -1,71 +1,109 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sfApi } from "../api/client.ts";
-import type { Act } from "./ErrorBanner.tsx";
 
 /** Creates a Board (and the Project, if needed) with the default Stages. */
 export function CreateBoard({
-  act,
   onCreated,
-  onCancel,
+  onClose,
+  onRestoreFocus,
 }: {
-  act: Act;
   onCreated: (id: string) => void;
-  onCancel?: () => void;
+  onClose: () => void;
+  onRestoreFocus: () => void;
 }) {
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pending = useRef(false);
+  const nameInput = useRef<HTMLInputElement>(null);
   return (
-    <div className="p-6">
-      <Card className="mx-auto max-w-md">
+    <Dialog open onOpenChange={(open) => !open && !pending.current && onClose()}>
+      <DialogContent
+        className="max-h-[90svh] overflow-y-auto sm:max-w-md"
+        showCloseButton={!submitting}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          nameInput.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          onRestoreFocus();
+        }}
+        onEscapeKeyDown={(event) => pending.current && event.preventDefault()}
+        onInteractOutside={(event) => pending.current && event.preventDefault()}
+      >
         <form
-          className="contents"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            let id = "";
-            if (await act(async () => (id = (await sfApi.createBoard(name, key)).id))) onCreated(id);
+          className="grid gap-4"
+          aria-busy={submitting}
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (pending.current || !name.trim() || !key.trim()) return;
+            pending.current = true;
+            setSubmitting(true);
+            setError(null);
+            try {
+              const board = await sfApi.createBoard(name, key);
+              onCreated(board.id);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            } finally {
+              pending.current = false;
+              setSubmitting(false);
+            }
           }}
         >
-          <CardHeader>
-            <CardTitle>Create a Board</CardTitle>
-            <CardDescription>It starts with Backlog, TODO, In Progress, In Review, and Done.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="board-name">Name</Label>
-              <Input
-                id="board-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Development"
-                autoFocus
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="board-key">Key</Label>
-              <Input
-                id="board-key"
-                value={key}
-                onChange={(e) => setKey(e.target.value.toUpperCase())}
-                placeholder="DEV"
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="justify-end gap-2">
-            {onCancel && (
-              <Button type="button" variant="outline" onClick={onCancel}>
-                Cancel
-              </Button>
-            )}
-            <Button type="submit" disabled={!name.trim() || !key.trim()}>
-              Create Board
+          <DialogHeader>
+            <DialogTitle>Create a Board</DialogTitle>
+            <DialogDescription>It starts with Backlog, TODO, In Progress, In Review, and Done.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="board-name">Name</Label>
+            <Input
+              ref={nameInput}
+              id="board-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Development"
+              disabled={submitting}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="board-key">Key</Label>
+            <Input
+              id="board-key"
+              value={key}
+              onChange={(event) => setKey(event.target.value.toUpperCase())}
+              placeholder="DEV"
+              disabled={submitting}
+            />
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+              Cancel
             </Button>
-          </CardFooter>
+            <Button type="submit" disabled={submitting || !name.trim() || !key.trim()}>
+              {submitting ? "Creating…" : "Create Board"}
+            </Button>
+          </DialogFooter>
         </form>
-      </Card>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -234,3 +234,35 @@ test("online CLI/API dependencies share validation, atomic wait and independent 
   await run("story", "update", dependent.key, "--depends-on", "");
   assert.ok((await call<StoryDetails>("GET", routes.story(dependent.key))).claim);
 });
+
+test("Board creation initializes an empty Project and duplicate failures allow retry", async () => {
+  const boardRoot = tempRepo();
+  const boardStore = StoreService.create(boardRoot, null);
+  const boardService = OnlineService.create(boardStore, { root: boardRoot, sf: "sf" });
+  const boardHttp = await listen(
+    createApp({ store: boardStore, service: boardService, token: "t", uiDir: null, onStop: () => {} }),
+    0,
+  );
+  try {
+    const address = boardHttp.address();
+    assert.ok(address && typeof address === "object");
+    const server = { port: address.port, token: "t", pid: 0 };
+    const create = (name: string, key: string) => ClientService.api(server, "POST", routes.boards, { name, key });
+    assert.equal(boardStore.state.project, null);
+    await create("First", "ONE");
+    assert.deepEqual(
+      boardStore.state.project!.boards[0]!.config.stages.map((stage) => stage.id),
+      ["backlog", "todo", "in_progress", "in_review", "done"],
+    );
+    await assert.rejects(create("First", "TWO"), /already exists/);
+    await assert.rejects(create("Second", "ONE"), /already used/);
+    assert.equal(boardStore.state.project!.boards.length, 1);
+    await create("Second", "TWO");
+    assert.deepEqual(
+      boardStore.state.project!.boards.map((board) => board.config.key),
+      ["ONE", "TWO"],
+    );
+  } finally {
+    boardHttp.close();
+  }
+});
