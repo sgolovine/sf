@@ -12,6 +12,8 @@ export type FileChange = {
 export type SessionState = {
   /** Project root (the directory holding `.sf`). */
   root: string;
+  /** Running sf version from `package.json`; not persisted to the session file. */
+  version: string;
   startedAt: number;
   supervisor: SupervisorInfo;
   commands: CommandRecord[];

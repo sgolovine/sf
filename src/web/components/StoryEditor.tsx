@@ -124,175 +124,177 @@ export function StoryEditor({ project, board, boards, story, initialStage = "bac
 
   return (
     <Dialog open onOpenChange={(open) => !open && !submitting && !deleting && onClose()}>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="flex max-h-[90svh] flex-col overflow-hidden sm:max-w-xl">
         <form
-          className="flex flex-col gap-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             void save();
           }}
         >
-          <fieldset disabled={submitting || deleting || retryOnly} className="contents">
-            <DialogHeader>
-              <DialogTitle>{story ? story.key : `New Story on ${board.config.name}`}</DialogTitle>
-              <DialogDescription>
-                {story
-                  ? `Stage: ${board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}${story.branch ? ` · branch ${story.branch}` : ""}`
-                  : "Describe the work; custom fields follow the Board's settings."}
-              </DialogDescription>
-            </DialogHeader>
-            {story?.waitingOnDependencies && (
-              <p className="rounded-md border bg-muted px-3 py-2 text-sm">
-                Waiting on dependencies: {story.unresolvedDependencies?.join(", ")}. This Stage resumes when all are
-                Done and other holds are cleared.
-              </p>
-            )}
-            {hil && (
-              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                <p className="font-semibold">Needs a human</p>
-                {hil.comment && <p className="whitespace-pre-wrap">{hil.comment}</p>}
-                <p className="mt-1 text-xs">
-                  No Worker runs while {schema.find((f) => f.id === hil.flag)?.name ?? hil.flag} is checked. Uncheck it
-                  and save to resume when dependencies are Done.
+          <DialogHeader className="pr-6">
+            <DialogTitle>{story ? story.key : `New Story on ${board.config.name}`}</DialogTitle>
+            <DialogDescription>
+              {story
+                ? `Stage: ${board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}${story.branch ? ` · branch ${story.branch}` : ""}`
+                : "Describe the work; custom fields follow the Board's settings."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="-m-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-1">
+            <fieldset disabled={submitting || deleting || retryOnly} className="contents">
+              {story?.waitingOnDependencies && (
+                <p className="rounded-md border bg-muted px-3 py-2 text-sm">
+                  Waiting on dependencies: {story.unresolvedDependencies?.join(", ")}. This Stage resumes when all are
+                  Done and other holds are cleared.
                 </p>
-              </div>
-            )}
-            {legacyModel && (
-              <p role="alert">
-                Legacy custom field “model” conflicts with the built-in model. Rename the field and its data before
-                selecting a Worker model.
-              </p>
-            )}
-            <ModelSelector
-              disabled={legacyModel}
-              value={model}
-              onChange={setModel}
-              options={modelCatalog(project, board.config)}
-              effective={resolveModel(
-                project,
-                board.config,
-                board.config.stages.find((s) => s.id === (story?.stage ?? stage)),
-                { model },
               )}
-              defaultLabel="Inherit from Stage / Board / Project"
-            />
-            <Tabs defaultValue="details" className="min-w-0 gap-4">
-              <TabsList aria-label="Story sections">
-                <TabsTrigger type="button" value="details">
-                  Details
-                </TabsTrigger>
-                <TabsTrigger type="button" value="fields">
-                  Custom Fields
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="details" className="min-w-0 space-y-4">
-                <div className="grid gap-2">
-                  <Label htmlFor={`${id}-title`}>Title</Label>
-                  <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-                </div>
-                {story ? (
-                  <div className="grid gap-2">
-                    <span className="text-sm font-medium">Stage</span>
-                    <p className="text-sm">
-                      {board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-2">
-                    <Label htmlFor={`${id}-stage`}>Stage</Label>
-                    <Select value={stage} onValueChange={setStage}>
-                      <SelectTrigger id={`${id}-stage`} className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {board.config.stages.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div className="grid gap-2">
-                  <Label htmlFor={`${id}-dependencies`}>Depends on</Label>
-                  <DependencyPicker
-                    id={`${id}-dependencies`}
-                    value={dependsOn}
-                    onChange={setDependsOn}
-                    boards={boards}
-                    boardId={board.id}
-                    selfKey={story?.key}
-                    disabled={submitting || deleting || retryOnly}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Stories in this Project. Workers wait until all are Done.
+              {hil && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <p className="font-semibold">Needs a human</p>
+                  {hil.comment && <p className="whitespace-pre-wrap">{hil.comment}</p>}
+                  <p className="mt-1 text-xs">
+                    No Worker runs while {schema.find((f) => f.id === hil.flag)?.name ?? hil.flag} is checked. Uncheck
+                    it and save to resume when dependencies are Done.
                   </p>
                 </div>
-                <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor={`${id}-body`}>Description</Label>
-                    <TabsList aria-label="Description mode">
-                      <TabsTrigger type="button" value="write">
-                        Write
-                      </TabsTrigger>
-                      <TabsTrigger type="button" value="preview">
-                        Preview
-                      </TabsTrigger>
-                    </TabsList>
-                  </div>
-                  <TabsContent value="write">
-                    <Textarea
-                      id={`${id}-body`}
-                      value={body}
-                      onChange={(e) => setBody(e.target.value)}
-                      rows={8}
-                      className="min-h-40 font-mono"
-                      placeholder="Markdown supported"
-                    />
-                  </TabsContent>
-                  <TabsContent value="preview">
-                    {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
-                    <div
-                      className="min-h-40 cursor-text rounded-md border px-3 py-2"
-                      onDoubleClick={() => setBodyTab("write")}
-                      title="Double-click to edit"
-                    >
-                      {body.trim() ? (
-                        <Markdown>{body}</Markdown>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">Nothing to preview.</p>
-                      )}
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </TabsContent>
-              <TabsContent value="fields" className="min-w-0 space-y-4">
-                {schema.length ? (
-                  schema.map((f) => (
-                    <FieldInput
-                      key={f.id}
-                      id={`${id}-field-${f.id}`}
-                      field={f}
-                      value={fields[f.id]}
-                      onChange={(v) => setFields({ ...fields, [f.id]: v })}
-                    />
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">No custom fields.</p>
+              )}
+              {legacyModel && (
+                <p role="alert">
+                  Legacy custom field “model” conflicts with the built-in model. Rename the field and its data before
+                  selecting a Worker model.
+                </p>
+              )}
+              <ModelSelector
+                disabled={legacyModel}
+                value={model}
+                onChange={setModel}
+                options={modelCatalog(project, board.config)}
+                effective={resolveModel(
+                  project,
+                  board.config,
+                  board.config.stages.find((s) => s.id === (story?.stage ?? stage)),
+                  { model },
                 )}
-              </TabsContent>
-            </Tabs>
-            <StoryAttachments
-              storyKey={story?.key}
-              persisted={persisted}
-              pending={pending}
-              setPending={setPending}
-              error={error}
-              setError={setError}
-              disabled={submitting || deleting || retryOnly}
-            />
-          </fieldset>
+                defaultLabel="Inherit from Stage / Board / Project"
+              />
+              <Tabs defaultValue="details" className="min-w-0 gap-4">
+                <TabsList aria-label="Story sections">
+                  <TabsTrigger type="button" value="details">
+                    Details
+                  </TabsTrigger>
+                  <TabsTrigger type="button" value="fields">
+                    Custom Fields
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="details" className="min-w-0 space-y-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor={`${id}-title`}>Title</Label>
+                    <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+                  </div>
+                  {story ? (
+                    <div className="grid gap-2">
+                      <span className="text-sm font-medium">Stage</span>
+                      <p className="text-sm">
+                        {board.config.stages.find((s) => s.id === story.stage)?.name ?? story.stage}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      <Label htmlFor={`${id}-stage`}>Stage</Label>
+                      <Select value={stage} onValueChange={setStage}>
+                        <SelectTrigger id={`${id}-stage`} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {board.config.stages.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="grid gap-2">
+                    <Label htmlFor={`${id}-dependencies`}>Depends on</Label>
+                    <DependencyPicker
+                      id={`${id}-dependencies`}
+                      value={dependsOn}
+                      onChange={setDependsOn}
+                      boards={boards}
+                      boardId={board.id}
+                      selfKey={story?.key}
+                      disabled={submitting || deleting || retryOnly}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Stories in this Project. Workers wait until all are Done.
+                    </p>
+                  </div>
+                  <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor={`${id}-body`}>Description</Label>
+                      <TabsList aria-label="Description mode">
+                        <TabsTrigger type="button" value="write">
+                          Write
+                        </TabsTrigger>
+                        <TabsTrigger type="button" value="preview">
+                          Preview
+                        </TabsTrigger>
+                      </TabsList>
+                    </div>
+                    <TabsContent value="write">
+                      <Textarea
+                        id={`${id}-body`}
+                        value={body}
+                        onChange={(e) => setBody(e.target.value)}
+                        rows={8}
+                        className="min-h-40 font-mono"
+                        placeholder="Markdown supported"
+                      />
+                    </TabsContent>
+                    <TabsContent value="preview">
+                      {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
+                      <div
+                        className="min-h-40 cursor-text rounded-md border px-3 py-2"
+                        onDoubleClick={() => setBodyTab("write")}
+                        title="Double-click to edit"
+                      >
+                        {body.trim() ? (
+                          <Markdown>{body}</Markdown>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Nothing to preview.</p>
+                        )}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </TabsContent>
+                <TabsContent value="fields" className="min-w-0 space-y-4">
+                  {schema.length ? (
+                    schema.map((f) => (
+                      <FieldInput
+                        key={f.id}
+                        id={`${id}-field-${f.id}`}
+                        field={f}
+                        value={fields[f.id]}
+                        onChange={(v) => setFields({ ...fields, [f.id]: v })}
+                      />
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No custom fields.</p>
+                  )}
+                </TabsContent>
+              </Tabs>
+              <StoryAttachments
+                storyKey={story?.key}
+                persisted={persisted}
+                pending={pending}
+                setPending={setPending}
+                error={error}
+                setError={setError}
+                disabled={submitting || deleting || retryOnly}
+              />
+            </fieldset>
+          </div>
           <DialogFooter>
             {story && (
               <AlertDialog open={confirmDelete} onOpenChange={(open) => !deleting && setConfirmDelete(open)}>
