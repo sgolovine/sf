@@ -145,7 +145,9 @@ export function App() {
           )}
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+        {/* relative: absolutely positioned descendants (such as the hidden checkbox a Radix Switch adds inside a
+            form) overflow this scroller, not SidebarInset, so they cannot stretch the document under the footer. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
 
           {view.kind === "project-settings" && project ? (
@@ -191,6 +193,7 @@ export function App() {
             />
             <span className="truncate">{supervisorText}</span>
           </span>
+          <span className="ml-auto shrink-0">sf v{session.version}</span>
         </footer>
 
         {creating && (

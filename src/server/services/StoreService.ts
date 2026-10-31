@@ -5,6 +5,7 @@ import type { CommandRecord, SupervisorCommand } from "#model/commands";
 import type { ProjectSnapshot } from "#model/project";
 import type { FileChange, SessionState } from "#model/session";
 import type { Capabilities, SupervisorMessage } from "#model/supervisor";
+import pkg from "../../../package.json" with { type: "json" };
 import { atomicWrite } from "../project/fsutil.ts";
 
 const MAX_FILE_CHANGES = 500;
@@ -29,6 +30,7 @@ function create(root: string, sessionFile: string | null): Store {
     commands: [],
     messages: [],
     ...load(sessionFile),
+    version: pkg.version,
     fileChanges: [],
     project: null,
   };
