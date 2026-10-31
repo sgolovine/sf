@@ -5,6 +5,7 @@ import {
   type DeleteStoryResponse,
   type ErrorResponse,
   routes,
+  type SearchResponse,
   type StoryDetails,
   TOKEN_HEADER,
   type UpdateBoardRequest,
@@ -92,6 +93,7 @@ export const sfApi = {
   retry: (key: string) => request<StoryDetails>("POST", routes.storyRetry(key), {}),
   removeWorktree: (key: string) =>
     request<WorktreeResponse>("POST", routes.storyWorktree(key), { action: "remove", force: true }),
+  search: (q: string) => request<SearchResponse>("GET", routes.search(q)),
 
   /** Subscribes to live state. Returns an unsubscribe function. */
   subscribe(onState: (state: SessionState) => void, onError?: () => void) {

@@ -42,6 +42,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "express": "^5.1.0",
+    "fuzzysort": "^4.0.2",
     "lucide-react": "^1.64.0",
     "radix-ui": "^1.8.1",
     "react": "^19.0.0",

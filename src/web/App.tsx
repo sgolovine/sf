@@ -1,4 +1,4 @@
-import { ArrowLeft, Plus, Settings } from "lucide-react";
+import { ArrowLeft, Plus, Search, Settings } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -12,6 +12,7 @@ import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
 import { ModelSettings } from "./components/ModelSettings.tsx";
+import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
 import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
 
@@ -19,6 +20,8 @@ import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/stor
  * What the main area shows. Views are plain state; only the Story dialog has a URL path
  * (see storyRoute.ts). The URL hash carries the auth token.
  */
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
@@ -31,6 +34,7 @@ export function App() {
   /** The Stage a new Story starts in when created from a Stage column; not part of the URL. */
   const [createStage, setCreateStage] = useState<string>();
   const [creating, setCreating] = useState(false);
+  const [searching, setSearching] = useState(false);
   const initialized = useRef(false);
   const returnFocus = useRef<HTMLElement | null>(null);
   const emptyAction = useRef<HTMLButtonElement>(null);
@@ -90,6 +94,18 @@ export function App() {
       navigate(NO_STORY, true);
     }
   });
+
+  // Cmd/Ctrl+K opens the finder, unless another dialog is open or there is nothing to search.
+  const canSearch = !!session?.project?.boards.length && route.kind === "none" && !creating;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "k" || !(isMac ? event.metaKey : event.ctrlKey)) return;
+      event.preventDefault();
+      if (canSearch) setSearching(true);
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [canSearch]);
 
   const act: Act = async (fn) => {
     try {
@@ -152,11 +168,28 @@ export function App() {
                 ? "Board Settings"
                 : (board?.config.name ?? "Boards")}
           </h1>
+          <span className="flex-1" />
+          {board && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-9 shrink justify-start px-2 font-normal text-muted-foreground @md/header:w-64"
+              onClick={() => setSearching(true)}
+              aria-label="Search Stories"
+              aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
+            >
+              <Search />
+              <span className="hidden @md/header:inline">Search Stories…</span>
+              <kbd className="ml-auto hidden rounded border bg-muted px-1.5 font-sans text-[0.7rem] @md/header:inline">
+                {isMac ? "⌘K" : "Ctrl K"}
+              </kbd>
+            </Button>
+          )}
           {board && settings && (
             <Button
               size="sm"
               variant="outline"
-              className="ml-auto shrink-0"
+              className="shrink-0"
               onClick={() => openBoard(board.id)}
               aria-label="Back to board"
             >
@@ -164,7 +197,6 @@ export function App() {
               <span className="hidden @md/header:inline">Back to board</span>
             </Button>
           )}
-          {!settings && <span className="flex-1" />}
           {board && !settings && view.kind !== "project-settings" && (
             <>
               <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
@@ -252,6 +284,9 @@ export function App() {
               openBoard(id);
             }}
           />
+        )}
+        {searching && (
+          <SearchDialog onClose={() => setSearching(false)} onSelect={(key) => navigate({ kind: "edit", key })} />
         )}
         {board && (route.kind === "create" || editingStory) && (
           <StoryEditor

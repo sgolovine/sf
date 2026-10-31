@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { CommandRecord } from "#model/commands";
 import { sfApi } from "./client.ts";
@@ -31,3 +31,14 @@ export function useSfMutation<V, R>(fn: (vars: V) => Promise<R>) {
 
 /** `instruct.mutate("...")` → a free-form instruction for the Supervisor. */
 export const useInstruct = () => useSfMutation((text: string) => sfApi.instruct(text));
+
+/** Stories matching `q`, keyed by the query so a stale response never replaces a newer one. */
+export function useSearch(q: string) {
+  const query = q.trim();
+  return useQuery({
+    queryKey: ["sf", "search", query],
+    queryFn: () => sfApi.search(query),
+    enabled: query !== "",
+    placeholderData: keepPreviousData,
+  });
+}
