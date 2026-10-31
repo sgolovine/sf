@@ -386,6 +386,7 @@ export function createService(opts: ServiceOptions) {
       }
       try {
         spawnNow(tx, entry.storyKey, found.boardId, entry.stageId);
+        delete tx.rt.dependencyWaits[entry.storyKey];
       } catch (err) {
         // Runtime is saved even on error; keep this spawn first for the next drain.
         tx.rt.queue.unshift(entry);
@@ -404,7 +405,10 @@ export function createService(opts: ServiceOptions) {
       return;
     }
     if (!spawnsFor(boardId, found.board, stageId, found.story)) return;
-    if (rt.queue.some((q) => q.storyKey === key && q.stageId === stageId)) return;
+    if (rt.queue.some((q) => q.storyKey === key && q.stageId === stageId)) {
+      delete rt.dependencyWaits[key];
+      return;
+    }
     rt.queue = rt.queue.filter((q) => q.storyKey !== key);
     if (!online) {
       rt.pendingTriggers = rt.pendingTriggers.filter((t) => !(t.type === "spawn" && t.storyKey === key));

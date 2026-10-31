@@ -25,7 +25,7 @@ Work only in the Story Worktree named in the brief, on its `sf/<KEY>` branch. sf
 2. **Plan.** Write down the ordered steps, the files involved, and how each acceptance criterion will be shown to hold. If something the Story leaves open would change what gets built and the code cannot settle it, stop and report Blocked rather than guess.
 3. **Implement.** Keep changes scoped to the Story: no opportunistic refactors, formatting sweeps, or dependency upgrades. Add or update tests in `test/` for the behavior you change. Update `CONTEXT.md`, the specs, the skills in `skills/`, and the docs when the behavior they describe changes.
 4. **Commit and push as you go.** Make one commit per coherent milestone, with a Conventional Commit message, and review the staged diff before each one. Push after the first commit with `git push -u origin sf/<KEY>`, and again after every later commit. Never amend, rebase, or force-push commits you have already pushed.
-5. **Stay current.** Before finishing, run `git merge origin/master`, resolve any conflicts while keeping both sides' intent, and push.
+5. **Stay current.** Before finishing, merge the fetched remote default branch (`origin/main` in this repository), resolve any conflicts while keeping both sides' intent, and push.
 6. **Self-check.** Run `pnpm check` and `pnpm test`, and fix what fails. Do not hand over a branch you know is broken.
 
 ## Rework

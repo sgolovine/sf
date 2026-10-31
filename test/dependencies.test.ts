@@ -198,3 +198,17 @@ test("a failed brief composition preserves dependency wake intent for recovery",
   await svc.drainPending();
   assert.equal(spawns.length, 1);
 });
+
+test("editing ready dependencies of a capacity-queued Story consumes wake intent once", async () => {
+  const { svc, spawns } = await setupProject({ config: { maxConcurrentWorkers: 1 } });
+  await svc.createStory("DEV", { title: "Done", stage: "done" }, user);
+  await svc.createStory("DEV", { title: "Busy", stage: "todo" }, user);
+  await svc.createStory("DEV", { title: "Queued", stage: "todo" }, user);
+  await svc.updateStory("DEV-3", { dependsOn: ["DEV-1"] }, user);
+  await svc.forceRelease("DEV-2");
+  assert.equal(spawns.length, 2);
+  assert.equal(spawns[1]!.storyKey, "DEV-3");
+  await svc.forceRelease("DEV-3");
+  await svc.drainPending();
+  assert.equal(spawns.length, 2);
+});

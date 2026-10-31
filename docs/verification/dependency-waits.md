@@ -3,8 +3,8 @@
 Verified 2026-10-31 from the Story branch.
 
 - `pnpm check`: passes Biome and both TypeScript projects.
-- `pnpm test`: 124 tests pass, including 12 dependency regression tests and new CLI/HTTP cases.
-- Dependency tests cover persistence, unrelated edits/clear, invalid graphs online/offline, same-Project cross-Board references, protected deletion and missing files, DEV-7 Done → DEV-9 current refinement Stage wake, chains, multiple/already-Done prerequisites, concurrent completions, restart/offline replay, atomic wait/release races, FIFO capacity/deduplication, queued reopens, active Worker preservation, independent HIL and brief-read failure recovery.
+- `pnpm test`: 125 tests pass, including 13 dependency regression tests and new CLI/HTTP cases.
+- Dependency tests cover persistence, unrelated edits/clear, invalid graphs online/offline, same-Project cross-Board references, protected deletion and missing files, DEV-7 Done → DEV-9 current refinement Stage wake, chains, multiple/already-Done prerequisites, concurrent completions, restart/offline replay, atomic wait/release races, FIFO capacity/deduplication (including ready dependency edits on queued Stories), queued reopens, active Worker preservation, independent HIL and brief-read failure recovery.
 - CLI/HTTP tests exercise `--depends-on` create/update/clear, malformed/missing/cyclic references, wait release and stale Worker rejection, and online CLI server routing.
 - Browser verification used a disposable Project via `pnpm sf:dev start`. The T3 preview opened but snapshot requests twice timed out (`Preview automation snapshot timed out after 15000ms.`); verification continued through the Playwright browser skill.
 - Initial cards showed dependency keys and unresolved reasons. A mixed hold showed both “Waiting on dependencies: DEV-1” and “Needs a human”, with its access request. No Worker was reserved.
