@@ -1,9 +1,11 @@
+import type { MachineUsage, PlacementPolicy, StoryPlacement } from "#model/placement";
 import type { AttachmentSubmission } from "./attachment.ts";
 import type { CommandRecord, SupervisorCommand } from "./commands.ts";
-import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig } from "./config.ts";
+import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig, SchedulingConfig } from "./config.ts";
+import type { ExecutionReport } from "./execution.ts";
 import type { ModelOption, ResolvedModel } from "./models.ts";
 import type { StoryView } from "./project.ts";
-import type { Claim, RuntimeState } from "./runtime.ts";
+import type { Claim, Execution, QueueWait, RuntimeState } from "./runtime.ts";
 import type { FileChange } from "./session.ts";
 import type { SupervisorMessage } from "./supervisor.ts";
 
@@ -39,13 +41,22 @@ export const routes = {
   storyForceRelease: (key: string) => `/api/stories/${enc(key)}/force-release`,
   storyRetry: (key: string) => `/api/stories/${enc(key)}/retry`,
   storyWorktree: (key: string) => `/api/stories/${enc(key)}/worktree`,
+  search: (q: string) => `/api/search?q=${enc(q)}`,
+  executions: "/api/executions",
+  execution: (id: string) => `/api/executions/${enc(id)}`,
+  executionReport: (id: string) => `/api/executions/${enc(id)}/report`,
+  executionReconcile: (id: string) => `/api/executions/${enc(id)}/reconcile`,
+  executionCancel: (id: string) => `/api/executions/${enc(id)}/cancel`,
 } as const;
 
 export type EnqueueCommandRequest = { command: SupervisorCommand };
 export type EnqueueCommandResponse = CommandRecord;
 /** GET /api/commands/next?wait=<seconds> → 200 with a claimed command, or 204 on timeout. */
 export type NextCommandResponse = CommandRecord;
-export type CommandResultRequest = { ok: true; result?: string } | { ok: false; error: string };
+/** `execution` carries structured launch/terminal evidence; launch accepted is never completion. */
+export type CommandResultRequest =
+  | { ok: true; result?: string; execution?: ExecutionReport }
+  | { ok: false; error: string; execution?: ExecutionReport };
 export type PostMessageRequest = { text: string; level?: SupervisorMessage["level"]; commandId?: string };
 export type FileChangesResponse = { changes: FileChange[] };
 
@@ -53,15 +64,22 @@ export type FileChangesResponse = { changes: FileChange[] };
 export type ErrorResponse = { error: string; code?: SfErrorCode };
 
 export type CreateBoardRequest = { name: string; key: string };
+/** Omitted keys are unchanged. `scheduling` replaces the whole value; null removes it (legacy cap). */
 export type UpdateProjectRequest = {
   model?: string | null;
   modelOptions?: ModelOption[];
   addModelOptions?: ModelOption[];
+  scheduling?: SchedulingConfig | null;
+  maxConcurrentWorkers?: number;
 };
 export type ProjectSettingsResponse = {
   config: ProjectConfig;
   effectiveModel: ResolvedModel;
   modelOptions: ModelOption[];
+  /** The normalized machine policy dispatch reserves against. */
+  policy: PlacementPolicy;
+  /** Current used/max per machine, from occupying executions. */
+  machines: MachineUsage[];
 };
 export type UpdateBoardRequest = {
   addModelOptions?: ModelOption[];
@@ -92,6 +110,7 @@ export type ReorderStageRequest = { index: number };
 export type CreateStoryRequest = AttachmentSubmission & {
   board: string;
   title: string;
+  placement?: StoryPlacement | null;
   dependsOn?: string[];
   model?: string | null;
   stage?: string;
@@ -101,6 +120,7 @@ export type CreateStoryRequest = AttachmentSubmission & {
 };
 /** A null field value clears the field. */
 export type UpdateStoryRequest = AttachmentSubmission & {
+  placement?: StoryPlacement | null;
   dependsOn?: string[];
   model?: string | null;
   title?: string;
@@ -123,6 +143,16 @@ export type WorktreeResponse = {
   branchReason?: string;
 };
 
+/** One Story matched by GET /api/search. */
+export type SearchResult = {
+  key: string;
+  title: string;
+  board: { id: string; name: string };
+  stage: { id: string; name: string };
+};
+/** GET /api/search?q=<text>: Stories whose key or title fuzzy-match, best first. */
+export type SearchResponse = SearchResult[];
+
 export type SfErrorCode = "claim_gone" | "claimed" | "invalid" | "not_found" | "no_project";
 
 /** A Story with its runtime status, as returned by the story routes. */
@@ -132,8 +162,28 @@ export type StoryDetails = StoryView & {
   claim?: Claim;
   /** True while the Story waits for a Worker slot. */
   queued?: boolean;
+  /** Why the last drain skipped the queued Story. */
+  wait?: QueueWait;
+  /** The Story's occupying execution, if any. */
+  execution?: ExecutionView;
   failure?: RuntimeState["failures"][string];
   worktreeWarning?: RuntimeState["worktreeWarnings"][string];
   /** Set while the Story's HIL flag for its Stage is true: it waits for a human. */
   hil?: { flag: string; comment?: string };
 };
+
+/** An execution with what sf is waiting for. */
+export type ExecutionView = Execution & {
+  occupying: boolean;
+  /** True while the Worker still holds the Story's Claim. */
+  claimLive: boolean;
+  /** Plain-language reason sf still treats it as occupying, or why it ended. */
+  waitingFor: string;
+};
+export type ExecutionsResponse = {
+  identity: RuntimeState["identity"];
+  support: import("./execution.ts").AdapterSupport;
+  executions: ExecutionView[];
+  usage: Record<string, number>;
+};
+export type ExecutionReportRequest = ExecutionReport;

@@ -1,6 +1,28 @@
 # Remote execution requires verified adapters and authoritative Worker commands
 
-Date: 2026-10-29. Status: accepted boundary; remote transport selection gated for DEV-11.
+Date: 2026-10-29. Status: accepted boundary; revised 2026-10-31 (DEV-11): the harness owns
+machine handling, and the sf-owned remote adapter and transport gates are superseded.
+
+## Revision (2026-10-31, DEV-11)
+
+The user revised DEV-11: "let the actual machine handling happen on the T3/Harness side. For the
+sf integration, when a user selects 'Use X Machine', it should just append additional instructions
+to the request so the underlying harness knows to start on a different machine."
+
+- sf keeps placement policy, reservations, Claims and Story authority (DEV-9/10, ADR 0001/0002).
+- When placement selects a configured remote, sf adds a `machine` request to `worker.spawn` and
+  appends delimited machine instructions to the Worker Brief. They give the machine's name and
+  stable IDs, required/preferred intent and whether local fallback is allowed.
+- The Supervisor's harness owns discovery, launch on that machine, machine preparation and the
+  remote Worker's access to sf's Story commands. sf adds no remote launch, status or cancel
+  adapter, worktree transfer, network transport or credentials, and invents no launch-tool
+  parameters.
+- A configured, enabled remote is eligible whenever the Supervisor can launch Workers. A machine
+  request is not evidence of remote execution; results use the existing reporting.
+
+The 2026-10-29 sections below are kept as the original decision. Where they require a verified
+sf-owned adapter, a Worker/Claim-scoped transport, or a real-target test before remote dispatch,
+this revision replaces them. See [the current boundary](../remote-workers.md#current-boundary-dev-11-2026-10-31).
 
 ## Context
 
@@ -25,15 +47,16 @@ external identities and verified status/termination. Reconcile uncertain launche
 before retry; retain occupied/unknown capacity and branch exclusion until uncertainty is resolved.
 
 Claim invalidation revokes Story command authority independently of external execution.
-Move/release/force-release/timeout cannot be treated as proof of termination. Current local
-expiry deletes the Claim and frees its counted slot without stopping the Worker; DEV-10 must
-change that behavior. The next Stage cannot reuse a branch still occupied by external work.
+Move/release/force-release/timeout cannot be treated as proof of termination. Local expiry used to
+delete the Claim and free its counted slot without stopping the Worker; DEV-10 changed that (see
+the [execution ledger](../execution-ledger.md)). The next Stage cannot reuse a branch still occupied by external work.
 
 Remote Workers must use a Worker/Claim-scoped authenticated channel into the authoritative sf
 Story service for read/update/create/move/release and Claim refresh. Preserve HIL, complete briefs
 and resource semantics; reject stale Claims; never give the broad UI token to a remote Worker.
 There is no remote offline write fallback or second authoritative `.sf`.
 
+*(Superseded 2026-10-31: the harness gives remote Workers access to sf's Story commands.)*
 **Do not select a runnable remote transport yet.** Direct authenticated CLI transport is the
 preferred candidate but requires a verified reachable route, scoped credentials, authoritative
 schema reads, retry receipts and fail-closed CLI mode. Existing CLI discovery, loopback API and
@@ -49,7 +72,7 @@ Reuse established T3 links; store no pairing credentials in committed sf configu
 ## Consequences
 
 - DEV-9 owns configuration/selector and legacy cap precedence; DEV-10 owns durable reservations
-  and lifecycle recovery; DEV-11 owns verified adapter, target worktree and authoritative transport;
+  and lifecycle recovery; DEV-11 (revised 2026-10-31) passes the selected machine to the harness;
   DEV-12 owns controls/status and the complete feature verification. Follow this sequence.
 - Capacity is per sf Project across Boards with one environment per machine. Multiple routes
   share its capacity; independent environments on one host and host-wide cross-Project quotas

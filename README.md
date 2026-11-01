@@ -35,10 +35,10 @@ UI ◀── GET /api/events (SSE) ── server ◀── sf done | fail | say 
 ```
 
 0. The Supervisor runs `sf start` as a background process of its own thread. The server lives as long as that process: it stops on Ctrl-C, SIGTERM, `sf stop`, or when the process that started it exits.
-1. A Story enters a Stage with an enabled Stage Prompt. sf claims the Story for a new Worker id and queues a `worker.spawn` command (or queues the spawn, oldest first, when the Project is at `maxConcurrentWorkers`).
+1. A Story enters a Stage with an enabled Stage Prompt. sf claims the Story for a new Worker id and queues a `worker.spawn` command (or queues the spawn, oldest first, when no machine has a free Worker slot; see [machine scheduling](#machine-scheduling)).
 2. The Supervisor runs `sf next`. The server creates or reuses the Story Worktree and hands out the command with the Worker Brief.
 3. The Supervisor starts the Worker (a thread, or a subagent when it cannot start threads) and reports `sf done <id> --result <thread id>`, or `fail`.
-4. The Worker changes Stories only through `sf story ... --worker <id> --project <root>`. Its Claim ends when it Moves or releases the Story, when the user force-releases it, or after the claim timeout.
+4. The Worker changes Stories only through `sf story ... --worker <id> --project <root>`. Its Claim ends when it Moves or releases the Story, when the user force-releases it, or after the claim timeout. Its Worker slot and Story branch stay occupied until the Supervisor reports that the Worker's thread or subagent ended ([execution ledger](docs/execution-ledger.md)).
 5. Every state change streams to the UI over server-sent events.
 
 UI helpers (`src/web/api`):
@@ -57,9 +57,9 @@ sf keeps its data in `.sf/` at the repository root, committed with the repositor
 ```
 .sf/
   SF.md                     optional shared Worker instructions
-  sf.config.json            Project defaults: Worker agent/model, base branch, claim timeout, brief preamble, maxConcurrentWorkers
+  sf.config.json            Project defaults: Worker agent/model, base branch, claim timeout, brief preamble, maxConcurrentWorkers, scheduling
   .gitignore                ignores runtime/
-  runtime/                  Claims, queued spawns, failures, pending triggers, server.json (gitignored)
+  runtime/                  Claims, executions, queued spawns, failures, pending triggers, server.json (gitignored)
   boards/development/
     BOARD.md                optional instructions for this Board
     board.config.json       key, ordered Stages, Story schema, overrides
@@ -84,6 +84,36 @@ Worker models inherit Story → current Stage → Board → Project → Supervis
 Project/Board JSON retain `worker.model` / `overrides.worker.model` and support custom `modelOptions: [{slug, label}]`; repeat `--model-option vendor/custom` on Project/Board set to add without selecting. Choices merge presets + Project customs + Board customs by exact slug; Board custom labels win, preset labels stay fixed. Labels default to slugs. Unknown saved slugs remain selectable. Stage/Story models use Markdown frontmatter; Stage prompt bodies exclude metadata. Legacy Stage JSON values migrate on that Stage's next update, preserving unrelated metadata. Missing/null/empty overrides inherit; with no selection sf omits the spawn model and displays “Supervisor default.” `model` cannot be redefined by custom fields; legacy conflicts require renaming before schema changes. See the [model formats and preset slugs](docs/specs/01-core-function.md#worker-models).
 
 Settings changes affect the next Worker, including queue drain, offline replay, HIL wake, and retry. They do not restart active Workers. The Supervisor passes explicit model slugs unchanged or reports an unsupported selection visibly.
+
+### Machine scheduling
+
+By default sf runs up to `maxConcurrentWorkers` (3) Workers at once, all on the Supervisor's machine. Optional Project `scheduling` replaces that total with per-machine capacities: `local` plus configured remote machines, and an ordered list of machines to try. Limits belong to the Project and count every Board's Workers; they are not host-wide. Configure one T3 environment per physical machine: sf cannot tell that two environments share a host.
+
+```sh
+sf project set --max-workers 4                      # legacy total, local only
+sf project set --scheduling-file scheduling.json    # whole scheduling object; a file holding null removes it
+sf project show                                     # mode, caps, remotes with used/max, order
+sf status [--json]                                  # per-machine used/max while the server runs
+```
+
+```json
+{
+  "local": { "capacity": 2 },
+  "remotes": [
+    {
+      "id": "build-server", "name": "Build server", "enabled": true, "capacity": 4,
+      "environmentId": "env-build", "project": { "projectId": "proj-sf", "repository": "github.com/owner/repo" }
+    }
+  ],
+  "order": ["build-server", "local"]
+}
+```
+
+The same settings are under **Project settings → Scheduling** in the UI, with keyboard-operable order controls. Stories choose a placement with `sf story create|update --placement inherit|local-only|required|preferred [--machine <remote-id>]` or the Story editor's Placement control. `inherit` (the default; `--placement inherit` clears) uses the order. `local-only` runs locally. `required` waits for that remote and never falls back. `preferred` tries that remote, then the order. A placement change applies to the next launch; a running Worker keeps its machine. Raising a cap starts queued work; lowering one stops only new launches.
+
+sf rejects a scheduling change that removes a remote a Story's placement names, or that removes or remaps (environment, project or repository) a remote an occupying execution holds. The error lists each reference: clear or change the placement, or wait for the execution to end. Disabling a remote is always allowed, and its required Stories wait with reason `disabled`. Renames, capacity and order changes are always allowed.
+
+When sf picks a remote, the `worker.spawn` request and the end of the Worker Brief ask the Supervisor's harness to start the Worker there. A machine request is not proof that the Worker ran there: sf shows "Requested: X" and any task/thread IDs the Supervisor reported as plain text. Supervisors without thread or subagent tools leave every machine waiting with a visible `incompatible` reason. See [remote Workers](docs/remote-workers.md) and the [verification record](docs/verification/machine-scheduling.md).
 
 ### Shared Worker instructions
 

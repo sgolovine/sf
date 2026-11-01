@@ -1,5 +1,6 @@
-import { ArrowLeft, Plus, Settings } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { ArrowLeft, Plus, Search, Settings } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { machineUsage } from "#model/placement";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -12,23 +13,101 @@ import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
 import { ModelSettings } from "./components/ModelSettings.tsx";
+import { SchedulingSettings } from "./components/SchedulingSettings.tsx";
+import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
+import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
 
-/** What the main area shows. Navigation is plain state: the URL hash carries the auth token. */
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+
+/**
+ * What the main area shows. Views are plain state; only the Story dialog has a URL path
+ * (see storyRoute.ts). The URL hash carries the auth token.
+ */
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
-  | { kind: "create-board" }
   | { kind: "project-settings" };
-
-/** The Story being edited in the dialog; key null means a new Story. */
-type Editing = { key: string | null } | null;
 
 export function App() {
   const { data: session, error } = useSession();
   const [view, setView] = useState<View>({ kind: "board", boardId: null });
-  const [editing, setEditing] = useState<Editing>(null);
+  const [route, setRoute] = useState<StoryRoute>(() => parseStoryPath(location.pathname));
+  /** The Stage a new Story starts in when created from a Stage column; not part of the URL. */
+  const [createStage, setCreateStage] = useState<string>();
+  const [creating, setCreating] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const initialized = useRef(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const emptyAction = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (session && !initialized.current) {
+      initialized.current = true;
+      setCreating(!session.project?.boards.length);
+    }
+  }, [session]);
   const [failure, setFailure] = useState<string | null>(null);
+
+  /** Opening or closing the dialog pushes a history entry; `replace` corrects the current one. */
+  const navigate = (next: StoryRoute, replace = false) => {
+    if (replace) history.replaceState(null, "", storyPath(next));
+    else history.pushState(null, "", storyPath(next));
+    setRoute(next);
+  };
+  const closeStory = () => {
+    if (route.kind !== "none") navigate(NO_STORY);
+  };
+  const openCreateStory = (initialStage?: string) => {
+    setCreateStage(initialStage);
+    navigate({ kind: "create" });
+  };
+  const openCreateBoard = () => {
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setCreating(true);
+    closeStory();
+  };
+
+  useEffect(() => {
+    // Back/Forward onto a Story path leaves Create a Board, so only one dialog is ever open.
+    const sync = () => {
+      const next = parseStoryPath(location.pathname);
+      if (next.kind !== "none") setCreating(false);
+      setRoute(next);
+    };
+    addEventListener("popstate", sync);
+    return () => removeEventListener("popstate", sync);
+  }, []);
+
+  // Once the session has loaded, show the Board the route needs, or replace a path that names
+  // nothing (an unknown path or key, a deleted Story, `/create` with no Boards) with `/`.
+  useEffect(() => {
+    if (!session) return;
+    const boards = session.project?.boards ?? [];
+    const boardId = view.kind === "project-settings" ? null : view.boardId;
+    if (route.kind === "edit") {
+      const owner = boards.find((b) => b.stories.some((s) => s.key === route.key));
+      if (!owner) navigate(NO_STORY, true);
+      else if (view.kind !== "board" || (boardId ?? boards[0]?.id) !== owner.id)
+        setView({ kind: "board", boardId: owner.id });
+    } else if (route.kind === "create") {
+      if (boards.length === 0) navigate(NO_STORY, true);
+      else if (view.kind !== "board") setView({ kind: "board", boardId });
+    } else if (location.pathname !== "/") {
+      navigate(NO_STORY, true);
+    }
+  });
+
+  // Cmd/Ctrl+K opens the finder, unless another dialog is open or there is nothing to search.
+  const canSearch = !!session?.project?.boards.length && route.kind === "none" && !creating;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "k" || !(isMac ? event.metaKey : event.ctrlKey)) return;
+      event.preventDefault();
+      if (canSearch) setSearching(true);
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [canSearch]);
 
   const act: Act = async (fn) => {
     try {
@@ -47,21 +126,20 @@ export function App() {
   const { capabilities, listening } = session.supervisor;
   const project = session.project;
   const boards = project?.boards ?? [];
-  const selectedId = view.kind === "create-board" || view.kind === "project-settings" ? null : view.boardId;
+  const selectedId = view.kind === "project-settings" ? null : view.boardId;
   const board = boards.find((b) => b.id === selectedId) ?? boards[0];
-  const creating = view.kind === "create-board" || !board;
   const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
     ` · ${listening ? "listening" : "busy or away"}`;
-  const openBoard = (boardId: string) => {
-    setView({ kind: "board", boardId });
-    setEditing(null);
+  // Never fall back to a new Story for a key that is not (yet) on the shown Board.
+  const editingStory = route.kind === "edit" ? board?.stories.find((s) => s.key === route.key) : undefined;
+  const openView = (next: View) => {
+    setView(next);
+    closeStory();
   };
-  const openSettings = (boardId: string, tab: SettingsTab) => {
-    setView({ kind: "settings", boardId, tab });
-    setEditing(null);
-  };
+  const openBoard = (boardId: string) => openView({ kind: "board", boardId });
+  const openSettings = (boardId: string, tab: SettingsTab) => openView({ kind: "settings", boardId, tab });
 
   return (
     <SidebarProvider>
@@ -70,15 +148,9 @@ export function App() {
         title={board?.config.name}
         activeId={board?.id}
         creating={creating}
-        onProjectSettings={() => {
-          setView({ kind: "project-settings" });
-          setEditing(null);
-        }}
+        onProjectSettings={() => openView({ kind: "project-settings" })}
         onSelect={openBoard}
-        onNewBoard={() => {
-          setView({ kind: "create-board" });
-          setEditing(null);
-        }}
+        onNewBoard={openCreateBoard}
       />
       {/* Fixed height: only the content region scrolls, so the header and footer stay in place. */}
       <SidebarInset className="h-svh min-w-0">
@@ -86,19 +158,36 @@ export function App() {
         <header className="@container/header flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SidebarTrigger className="shrink-0" />
           {/* The sidebar shows the Board name; the header names only the other views. */}
-          {(creating || settings) && (
+          {(view.kind === "project-settings" || settings) && (
             <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           )}
-          <h1 className={cn("min-w-0 truncate font-medium", !creating && !settings && "sr-only")}>
+          <h1
+            className={cn("min-w-0 truncate font-medium", view.kind !== "project-settings" && !settings && "sr-only")}
+          >
             {view.kind === "project-settings"
               ? "Project settings"
-              : creating
-                ? "New Board"
-                : settings
-                  ? "Board Settings"
-                  : board.config.name}
+              : settings
+                ? "Board Settings"
+                : (board?.config.name ?? "Boards")}
           </h1>
-          {!creating && settings && (
+          <span className="flex-1" />
+          {board && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-9 shrink justify-start px-2 font-normal text-muted-foreground @md/header:w-64"
+              onClick={() => setSearching(true)}
+              aria-label="Search Stories"
+              aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
+            >
+              <Search />
+              <span className="hidden @md/header:inline">Search Stories…</span>
+              <kbd className="ml-auto hidden rounded border bg-muted px-1.5 font-sans text-[0.7rem] @md/header:inline">
+                {isMac ? "⌘K" : "Ctrl K"}
+              </kbd>
+            </Button>
+          )}
+          {board && settings && (
             <Button
               size="sm"
               variant="outline"
@@ -110,10 +199,9 @@ export function App() {
               <span className="hidden @md/header:inline">Back to board</span>
             </Button>
           )}
-          <span className="flex-1" />
-          {!creating && !settings && view.kind !== "project-settings" && (
+          {board && !settings && view.kind !== "project-settings" && (
             <>
-              <Button size="sm" className="shrink-0" onClick={() => setEditing({ key: null })} aria-label="New Story">
+              <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
                 <Plus />
                 <span className="hidden @md/header:inline">New Story</span>
               </Button>
@@ -135,13 +223,23 @@ export function App() {
           )}
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+        {/* relative: absolutely positioned descendants (such as the hidden checkbox a Radix Switch adds inside a
+            form) overflow this scroller, not SidebarInset, so they cannot stretch the document under the footer. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
 
           {view.kind === "project-settings" && project ? (
-            <ModelSettings key={JSON.stringify(project.config)} project={project.config} act={act} />
-          ) : creating ? (
-            <CreateBoard act={act} onCreated={openBoard} onCancel={board ? () => openBoard(board.id) : undefined} />
+            <div key={JSON.stringify(project.config)} className="flex flex-col divide-y">
+              <ModelSettings project={project.config} act={act} />
+              <SchedulingSettings project={project.config} act={act} />
+            </div>
+          ) : !board ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+              <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
+              <Button ref={emptyAction} onClick={openCreateBoard}>
+                New Board
+              </Button>
+            </div>
           ) : settings ? (
             <BoardSettings
               project={project!.config}
@@ -155,7 +253,8 @@ export function App() {
               board={board}
               runtime={project!.runtime}
               act={act}
-              onOpenStory={(key) => setEditing({ key })}
+              onOpenStory={(key) => navigate({ kind: "edit", key })}
+              onCreateStory={openCreateStory}
               onOpenStages={() => openSettings(board.id, "stages")}
             />
           )}
@@ -164,7 +263,14 @@ export function App() {
         <footer className="flex h-8 shrink-0 items-center gap-3 border-t px-3 text-xs whitespace-nowrap text-muted-foreground">
           {project && (
             <span className="shrink-0">
-              Workers {Object.keys(project.runtime.claims).length}/{project.config.maxConcurrentWorkers}
+              Workers{" "}
+              {project.config.scheduling
+                ? machineUsage(project.config, Object.values(project.runtime.executions ?? {}))
+                    .map(
+                      (m) => `${m.id} ${m.used}/${m.capacity ?? "?"}${m.configured && !m.enabled ? " (disabled)" : ""}`,
+                    )
+                    .join(" · ")
+                : `${Object.values(project.runtime.executions ?? {}).filter((e) => e.status !== "terminal").length}/${project.config.maxConcurrentWorkers}`}
               {project.runtime.queue.length > 0 && ` · ${project.runtime.queue.length} waiting`}
             </span>
           )}
@@ -174,16 +280,39 @@ export function App() {
             />
             <span className="truncate">{supervisorText}</span>
           </span>
+          <span className="ml-auto shrink-0">sf v{session.version}</span>
         </footer>
 
-        {!creating && editing && (
+        {creating && (
+          <CreateBoard
+            onClose={() => setCreating(false)}
+            onRestoreFocus={() => {
+              const target = returnFocus.current;
+              if (target?.isConnected) target.focus();
+              else emptyAction.current?.focus();
+            }}
+            onCreated={(id) => {
+              setCreating(false);
+              openBoard(id);
+            }}
+          />
+        )}
+        {searching && (
+          <SearchDialog onClose={() => setSearching(false)} onSelect={(key) => navigate({ kind: "edit", key })} />
+        )}
+        {board && (route.kind === "create" || editingStory) && (
           <StoryEditor
-            key={editing.key ?? "new"}
+            key={editingStory?.key ?? "new"}
             project={project!.config}
             board={board}
-            story={board.stories.find((s) => s.key === editing.key) ?? null}
+            boards={boards}
+            story={editingStory ?? null}
+            execution={Object.values(project!.runtime.executions ?? {}).find(
+              (e) => e.storyKey === editingStory?.key && e.status !== "terminal",
+            )}
+            initialStage={editingStory ? undefined : createStage}
             act={act}
-            onClose={() => setEditing(null)}
+            onClose={closeStory}
           />
         )}
       </SidebarInset>

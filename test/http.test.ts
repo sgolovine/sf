@@ -6,6 +6,8 @@ import { after, test } from "node:test";
 import { promisify } from "node:util";
 import { type ErrorResponse, routes, type StoryDetails } from "#model/api";
 import type { CommandRecord } from "#model/commands";
+import type { SessionState } from "#model/session";
+import pkg from "../package.json" with { type: "json" };
 import { createApp, listen } from "../src/server/server.ts";
 import { ClientService, type ServerInfo } from "../src/server/services/ClientService.ts";
 import { OnlineService } from "../src/server/services/OnlineService.ts";
@@ -21,6 +23,11 @@ after(() => http.close());
 const address = http.address();
 const server: ServerInfo = { port: typeof address === "object" && address ? address.port : 0, token: "t", pid: 0 };
 const call = <T>(method: string, path: string, body?: unknown) => ClientService.api<T>(server, method, path, body);
+
+test("GET /api/state includes the package.json version", async () => {
+  const state = await call<SessionState>("GET", routes.state);
+  assert.equal(state.version, pkg.version);
+});
 
 test("a Move over HTTP spawns; next hands out worker.spawn with its worktree; done activates", async () => {
   await call("POST", routes.capabilities, {
@@ -57,6 +64,27 @@ test("a Move over HTTP spawns; next hands out worker.spawn with its worktree; do
     code: "claim_gone",
     message: "claim is gone",
   });
+  // Force-release proves nothing about the thread: sf asks the Supervisor, never relaunches.
+  const executionId = record.command.execution!.id;
+  assert.equal((await call<StoryDetails>("GET", routes.story("DEV-1"))).execution?.status, "unknown");
+  const lookup = await call<CommandRecord>("GET", `${routes.nextCommand}?wait=1`);
+  assert.equal(lookup.command.type, "execution.reconcile");
+  if (lookup.command.type !== "execution.reconcile") return;
+  assert.equal(lookup.command.execution.id, executionId);
+  assert.equal(lookup.command.label, "thread-123");
+  await assert.rejects(
+    call("POST", routes.commandResult(lookup.id), {
+      ok: true,
+      execution: { status: "terminal", outcome: "completed", evidence: "idle", executionId: "x-other" },
+    }),
+    { code: "invalid" },
+  );
+  await call("POST", routes.commandResult(lookup.id), {
+    ok: true,
+    execution: { status: "terminal", outcome: "completed", evidence: "thread idle", threadId: "thread-123" },
+  });
+  const ended = await call<import("#model/api").ExecutionView>("GET", routes.execution(executionId));
+  assert.deepEqual([ended.status, ended.outcome, ended.threadId], ["terminal", "completed", "thread-123"]);
 });
 
 test("a spawn whose Claim is gone is cancelled, not handed out", async () => {
@@ -233,4 +261,131 @@ test("online CLI/API dependencies share validation, atomic wait and independent 
   );
   await run("story", "update", dependent.key, "--depends-on", "");
   assert.ok((await call<StoryDetails>("GET", routes.story(dependent.key))).claim);
+});
+
+test("HTTP forwards placement, validates shared policy and preserves it through reload", async () => {
+  const { scheduling } = await import("./scheduling-fixture.ts");
+  const { sfPaths } = await import("../src/server/project/paths.ts");
+  const file = sfPaths(root).config;
+  const original = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(original), scheduling: scheduling() }));
+  try {
+    await call("POST", routes.boards, { name: "Placement", key: "PLC" });
+    const placement = { mode: "required", machineId: "b" };
+    const created = await call<StoryDetails>("POST", routes.stories, { board: "PLC", title: "Placed", placement });
+    assert.deepEqual(created.placement, placement);
+    await call("PATCH", routes.story(created.key), { title: "Edited", fields: { extra: "kept" } });
+    assert.deepEqual((await call<StoryDetails>("GET", routes.story(created.key))).placement, placement);
+    const preferred = { mode: "preferred", machineId: "a" };
+    assert.deepEqual(
+      (await call<StoryDetails>("PATCH", routes.story(created.key), { placement: preferred })).placement,
+      preferred,
+    );
+    for (const bad of [
+      { mode: "required", machineId: "missing" },
+      { mode: "inherit", machineId: "a" },
+    ]) {
+      await assert.rejects(call("POST", routes.stories, { board: "PLC", title: "Bad", placement: bad }), {
+        code: "invalid",
+      });
+      await assert.rejects(call("PATCH", routes.story(created.key), { placement: bad }), { code: "invalid" });
+    }
+    assert.equal(
+      (await call<StoryDetails>("PATCH", routes.story(created.key), { placement: null })).placement,
+      undefined,
+    );
+    await call("PATCH", routes.story(created.key), { placement });
+    assert.equal(
+      (await call<StoryDetails>("PATCH", routes.story(created.key), { placement: { mode: "inherit" } })).placement,
+      undefined,
+    );
+    await assert.rejects(call("PATCH", routes.story(created.key), { fields: { placement } }), { code: "invalid" });
+  } finally {
+    fs.writeFileSync(file, original);
+  }
+});
+
+test("Board creation initializes an empty Project and duplicate failures allow retry", async () => {
+  const boardRoot = tempRepo();
+  const boardStore = StoreService.create(boardRoot, null);
+  const boardService = OnlineService.create(boardStore, { root: boardRoot, sf: "sf" });
+  const boardHttp = await listen(
+    createApp({ store: boardStore, service: boardService, token: "t", uiDir: null, onStop: () => {} }),
+    0,
+  );
+  try {
+    const address = boardHttp.address();
+    assert.ok(address && typeof address === "object");
+    const server = { port: address.port, token: "t", pid: 0 };
+    const create = (name: string, key: string) => ClientService.api(server, "POST", routes.boards, { name, key });
+    assert.equal(boardStore.state.project, null);
+    await create("First", "ONE");
+    assert.deepEqual(
+      boardStore.state.project!.boards[0]!.config.stages.map((stage) => stage.id),
+      ["backlog", "todo", "in_progress", "in_review", "done"],
+    );
+    await assert.rejects(create("First", "TWO"), /already exists/);
+    await assert.rejects(create("Second", "ONE"), /already used/);
+    assert.equal(boardStore.state.project!.boards.length, 1);
+    await create("Second", "TWO");
+    assert.deepEqual(
+      boardStore.state.project!.boards.map((board) => board.config.key),
+      ["ONE", "TWO"],
+    );
+  } finally {
+    boardHttp.close();
+  }
+});
+
+test("online CLI reports structured launch and terminal evidence; Claim end keeps the slot", async () => {
+  const runtime = path.join(root, ".sf/runtime");
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.writeFileSync(path.join(runtime, "server.json"), JSON.stringify(server));
+  const run = async (...args: string[]) =>
+    (
+      await promisify(execFile)(process.execPath, [
+        "--import",
+        "tsx",
+        path.resolve("src/cli/main.ts"),
+        ...args,
+        "--project",
+        root,
+      ])
+    ).stdout;
+  await call("POST", routes.boards, { name: "Executions", key: "EXE" });
+  await call("PATCH", routes.stage("EXE", "todo"), { promptEnabled: true, prompt: "Plan it." });
+  await call("PATCH", routes.stage("EXE", "in_progress"), { promptEnabled: true, prompt: "Build it." });
+  const story = await call<StoryDetails>("POST", routes.stories, { board: "EXE", title: "Evidence", stage: "todo" });
+  let record: CommandRecord;
+  do record = await call<CommandRecord>("GET", `${routes.nextCommand}?wait=1`);
+  while (record.command.type !== "worker.spawn" || record.command.storyKey !== story.key);
+  const { workerId, execution } = record.command;
+  await assert.rejects(run("done", record.id, "--task", "t-1"), /needs --status/);
+  await run("done", record.id, "--status", "running", "--task", "t-1", "--thread", "th-1");
+  assert.equal(store.state.commands.find((c) => c.id === record.id)?.execution?.taskId, "t-1");
+  const listed = JSON.parse(await run("execution", "list", "--json")) as import("#model/api").ExecutionsResponse;
+  const mine = listed.executions.find((e) => e.id === execution!.id)!;
+  assert.deepEqual([mine.status, mine.taskId, mine.threadId, mine.claimLive], ["running", "t-1", "th-1", true]);
+  assert.equal(listed.support.remote, true, "the harness owns machine handling");
+  // A duplicate result is recorded as late evidence without changing the outcome.
+  await run("fail", record.id, "--error", "late");
+  assert.equal(store.state.commands.find((c) => c.id === record.id)?.status, "done");
+  await call("POST", routes.storyMove(story.key), { stage: "in_progress", worker: workerId });
+  const waiting = await call<StoryDetails>("GET", routes.story(story.key));
+  assert.deepEqual(waiting.wait?.reasons, [{ code: "branch-occupied", executionId: execution!.id }]);
+  assert.match(await run("execution", "show", execution!.id), /waiting for evidence that the execution ended/);
+  await run(
+    "execution",
+    "report",
+    execution!.id,
+    "--status",
+    "terminal",
+    "--outcome",
+    "completed",
+    "--evidence",
+    "subagent finished",
+  );
+  const next = await call<StoryDetails>("GET", routes.story(story.key));
+  assert.equal(next.claim?.stageId, "in_progress");
+  assert.notEqual(next.claim?.executionId, execution!.id);
 });

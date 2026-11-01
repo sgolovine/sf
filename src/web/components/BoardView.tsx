@@ -1,8 +1,10 @@
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import type { StageConfig } from "#model/config";
 import type { BoardSnapshot } from "#model/project";
 import type { RuntimeState } from "#model/runtime";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { sfApi } from "../api/client.ts";
 import type { Act } from "./ErrorBanner.tsx";
@@ -13,6 +15,7 @@ type Props = {
   runtime: RuntimeState;
   act: Act;
   onOpenStory: (key: string) => void;
+  onCreateStory: (stageId: string) => void;
   /** Opens Board Settings on the Stages tab. */
   onOpenStages: () => void;
 };
@@ -20,7 +23,7 @@ type Props = {
 const columnClass = "flex min-h-32 w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
 
 /** The kanban: one column per Stage. Drag a card onto a column to Move its Story. */
-export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Props) {
+export function BoardView({ board, runtime, act, onOpenStory, onOpenStages, onCreateStory }: Props) {
   const { stages } = board.config;
   const [over, setOver] = useState<string | null>(null);
   const known = new Set(stages.map((s) => s.id));
@@ -72,6 +75,17 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages }: Pr
             onOpen={() => onOpenStory(s.key)}
           />
         ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="justify-start text-muted-foreground"
+          aria-label={`New Story in ${stage.name}`}
+          onClick={() => onCreateStory(stage.id)}
+        >
+          <Plus />
+          New Story
+        </Button>
       </section>
     );
   };

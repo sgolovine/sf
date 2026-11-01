@@ -14,7 +14,7 @@ Now that we have the basics of the app in place, this document describes the cor
 ```sh
 SF.md                 # Optional shared Worker instructions.
 sf.config.json        # Project configuration.
-runtime/              # gitignored: Claims, Worker thread ids, spawn failures, queued spawns.
+runtime/              # gitignored: Claims, the execution ledger, spawn failures, queued spawns.
 boards/
   development/
     BOARD.md          # Optional instructions for this Board.
@@ -54,7 +54,180 @@ Attachments belong to the Supervisor's Project, outside runtime and Story Worktr
 | Worktree base branch (default `main`/`master`) | yes | no |
 | Claim timeout (default 2h) | yes | no |
 | Extra preamble text for Worker Briefs | yes | no |
-| Max concurrent Workers (Project-wide total) | **no** | no |
+| Max concurrent Workers (legacy Project-wide total, default 3) | **no** | no |
+| Optional machine scheduling policy | **no** | no |
+
+### Machine scheduling policy (DEV-9 policy, DEV-10 dispatch)
+
+Optional Project-only `scheduling` is validated and persisted policy data. Dispatch (DEV-10) selects
+with it and reserves per-machine capacity in the execution ledger; see
+[the execution ledger](../execution-ledger.md). sf does not handle other machines itself: a configured,
+enabled remote is eligible whenever the Supervisor can launch Workers, and when one is selected the
+`worker.spawn` command carries a `machine` request and the Worker Brief ends with delimited machine
+instructions (DEV-11). The Supervisor's harness owns starting the Worker there. A machine request is
+not evidence of remote execution. See [the remote Worker boundary](../remote-workers.md)
+and [ADR 0003](../adr/0003-remote-worker-boundaries.md).
+
+Complete example `.sf/sf.config.json` (IDs are illustrative catalog values):
+
+```json
+{
+  "version": 1,
+  "worker": { "agent": null, "model": null },
+  "worktree": { "baseBranch": "main" },
+  "claimTimeoutMinutes": 120,
+  "briefPreamble": "",
+  "maxConcurrentWorkers": 3,
+  "scheduling": {
+    "local": { "capacity": 2 },
+    "remotes": [
+      {
+        "id": "build-server",
+        "name": "Build server",
+        "environmentId": "env-build",
+        "project": { "projectId": "project-build", "repository": "github.com/sgolovine/sf" },
+        "enabled": true,
+        "capacity": 4
+      },
+      {
+        "id": "spare-server",
+        "name": "Spare server",
+        "environmentId": "env-spare",
+        "project": { "projectId": "project-spare", "repository": "github.com/sgolovine/sf" },
+        "enabled": true,
+        "capacity": 2
+      }
+    ],
+    "order": ["build-server", "spare-server", "local"]
+  }
+}
+```
+
+Every scheduling field shown is required, with no invented defaults or coercion. Capacities are
+finite nonnegative safe integers; zero prevents new selections. `remotes` and `order` are arrays
+and may be empty. `enabled` is a boolean. Remote IDs match `[a-z][a-z0-9_-]*`, are unique and cannot
+be the reserved ID `local`. Display names, environment IDs and project IDs are nonblank strings
+without surrounding whitespace. IDs are opaque canonical catalog values, with no UUID-only
+restriction; URLs, whitespace and filesystem paths are rejected. No route, credential or transport
+fields are accepted. Unknown scheduling fields are rejected rather than silently ignored.
+
+`project.repository` is the exact public project catalog `repositoryIdentity.canonicalKey`, such as
+`github.com/sgolovine/sf`: host followed by nonempty repository path segments, without a scheme,
+credentials, query, fragment, whitespace, empty/dot segments or leading/trailing slash. Clone URLs
+and checkout paths are invalid; sf never guesses or normalizes them. This schema adopts DEV-7's
+observed local identity representation as policy data. The future adapter must compare this value
+with the **target** project catalog identity and positively establish mapping and other eligibility.
+Syntactic validity is never eligibility evidence.
+
+Order entries must be known, unique machine IDs. Local participates only when explicitly listed;
+it is never appended automatically. An empty order makes inherited placement wait. Required or
+preferred remotes may be configured outside the automatic order. Exact duplicate environment IDs
+are rejected even when an alias is disabled, so aliases cannot multiply capacity. Operators must
+configure one T3 environment per physical machine. Limits belong to this sf Project across all its
+Boards, not to the host: independent environments on one host and independent sf Projects cannot
+share a limit. Physical host equivalence, CPU balancing and host-wide quotas are outside this schema.
+Scheduling cannot be set in Board overrides or Stage configuration/frontmatter.
+
+The pure `normalizePlacementPolicy` presents local alone at the legacy capacity/default 3 when
+scheduling is absent. When scheduling is present, **only** per-machine capacities apply in the policy;
+even an explicitly stored legacy `maxConcurrentWorkers` is ignored and preserved for compatibility.
+There is no additional overall cap in v1. Dispatch applies the same precedence: every non-terminal
+execution across all Boards counts against its machine.
+
+### Editing scheduling (DEV-12)
+
+`PATCH /api/project/settings` (`sf project set`, Project settings → Scheduling) accepts
+`scheduling` and `maxConcurrentWorkers` beside the model settings. Omitted keys are unchanged. A
+supplied `scheduling` replaces the whole value, validated as above; `null` removes it. The write is
+atomic, preserves unrelated config, and drains the queue against the new policy, so a raised cap
+launches queued work and a lowered cap stops only new reservations. In the same mutation sf
+rejects, listing every reference and its resolution:
+
+- removing a remote that any Story's required/preferred placement names, on any Board;
+- removing a remote, or changing its `environmentId`, `project.projectId` or `project.repository`,
+  while an occupying execution holds it;
+- `scheduling: null` while either applies.
+
+Renames, capacity (including 0 or below current usage), `enabled` and order changes are always
+allowed. A disabled required target makes its Stories wait with reason `disabled`. These checks clear
+no unknown occupancy or branch fence. Hand edits that bypass them still hit the dispatch guards
+(`missing-target`, `unmapped`). The response adds `policy` (`normalizePlacementPolicy`) and
+`machines`: `{ id, used, capacity, enabled, configured }` per machine from occupying executions,
+where `used` may exceed a lowered cap and `capacity` is null for a machine that is no longer
+configured. `sf status --json` returns `{ server, commands, claims, occupying, waiting, machines }`.
+The UI footer shows per-machine used/max, and Story cards and the editor show an occupying
+execution's remote as "Requested: X" with any Supervisor-reported task/thread IDs as plain text.
+
+### Story placement
+
+`placement` is optional built-in frontmatter, separate from custom fields. Its complete forms are
+`{ mode: "inherit" }`, `{ mode: "local-only" }`, `{ mode: "required", machineId: "build-server" }`
+and `{ mode: "preferred", machineId: "build-server" }`. No extra keys/target combinations are accepted.
+Example Story (all frontmatter modes above use the same shape in HTTP JSON):
+
+```yaml
+---
+title: Build release artifacts
+stage: backlog
+placement:
+  mode: preferred
+  machineId: build-server
+priority: high
+---
+Build and verify the published artifacts.
+```
+
+Missing placement means inherit. Shared service create/update and HTTP requests accept `placement`;
+patch omission preserves it, while `null` or explicit inherit clears the persisted property.
+New required/preferred targets must identify a configured remote (disabled is permitted);
+`local` uses local-only instead. Without scheduling, only inherit/local-only are valid new values.
+Snapshots, Story details, edits and Moves preserve placement through reload. Unknown custom keys
+keep their existing behavior. `placement` is reserved in Board schemas and custom-field payloads;
+a legacy custom field with this name is a migration conflict: rename its schema ID and Story data
+before loading the Board, rather than silently discarding its values. Built-in fields cannot be
+supplied through custom fields to overwrite serialized metadata (the existing legacy `model`
+migration remains supported). `sf story create|update --placement inherit|local-only|required|preferred
+[--machine <remote-id>]` and the Story editor's Placement control set it; `--placement inherit` sends
+`null`, and an omitted flag preserves the value. The editor sends placement only when it changed, so a
+Story whose target was removed by hand stays editable; it shows that target as unresolved.
+
+Removing a configured remote does not destroy old overrides. Their structure is read separately
+from target validation, so unrelated edits and clearing still work. Explicitly resupplying an unknown
+target is rejected with a correction; the selector returns `missing-target` for the stale reference.
+
+### Pure placement selection contract
+
+`selectPlacement(policy, placement, eligibility, usage)` takes normalized policy, Story placement,
+per-target eligibility evidence for the **resolved Stage agent/model**, and occupied reservation counts.
+It performs no filesystem/network/T3/clock operation, input mutation, reservation or launch.
+Candidate order is:
+
+- inherit: Project order;
+- local-only: local alone;
+- required: that remote alone, with no fallback;
+- preferred: that remote then Project order with stable deduplication.
+
+For each candidate it checks eligibility before capacity and selects the first eligible target whose
+usage is below capacity. Equal/above capacity (including after a cap reduction) waits; existing work
+is never terminated or rebalanced. Absent usage is zero; every supplied usage value must be a finite
+nonnegative safe integer, including values for targets outside the candidate list.
+
+Eligibility is supplied explicitly as `{ failures: [] }` for verified eligibility or
+`{ failures: ["unreachable", ...], detail?: "..." }` for failures. Missing evidence yields
+`incompatible` with an explanation that eligibility is unverified, including for local. The selector
+never assumes a target is available. Configured disabled targets and absent target IDs are checked
+independently of evidence. One failure is emitted per failed candidate in this exact priority:
+`missing-target`, `disabled`, `incompatible`, `unreachable`, `unauthorized`, `unmapped`,
+`agent-ineligible`, `model-ineligible`, then `capacity`. Multiple failures never let free capacity
+make a target eligible. Candidate reasons remain in candidate order.
+
+Results are `{ kind: "selected", machineId: "build-server" }` or
+`{ kind: "wait", reasons: [{ machineId: "build-server", code: "capacity" }, ...] }`, with optional
+reason `detail`. With no candidates, the only reason is `{ code: "no-candidates" }` (no machine ID).
+Malformed Project configuration is rejected as `SfError("invalid", ...)` at shared load/validation,
+not disguised as a wait. Tests simulate caller-owned usage to produce four build-server selections,
+two spare-server selections, two local selections, then wait regardless of legacy cap 3. This is
+policy evidence; production dispatch reserves remotes and requests them from the harness (DEV-11).
 
 ### Shared Worker instructions
 
@@ -76,7 +249,7 @@ sf reads these files from the service's Project root in the Supervisor's checkou
 
 ### Story file
 
-A Markdown file named `<Story Key>.md`. YAML frontmatter holds `title`, `stage` (a Stage id), optional `branch`, the built-in optional `model`, and the custom field values. The body is the Story description. Story numbers increment per Board.
+A Markdown file named `<Story Key>.md`. YAML frontmatter holds `title`, `stage` (a Stage id), optional `branch`, the built-in optional `model`, `placement`, and `dependsOn`, and the custom field values. The body is the Story description. Story numbers increment per Board.
 
 ## SF Concepts
 
@@ -96,12 +269,17 @@ Agent threads spawned by the Supervisor. A Worker runs as a new top-level thread
   - the user force-releases the Story in the UI, or
   - the Worker runs no sf command for the claim timeout.
 - When a claim ends without the Worker's knowledge, sf does not interrupt the thread. Any later sf command from that Worker is rejected with "claim is gone".
+- **Execution.** A claim end revokes authority but does not prove the Worker stopped. Its execution keeps its Worker slot and fences the Story branch (the next Stage waits, Done cleanup is deferred) until the Supervisor reports correlated terminal evidence. Timeouts, force-releases and lost launch results become `unknown` and are reconciled through the Supervisor, never relaunched. See [the execution ledger](../execution-ledger.md).
 
 ### Project
 
 The data root for sf: the `.sf` directory.
 
 ### Board
+
+New Board opens a shared modal dialog over the current Board or settings screen. Name and Key are required; Key is uppercased as typed. Cancel, Close, Escape, and outside click discard the form and restore focus to the opening control. A pending creation prevents duplicate submission and dismissal; failures appear inside the dialog and retain the inputs for retry. Success selects the new Board through the live session refresh.
+
+Projects without Boards initially open this same dismissible dialog. Dismissal leaves an empty state with a New Board action; session refreshes do not reopen it. First Board creation initializes the Project through the existing API and uses the default Stages below. The dialog traps focus, starts on Name, and scrolls within short viewports.
 
 Work in sf is split into Boards.
 
@@ -124,7 +302,13 @@ Any other Stage can have a Stage Prompt, with an enabled/disabled flag. If a Sto
 
 A Story describes a unit of work. The user, the Supervisor, and Workers can create Stories in any Stage. Creating a Story in a Stage counts as a Move into it.
 
-New Story and Edit Story open on a **Details** tab with Title, Stage, and Description. Creation allows choosing a Stage (Backlog by default); editing shows the current Stage read-only. A **Custom Fields** tab contains the Board schema fields in order, or “No custom fields.” when the schema is empty. Switching tabs preserves unsaved values and the Description Write/Preview mode. Dialog metadata, any active HIL notice, and Cancel/Save actions are shared across tabs.
+New Story and Edit Story open on a **Details** tab with Title, Stage, and Description. Each configured Stage has a New Story button after its cards, including empty Stages, Backlog, and Done. It opens the dialog with that Stage selected; the header New Story button defaults to Backlog. The synthetic Unknown Stage group has no create button. Creation allows changing the selected Stage, with Worker model inheritance following that selection; editing shows the current Stage read-only. Each creation starts a fresh form on Details. A **Custom Fields** tab contains the Board schema fields in order, or “No custom fields.” when the schema is empty. Switching tabs preserves unsaved values and the Description Write/Preview mode. Dialog metadata, any active HIL notice, and Cancel/Save actions are shared across tabs.
+
+The Story dialog has a URL path: `/create` for New Story on the selected Board and `/<KEY>` (for example `/DEV-19`) for an existing Story; closing it returns to `/`. Opening and closing push history entries, so Back and Forward close and reopen it. Loading a Story path opens that Story with its Board selected. An unknown path or key, a Story deleted while open, or `/create` with no Boards shows no dialog and replaces the URL with `/`. Board, Board Settings, and Project settings views have no URL.
+
+### Story search
+
+When the Project has a Board, the header shows a Search Stories trigger in every view; it or Cmd/Ctrl+K (ignored while a Story dialog or Create a Board is open) opens a finder dialog with an empty, focused query. Typing fuzzy-matches the key and title of every Story on every Board, in any Stage, through `GET /api/search?q=<text>` (token required). The server ranks matches with `fuzzysort` by each Story's best key or title score and returns at most 50 `{ key, title, board: { id, name }, stage: { id, name } }`, best first; an empty or blank `q` returns `[]`. Up/Down move the highlighted row (the first by default), and Enter or a click opens it at `/<KEY>`, switching to its Board; Escape closes the finder without navigating. The finder has no URL. Bodies and custom fields are not searched.
 
 ### Deletion
 
@@ -188,7 +372,7 @@ Stage `model` is frontmatter in `stages/<id>.md`; its body is the prompt and met
 
 `model` is reserved in schema validation/editor. Legacy custom-field definitions/data remain readable and preserved; report a conflict requiring the field and its data to be renamed before schema changes or built-in model writes. Non-string legacy metadata is never used as a Worker model.
 
-Project settings are reachable from the sidebar; Board Settings has a Worker tab with model/catalog controls. Stage Prompts settings expose model selectors for every Stage, including Backlog/Done with prompt controls disabled. Story create/edit always exposes the built-in selector even with an empty schema, using the chosen Stage for creates and actual current Stage for edits. Selectors show labels/slugs, inheritance and effective model/source; live refresh displays persisted values.
+Project settings are reachable from the sidebar; Board Settings has a secondary sidebar with Worker, Stages, Custom Fields, and Stage Prompts sections (a compact section selector at narrow widths). The Worker section contains model/catalog controls. Back to board sits at the right of the application header. In Stages, left-hand handles reorder movable Stages with pointer/touch input or Space/Enter, arrow keys, and Space/Enter to save; Escape cancels. Backlog and Done remain fixed. Reorders save immediately through the existing Stage operation, and failed saves retain the saved order. Stage Prompts settings expose model selectors for every Stage, including Backlog/Done with prompt controls disabled. Story create/edit always exposes the built-in selector even with an empty schema, using the chosen Stage for creates and actual current Stage for edits. Selectors show labels/slugs, inheritance and effective model/source; live refresh displays persisted values.
 
 CLI: `sf project show|set`, `sf board show|set <board>`, `sf stage set`, and Story create/update support `--model <slug>` (`""` clears). Project/Board set support repeatable additive `--model-option <slug>`. Show output and Stage set expose effective model/source/catalogs as JSON; human output identifies the effective model/source. Typed API operations use GET/PATCH `/api/project/settings`, PATCH `/api/boards/:board`, Stage PATCH, and Story POST/PATCH. JSON model patches merge unrelated nested settings. Commands work online/offline.
 
@@ -196,7 +380,7 @@ Spawns read persisted selections for immediate create/Move, retry, HIL wake, que
 
 ### Story dependencies and automatic wake-up
 
-Stories optionally persist `dependsOn: [DEV-7]` in frontmatter. Omission/empty lists retain legacy behavior. Create/update API and CLI accept complete replacement lists (`--depends-on DEV-7,DEV-8`; empty string clears); unrelated edits preserve them. The Story editor provides the same workflow. Shared service validation applies online/offline: keys must exist in this Project (cross-Board allowed), with no self reference or cycle; errors identify the bad key or cycle. `dependsOn` is reserved and cannot be a custom field. Supported deletion rejects referenced prerequisites and names their dependents. A prerequisite removed or unreadable outside sf remains unresolved; restore it or explicitly remove its reference rather than treating absence as Done.
+Stories optionally persist `dependsOn: [DEV-7]` in frontmatter. Omission/empty lists retain legacy behavior. Create/update API and CLI accept complete replacement lists (`--depends-on DEV-7,DEV-8`; empty string clears); unrelated edits preserve them. The Story editor provides the same workflow through a searchable multi-select of Project Stories, with selected keys shown as removable pills. Shared service validation applies online/offline: keys must exist in this Project (cross-Board allowed), with no self reference or cycle; errors identify the bad key or cycle. `dependsOn` is reserved and cannot be a custom field. Supported deletion rejects referenced prerequisites and names their dependents. A prerequisite removed or unreadable outside sf remains unresolved; restore it or explicitly remove its reference rather than treating absence as Done.
 
 Worker dispatch requires every dependency Done in addition to the existing enabled/nonblank prompt, Claim, capacity and HIL rules. Dependency holds and HIL are displayed independently, together when both apply. Resolving dependencies never clears HIL; clearing HIL never bypasses dependencies. Story JSON exposes dependency keys, unresolved keys and a dependency-wait boolean; `hil` and `queued` identify human input and Worker capacity independently.
 

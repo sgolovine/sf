@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type BriefInput, composeBrief, shellQuote } from "../src/server/project/brief.ts";
+import { type BriefInput, composeBrief, machineRequest, shellQuote } from "../src/server/project/brief.ts";
 import { defaultBoard } from "../src/server/project/config.ts";
+import { scheduling } from "./scheduling-fixture.ts";
 
 test("brief sections are sf preamble, configured preamble, Stage Prompt, Story", () => {
   const board = defaultBoard("Development", "DEV");
@@ -135,4 +136,40 @@ test("instruction files are independently optional and blank sections preserve t
     assert.ok(projectOnly.includes("## SF.md\n\nShared guidance"));
     assert.ok(!projectOnly.includes("## BOARD.md"));
   }
+});
+
+test("a selected remote appends delimited machine instructions after the unchanged brief", () => {
+  const config = scheduling();
+  const original = composeBrief({ ...instructionBrief, projectInstructions: "Shared", boardInstructions: "Board" });
+  assert.equal(machineRequest(config, undefined, "local", "sf/DEV-1"), undefined, "local requests no machine");
+  const required = machineRequest(config, { mode: "required", machineId: "a" }, "a", "sf/DEV-1")!;
+  const brief = composeBrief({
+    ...instructionBrief,
+    projectInstructions: "Shared",
+    boardInstructions: "Board",
+    machine: required,
+  });
+  assert.equal(brief, `${original}\n${required.instructions}\n`, "everything before the machine section is preserved");
+  assert.match(required.instructions, /^## Machine Placement\n\n<!-- sf:machine-placement -->\n/);
+  assert.match(required.instructions, /<!-- \/sf:machine-placement -->$/);
+  for (const data of ["Machine name: A", "Machine id: a", "Environment id: env-a", "Project id: project-a"])
+    assert.ok(required.instructions.includes(data), data);
+  assert.match(required.instructions, /Start this Worker on that machine using the harness's own machine handling/);
+  assert.match(required.instructions, /required\. Do not start this Worker anywhere else/);
+  assert.match(required.instructions, /may not exist on A/);
+  assert.match(required.instructions, /not evidence that the Worker runs on A/);
+  assert.deepEqual([required.placement, required.localFallback], ["required", false]);
+
+  const preferred = machineRequest(config, { mode: "preferred", machineId: "b" }, "b", "sf/DEV-1")!;
+  assert.deepEqual([preferred.placement, preferred.localFallback], ["preferred", true]);
+  assert.match(
+    preferred.instructions,
+    /preferred by the Story\. If the harness cannot start it on this machine, it may start the Worker on the Supervisor's machine instead/,
+  );
+  const noLocal = machineRequest({ ...config, order: ["a"] }, undefined, "a", "sf/DEV-1")!;
+  assert.deepEqual([noLocal.placement, noLocal.localFallback], ["default", false]);
+  assert.match(
+    noLocal.instructions,
+    /chosen by the Project's machine order\. The policy does not allow local fallback/,
+  );
 });
