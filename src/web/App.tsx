@@ -13,6 +13,7 @@ import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
 import { ModelSettings } from "./components/ModelSettings.tsx";
+import { RemoteMachinesSettings } from "./components/RemoteMachinesSettings.tsx";
 import { SchedulingSettings } from "./components/SchedulingSettings.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
@@ -242,6 +243,7 @@ export function App() {
             <div key={JSON.stringify(project.config)} className="flex flex-col divide-y">
               <ModelSettings project={project.config} act={act} />
               <SchedulingSettings project={project.config} act={act} />
+              <RemoteMachinesSettings project={project.config} act={act} />
             </div>
           ) : !board ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
@@ -274,7 +276,7 @@ export function App() {
           {project && (
             <span className="shrink-0">
               Workers{" "}
-              {project.config.scheduling
+              {project.config.scheduling || project.config.remoteMachines?.length
                 ? machineUsage(project.config, Object.values(project.runtime.executions ?? {}))
                     .map(
                       (m) => `${m.id} ${m.used}/${m.capacity ?? "?"}${m.configured && !m.enabled ? " (disabled)" : ""}`,

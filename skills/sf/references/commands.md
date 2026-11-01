@@ -71,25 +71,23 @@ Add `--task` or `--thread` when you learn an identity. "Not found" alone is not 
 
 ## Machine requests
 
-When placement selects a configured remote machine, `worker.spawn` carries `machine`:
+When placement selects a remote machine, `worker.spawn` carries `machine`:
 
 ```json
 "machine": {
   "id": "build-server", "name": "Build server",
-  "environmentId": "…", "projectId": "…", "repository": "github.com/owner/repo",
-  "placement": "required", "localFallback": false,
-  "instructions": "## Machine Placement\n\n<!-- sf:machine-placement -->\n…"
+  "instructions": "## Machine Placement\n\nThe user specified that this work should be done on the machine: build-server\n\n…"
 }
 ```
 
-sf only requests the machine. Machine handling belongs to your harness:
+`id` is the machine slug and `name` its label. sf only names the machine; your harness tracks it and owns everything else:
 
-- Read `machine` before you choose where to launch. Start the Worker on that machine with your harness's own machine handling, with the brief as the Worker's whole prompt as usual. The brief ends with the same `instructions` in a delimited `## Machine Placement` section; keep it when you forward the brief. Use only arguments your launch tool documents. Never invent remote parameters.
-- `placement` is the Story's intent: `required`, `preferred`, or `default` (the Project's machine order chose it). If the harness cannot start the Worker there and `localFallback` is `false`, start nothing and run `fail <id> --not-started --error "<reason>"`. If `localFallback` is `true`, you may launch locally instead; say so in the result or evidence. sf keeps the reservation charged to the requested machine, so do not report a different `machineId`.
-- The brief's Project and worktree paths are on your machine, which holds the sf authority. They may not exist on the requested machine. Preparing that machine (repository, Story branch, working directory) and giving the Worker access to sf's Story commands are up to the harness.
+- Read `machine` before you choose where to launch. Start the Worker on that machine with your harness's own machine handling, with the brief as the Worker's whole prompt as usual. The brief ends with the same `instructions`; keep them when you forward the brief. Use only arguments your launch tool documents. Never invent remote parameters.
+- The instructions say whether local fallback is allowed. If it is not and the harness cannot start the Worker there, start nothing and run `fail <id> --not-started --error "<reason>"`. If it is, you may launch locally instead; say so in the result or evidence. sf keeps the reservation charged to the requested machine, so do not report a different `machineId`.
 - A machine request is not evidence of where the Worker runs. Report only what the launch tool returned, with the usual `done`, `fail` and `execution report` results.
+- Older queued commands may carry extra machine fields (`environmentId`, `projectId`, `repository`, `placement`, `localFallback`); treat them the same way and follow their instructions.
 
-Users set machines and Story placement with `sf project set --scheduling-file <json>` and `sf story update <KEY> --placement required|preferred --machine <id>` (or `--placement inherit|local-only`), or in the UI. `sf status --json` lists per-machine used/max. A reservation charged to a machine shows as "Requested", not as proof of where the Worker runs.
+Users set machines with `sf project set --remote-machines-file <json>`, the machine order with `--scheduling-file <json>`, and Story placement with `sf story update <KEY> --placement required|preferred --machine <id>` (or `--placement inherit|local-only`), or in the UI. `sf status --json` lists per-machine used/max. A reservation charged to a machine shows as "Requested", not as proof of where the Worker runs.
 
 Without `machine`, launch locally as described above. See the repository's [remote Worker boundary](../../../docs/remote-workers.md) for the full contract and the dated DEV-7 history.
 

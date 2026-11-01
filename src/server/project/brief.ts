@@ -1,5 +1,5 @@
 import type { MachineRequest } from "#model/commands";
-import type { BoardConfig, FieldDef, SchedulingConfig } from "#model/config";
+import type { BoardConfig, FieldDef, RemoteMachine, SchedulingConfig } from "#model/config";
 import { modelDescription, type ResolvedModel } from "#model/models";
 import type { StoryPlacement } from "#model/placement";
 import type { StoryData } from "./story.ts";
@@ -90,54 +90,35 @@ Every command refreshes your Claim. If a command fails with "claim is gone", sto
   return `${sections.join("\n\n")}\n`;
 }
 
+/** The sentence that tells the Worker and its launcher which machine the user chose. */
+export function machineSentence(slug: string) {
+  return `The user specified that this work should be done on the machine: ${slug}`;
+}
+
 /**
- * The machine request for a Worker that placement put on a configured remote,
- * or undefined for local. sf asks the harness to start the Worker there and
- * leaves machine handling, preparation and Story command access to it.
+ * The machine request for a Worker that placement put on a remote machine, or undefined for local.
+ * sf only names the machine; discovering, preparing and launching on it belong to the harness.
  */
 export function machineRequest(
+  remotes: readonly RemoteMachine[] | undefined,
   scheduling: SchedulingConfig | undefined,
   placement: StoryPlacement | undefined,
   machineId: string,
-  branch: string,
 ): MachineRequest | undefined {
-  const remote = scheduling?.remotes.find((r) => r.id === machineId);
+  const remote = remotes?.find((r) => r.id === machineId);
   if (!remote) return undefined;
-  const intent = placement?.mode === "required" || placement?.mode === "preferred" ? placement.mode : "default";
-  const localFallback = intent !== "required" && scheduling!.order.includes("local");
-  const where = `"${remote.name}" (machine id \`${remote.id}\`)`;
+  // Without scheduling, inherited and preferred placement fall back to local.
+  const fallback = placement?.mode !== "required" && (scheduling?.order.includes("local") ?? true);
   const instructions = `## Machine Placement
 
-<!-- sf:machine-placement -->
-sf placement selected machine ${where} for this Worker. Start this Worker on that machine using the harness's own machine handling. sf does not move the Worker itself.
+${machineSentence(remote.id)}
 
-- Machine name: ${remote.name}
-- Machine id: ${remote.id}
-- Environment id: ${remote.environmentId}
-- Project id: ${remote.project.projectId}
-- Repository: ${remote.project.repository} (Story branch ${branch})
-- Placement: ${
-    intent === "required"
-      ? "required. Do not start this Worker anywhere else. If the harness cannot start it on this machine, start nothing and report the launch as not started."
-      : `${intent === "preferred" ? "preferred by the Story" : "chosen by the Project's machine order"}. ${
-          localFallback
-            ? "If the harness cannot start it on this machine, it may start the Worker on the Supervisor's machine instead; say where it started."
-            : "The policy does not allow local fallback: if the harness cannot start it on this machine, start nothing and report the launch as not started."
-        }`
-  }
-- The Project and Story Worktree paths in this brief are on the Supervisor's machine, which holds the sf authority. They may not exist on ${remote.name}. Preparing the machine (repository, Story branch, working directory) and reaching sf's Story commands from it are up to the harness.
-- This request is not evidence that the Worker runs on ${remote.name}. Report only what the launch tool returns.
-<!-- /sf:machine-placement -->`;
-  return {
-    id: remote.id,
-    name: remote.name,
-    environmentId: remote.environmentId,
-    projectId: remote.project.projectId,
-    repository: remote.project.repository,
-    placement: intent,
-    localFallback,
-    instructions,
-  };
+${
+  fallback
+    ? "If the harness cannot start this Worker there, it may start it on the Supervisor's machine instead; say where it started."
+    : "If the harness cannot start this Worker there, start nothing and report the launch as not started."
+}`;
+  return { id: remote.id, name: remote.name, instructions };
 }
 
 function storyText(key: string, story: StoryData, schema: FieldDef[]) {

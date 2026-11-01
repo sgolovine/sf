@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import { useId, useState } from "react";
 import type { ProjectConfig } from "#model/config";
 import { Button } from "@/components/ui/button";
@@ -7,35 +7,25 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { sfApi } from "../api/client.ts";
-import {
-  blankRemote,
-  draftScheduling,
-  LOCAL_SLOT,
-  type RemoteDraft,
-  slotId,
-  toNumber,
-  toScheduling,
-} from "../lib/schedulingDraft.ts";
+import { toNumber } from "../lib/schedulingDraft.ts";
 import type { Act } from "./ErrorBanner.tsx";
 
-/** Project-wide Worker capacity: the legacy total, or per-machine caps and an ordered machine preference. */
+/** Project-wide Worker capacity: the Project maximum, and optional local capacity and machine order. */
 export function SchedulingSettings({ project, act }: { project: ProjectConfig; act: Act }) {
   const id = useId();
   const current = project.scheduling;
   const [enabled, setEnabled] = useState(!!current);
   const [max, setMax] = useState(String(project.maxConcurrentWorkers));
   const [local, setLocal] = useState(String(current?.local.capacity ?? project.maxConcurrentWorkers));
-  const [initial] = useState(() => draftScheduling(current));
-  const [remotes, setRemotes] = useState<RemoteDraft[]>(initial.remotes);
-  // Order slots are draft keys, so editing a machine ID keeps its position.
-  const [order, setOrder] = useState<string[]>(initial.order);
+  const [order, setOrder] = useState<string[]>(current?.order ?? ["local"]);
   const [adding, setAdding] = useState("");
-  const slots = [LOCAL_SLOT, ...remotes.filter((r) => r.id).map((r) => r.key)];
-  const addable = slots.filter((slot) => !order.includes(slot));
-  const slotLabel = (slot: string) => slotId(slot, remotes) || "(no ID)";
+  const remotes = project.remoteMachines ?? [];
+  const addable = ["local", ...remotes.map((r) => r.id)].filter((machine) => !order.includes(machine));
+  const label = (machine: string) => {
+    const remote = remotes.find((r) => r.id === machine);
+    return remote ? `${remote.name} (${remote.id})` : machine;
+  };
 
-  const updateRemote = (index: number, patch: Partial<RemoteDraft>) =>
-    setRemotes(remotes.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   const move = (index: number, by: number) => {
     const next = [...order];
     [next[index], next[index + by]] = [next[index + by]!, next[index]!];
@@ -48,11 +38,10 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
       onSubmit={(e) => {
         e.preventDefault();
         void act(() =>
-          sfApi.updateProject(
-            enabled
-              ? { scheduling: toScheduling(local, { remotes, order }) }
-              : { scheduling: null, maxConcurrentWorkers: toNumber(max) },
-          ),
+          sfApi.updateProject({
+            maxConcurrentWorkers: toNumber(max),
+            scheduling: enabled ? { local: { capacity: toNumber(local) }, order } : null,
+          }),
         );
       }}
     >
@@ -66,22 +55,25 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
       <p className="text-sm text-muted-foreground">
         Limits apply to the whole Project, across every Board.{" "}
         {enabled
-          ? "Per-machine limits replace the legacy total. sf reserves a slot on the first machine in the order with room, and asks the Supervisor's harness to start remote Workers there; a request is not proof of where a Worker runs."
-          : "All Workers run on the Supervisor's machine, up to this total."}
+          ? "Stories without a placement use the first machine in the order with room."
+          : "Stories without a placement run on the Supervisor's machine, up to the Project maximum."}
       </p>
-      {!enabled ? (
-        <div className="grid gap-2">
-          <Label htmlFor={`${id}-max`}>Maximum concurrent Workers</Label>
-          <Input
-            id={`${id}-max`}
-            type="number"
-            min={0}
-            value={max}
-            onChange={(e) => setMax(e.target.value)}
-            className="w-32"
-          />
-        </div>
-      ) : (
+      <div className="grid gap-2">
+        <Label htmlFor={`${id}-max`}>Maximum concurrent Workers</Label>
+        <Input
+          id={`${id}-max`}
+          type="number"
+          min={0}
+          value={max}
+          onChange={(e) => setMax(e.target.value)}
+          className="w-32"
+        />
+        <p className="text-xs text-muted-foreground">
+          A per-machine default, not a total: {enabled ? "" : "the local capacity, and "}the capacity of each remote
+          machine that does not set its own.
+        </p>
+      </div>
+      {enabled && (
         <>
           <div className="grid gap-2">
             <Label htmlFor={`${id}-local`}>Local capacity (the Supervisor's machine)</Label>
@@ -94,120 +86,22 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
               className="w-32"
             />
           </div>
-          <fieldset className="grid gap-3">
-            <legend className="mb-2 text-sm font-medium">Remote machines</legend>
-            {remotes.length === 0 && <p className="text-sm text-muted-foreground">No remote machines.</p>}
-            {remotes.map((r, index) => {
-              const field = (key: string) => `${id}-remote-${index}-${key}`;
-              const label = r.name || r.id || `Remote ${index + 1}`;
-              return (
-                <div key={r.key} className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
-                  <div className="grid gap-1">
-                    <Label htmlFor={field("id")}>Machine ID</Label>
-                    <Input
-                      id={field("id")}
-                      value={r.id}
-                      placeholder="lowercase-slug"
-                      onChange={(e) => updateRemote(index, { id: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label htmlFor={field("name")}>Name</Label>
-                    <Input
-                      id={field("name")}
-                      value={r.name}
-                      onChange={(e) => updateRemote(index, { name: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label htmlFor={field("env")}>Environment ID</Label>
-                    <Input
-                      id={field("env")}
-                      value={r.environmentId}
-                      onChange={(e) => updateRemote(index, { environmentId: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label htmlFor={field("project")}>Project ID</Label>
-                    <Input
-                      id={field("project")}
-                      value={r.project.projectId}
-                      onChange={(e) => updateRemote(index, { project: { ...r.project, projectId: e.target.value } })}
-                    />
-                  </div>
-                  <div className="grid gap-1 sm:col-span-2">
-                    <Label htmlFor={field("repo")}>Repository</Label>
-                    <Input
-                      id={field("repo")}
-                      value={r.project.repository}
-                      placeholder="github.com/owner/repo"
-                      onChange={(e) => updateRemote(index, { project: { ...r.project, repository: e.target.value } })}
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label htmlFor={field("cap")}>Capacity</Label>
-                    <Input
-                      id={field("cap")}
-                      type="number"
-                      min={0}
-                      value={r.capacity}
-                      onChange={(e) => updateRemote(index, { capacity: e.target.value })}
-                    />
-                  </div>
-                  <div className="flex items-end justify-between gap-2">
-                    <div className="flex items-center gap-2 pb-2">
-                      <Switch
-                        id={field("enabled")}
-                        checked={r.enabled}
-                        onCheckedChange={(enabled) => updateRemote(index, { enabled })}
-                      />
-                      <Label htmlFor={field("enabled")}>Enabled</Label>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove ${label}`}
-                      onClick={() => {
-                        setOrder(order.filter((slot) => slot !== r.key));
-                        setRemotes(remotes.filter((_, i) => i !== index));
-                      }}
-                    >
-                      <Trash2 className="text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-            <Button
-              type="button"
-              variant="outline"
-              className="justify-self-start"
-              onClick={() => setRemotes([...remotes, blankRemote(remotes)])}
-            >
-              <Plus /> Add remote machine
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Disable a machine to keep Stories pinned to it waiting. A machine a Story or a running Worker still uses
-              cannot be removed or remapped.
-            </p>
-          </fieldset>
           <fieldset className="grid gap-2">
             <legend className="mb-2 text-sm font-medium">Machine order</legend>
             <p className="text-xs text-muted-foreground">
-              Stories without a placement use the first machine with room. Leave local out to keep them off the
-              Supervisor's machine; an empty order makes them wait.
+              Leave local out to keep Stories without a placement off the Supervisor's machine; an empty order makes
+              them wait. Add machines to the order under Remote machines first.
             </p>
             <ol className="grid gap-1">
-              {order.map((slot, index) => (
-                <li key={slot} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
+              {order.map((machine, index) => (
+                <li key={machine} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
                   <span className="w-5 text-muted-foreground">{index + 1}.</span>
-                  <span className="flex-1">{slotLabel(slot)}</span>
+                  <span className="flex-1">{label(machine)}</span>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Move ${slotLabel(slot)} up`}
+                    aria-label={`Move ${label(machine)} up`}
                     disabled={index === 0}
                     onClick={() => move(index, -1)}
                   >
@@ -217,7 +111,7 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Move ${slotLabel(slot)} down`}
+                    aria-label={`Move ${label(machine)} down`}
                     disabled={index === order.length - 1}
                     onClick={() => move(index, 1)}
                   >
@@ -227,8 +121,8 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Remove ${slotLabel(slot)} from the order`}
-                    onClick={() => setOrder(order.filter((x) => x !== slot))}
+                    aria-label={`Remove ${label(machine)} from the order`}
+                    onClick={() => setOrder(order.filter((x) => x !== machine))}
                   >
                     <Trash2 />
                   </Button>
@@ -242,9 +136,9 @@ export function SchedulingSettings({ project, act }: { project: ProjectConfig; a
                     <SelectValue placeholder="Machine" />
                   </SelectTrigger>
                   <SelectContent>
-                    {addable.map((slot) => (
-                      <SelectItem key={slot} value={slot}>
-                        {slotLabel(slot)}
+                    {addable.map((machine) => (
+                      <SelectItem key={machine} value={machine}>
+                        {label(machine)}
                       </SelectItem>
                     ))}
                   </SelectContent>

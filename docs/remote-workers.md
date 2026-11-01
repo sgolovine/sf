@@ -1,52 +1,63 @@
 # Remote Workers
 
-## Current boundary (DEV-11, 2026-10-31)
+## Current boundary (DEV-31, 2026-10-31)
 
-**sf requests a machine; the Supervisor's harness owns machine handling.** On 2026-10-31 the user
-revised DEV-11's scope: when placement resolves to a configured remote ("Use X Machine"), sf only
-adds instructions to the Worker launch request so the underlying harness knows to start the Worker
-on X. This supersedes the sf-owned remote adapter, discovery/preflight, worktree transfer, scoped
-network transport and real remote lifecycle gates in the DEV-7 report below.
+**sf names a machine; the Supervisor's harness owns it entirely.** Remote machines are a Project
+catalog (`remoteMachines`) independent of scheduling. Each has a machine label (`name`), a machine
+slug (`id`), an enabled flag and an optional maximum concurrent Workers that otherwise inherits the
+Project's `maxConcurrentWorkers`. sf keeps no environment, project or repository mapping for them:
+the harness discovers, prepares and launches on the machine.
 
 What sf does:
 
-- Placement and capacity are unchanged: DEV-9's policy selects a machine and DEV-10's execution
-  ledger reserves it (see [the execution ledger](execution-ledger.md)). A configured, enabled
-  remote is eligible whenever the Supervisor can launch Workers at all.
-- When the selected machine is a configured remote, the `worker.spawn` command carries a `machine`
-  request: its `id`, `name`, `environmentId`, `projectId`, `repository`, the Story's `placement`
-  intent (`required`, `preferred`, or `default` when the Project's machine order chose it),
-  `localFallback`, and readable `instructions`. The Supervisor reads it before choosing where to
-  launch. `sf next` prints it ahead of the brief.
-- The Worker Brief is unchanged up to its end, then appends the same instructions as a delimited
-  `## Machine Placement` section (`<!-- sf:machine-placement -->` … `<!-- /sf:machine-placement -->`),
-  so they travel with the brief through thread and subagent launches.
-- `required` never allows local fallback. `preferred` and `default` allow the harness to start the
-  Worker on the Supervisor's machine only when the Project's machine order includes `local`.
-  Local and local-only launches carry no `machine` request and keep their existing briefs.
-- sf still prepares the Story Worktree in the Supervisor's checkout. The brief's Project and
-  worktree paths are authority context on the Supervisor's machine; the instructions say they may
-  not exist on X. Preparing X (repository, Story branch, working directory) and reaching sf's
-  Story commands from X are up to the harness.
+- Placement and capacity: the policy selects a machine and the execution ledger reserves it (see
+  [the execution ledger](execution-ledger.md)). Without scheduling, inherited Stories stay local and a
+  remote is selected only when a Story's required/preferred placement names it; with scheduling,
+  inherit and preferred fallback follow its machine order. A configured, enabled remote is eligible
+  whenever the Supervisor can launch Workers at all.
+- When the selected machine is a remote, the `worker.spawn` command carries
+  `machine: { id, name, instructions }`, and the Worker Brief ends with the same `instructions` as a
+  `## Machine Placement` section. The instructions contain exactly this sentence, with the slug:
+
+  ```text
+  The user specified that this work should be done on the machine: <machine_slug>
+  ```
+
+  and one line on fallback: for a required target, or when the machine order leaves out `local`, the
+  harness starts nothing if it cannot use that machine and the Supervisor reports the launch as not
+  started; otherwise it may start the Worker on the Supervisor's machine and say so. `sf next` prints
+  the request ahead of the brief. Local launches carry no `machine` and no sentence.
+- Remote executions are correlated with sf's own runtime environment/Project identity, like local
+  ones; harness identities the Supervisor reports are kept separately (`adapter`). Executions and
+  queued launch commands recorded before DEV-31 keep their recorded identities and machine requests:
+  they still occupy their machine, fence their Story branch and correlate reports after a reload.
+- sf still prepares the Story Worktree in the Supervisor's checkout as authority-side context.
 
 What sf does not do: discover or pair machines, call remote launch/status/cancel APIs, transfer
-worktrees or Git state, issue network credentials, or certify that a Worker ran on X. A machine
-request is not evidence of remote execution. The Supervisor reports the launch through the
-existing `sf done`/`sf fail`/`sf execution report` results. The reservation stays charged to X
-even if the harness used a permitted local fallback; the Supervisor says where the Worker started
-in its result or evidence text.
+worktrees or Git state, issue network credentials, pass harness-specific launch parameters, or
+certify that a Worker ran on the machine. A machine request is not evidence of remote execution.
+The Supervisor reports the launch through the existing `sf done`/`sf fail`/`sf execution report`
+results. The reservation stays charged to the requested machine even if the harness used a
+permitted local fallback.
 
-### Controls and verification (DEV-12, 2026-10-31)
-
-Users configure machines with `sf project set --scheduling-file` or Project settings → Scheduling,
-and set Story placement with `--placement`/`--machine` or the Story editor. sf rejects changes that
-would orphan a Story's target or remap a machine an execution occupies; disabling is always allowed.
+Users configure machines with `sf project set --remote-machines-file` or Project settings → Remote
+machines, the order with `--scheduling-file` or Project settings → Scheduling, and Story placement
+with `--placement`/`--machine` or the Story editor. sf rejects removing or changing a slug a Story's
+placement or an occupying execution uses; label, capacity and enabled changes are always allowed.
 Status shows per-machine used/max and, for each Story, the machine sf **requested**, with any
-Supervisor-reported task/thread IDs as text. sf never presents a remote ID as a link. Setup and
-semantics are in the [README](../README.md#machine-scheduling) and the
-[core spec](specs/01-core-function.md#editing-scheduling-dev-12). The
-[verification record](verification/machine-scheduling.md) replaces the DEV-12 checklist below: it
-marks each original criterion pass, unrun or retired by this boundary.
+Supervisor-reported task/thread IDs as text. Setup and semantics are in the
+[README](../README.md#machine-scheduling) and the
+[core spec](specs/01-core-function.md#remote-machines-and-scheduling-dev-9101112-separated-in-dev-31).
+
+### Superseded: DEV-11/DEV-12 machine request (2026-10-31)
+
+DEV-11 kept remotes inside `scheduling.remotes` with `environmentId` and
+`project: { projectId, repository }`, and its `machine` request carried those fields with
+`placement`, `localFallback` and delimited (`<!-- sf:machine-placement -->`) preparation prose.
+Remote executions recorded the configured environment and project IDs, and a changed mapping
+under an occupied slug was `unmapped`. DEV-31 removed the mapping, the extra request fields and
+the prose. The [DEV-12 verification record](verification/machine-scheduling.md) describes that
+earlier contract.
 
 ## Historical: DEV-7 compatibility and preflight (2026-10-29)
 

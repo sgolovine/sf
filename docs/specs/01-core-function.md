@@ -54,21 +54,25 @@ Attachments belong to the Supervisor's Project, outside runtime and Story Worktr
 | Worktree base branch (default `main`/`master`) | yes | no |
 | Claim timeout (default 2h) | yes | no |
 | Extra preamble text for Worker Briefs | yes | no |
-| Max concurrent Workers (legacy Project-wide total, default 3) | **no** | no |
+| Max concurrent Workers (per-machine default, default 3) | **no** | no |
+| Remote machine catalog | **no** | no |
 | Optional machine scheduling policy | **no** | no |
 
-### Machine scheduling policy (DEV-9 policy, DEV-10 dispatch)
+### Remote machines and scheduling (DEV-9/10/11/12, separated in DEV-31)
 
-Optional Project-only `scheduling` is validated and persisted policy data. Dispatch (DEV-10) selects
-with it and reserves per-machine capacity in the execution ledger; see
-[the execution ledger](../execution-ledger.md). sf does not handle other machines itself: a configured,
-enabled remote is eligible whenever the Supervisor can launch Workers, and when one is selected the
-`worker.spawn` command carries a `machine` request and the Worker Brief ends with delimited machine
-instructions (DEV-11). The Supervisor's harness owns starting the Worker there. A machine request is
-not evidence of remote execution. See [the remote Worker boundary](../remote-workers.md)
-and [ADR 0003](../adr/0003-remote-worker-boundaries.md).
+Two Project-only settings describe machines. `remoteMachines` is the catalog of remote machines a
+Story's placement can name. Optional `scheduling` holds the local capacity and the machine order
+inherited placement uses; it references the catalog by slug and never defines machines. Dispatch
+selects with both and reserves per-machine capacity in the execution ledger; see
+[the execution ledger](../execution-ledger.md). sf does not handle other machines itself: the
+Supervisor's harness owns discovering, preparing and launching on a machine. When sf selects a
+remote, the `worker.spawn` command carries a `machine` request and the Worker Brief ends with the
+same instructions, which include exactly `The user specified that this work should be done on the
+machine: <machine_slug>`. A machine request is not evidence of remote execution. See
+[the remote Worker boundary](../remote-workers.md) and
+[ADR 0003](../adr/0003-remote-worker-boundaries.md).
 
-Complete example `.sf/sf.config.json` (IDs are illustrative catalog values):
+Complete example `.sf/sf.config.json`:
 
 ```json
 {
@@ -78,85 +82,75 @@ Complete example `.sf/sf.config.json` (IDs are illustrative catalog values):
   "claimTimeoutMinutes": 120,
   "briefPreamble": "",
   "maxConcurrentWorkers": 3,
+  "remoteMachines": [
+    { "id": "build-server", "name": "Build server", "enabled": true, "capacity": 4 },
+    { "id": "spare-server", "name": "Spare server", "enabled": true }
+  ],
   "scheduling": {
     "local": { "capacity": 2 },
-    "remotes": [
-      {
-        "id": "build-server",
-        "name": "Build server",
-        "environmentId": "env-build",
-        "project": { "projectId": "project-build", "repository": "github.com/sgolovine/sf" },
-        "enabled": true,
-        "capacity": 4
-      },
-      {
-        "id": "spare-server",
-        "name": "Spare server",
-        "environmentId": "env-spare",
-        "project": { "projectId": "project-spare", "repository": "github.com/sgolovine/sf" },
-        "enabled": true,
-        "capacity": 2
-      }
-    ],
     "order": ["build-server", "spare-server", "local"]
   }
 }
 ```
 
-Every scheduling field shown is required, with no invented defaults or coercion. Capacities are
-finite nonnegative safe integers; zero prevents new selections. `remotes` and `order` are arrays
-and may be empty. `enabled` is a boolean. Remote IDs match `[a-z][a-z0-9_-]*`, are unique and cannot
-be the reserved ID `local`. Display names, environment IDs and project IDs are nonblank strings
-without surrounding whitespace. IDs are opaque canonical catalog values, with no UUID-only
-restriction; URLs, whitespace and filesystem paths are rejected. No route, credential or transport
-fields are accepted. Unknown scheduling fields are rejected rather than silently ignored.
+A remote machine is `{ id, name, enabled, capacity? }`. `id` is the machine slug: it matches
+`[a-z][a-z0-9_-]*`, is unique and cannot be the reserved `local`. `name` is the display label, a
+nonblank string without surrounding whitespace. Neither is a Worker model setting. `enabled` is a
+boolean. Unknown fields are rejected, including the removed DEV-9 `environmentId` and
+`project: { projectId, repository }` mapping: the harness tracks machines itself.
 
-`project.repository` is the exact public project catalog `repositoryIdentity.canonicalKey`, such as
-`github.com/sgolovine/sf`: host followed by nonempty repository path segments, without a scheme,
-credentials, query, fragment, whitespace, empty/dot segments or leading/trailing slash. Clone URLs
-and checkout paths are invalid; sf never guesses or normalizes them. This schema adopts DEV-7's
-observed local identity representation as policy data. The future adapter must compare this value
-with the **target** project catalog identity and positively establish mapping and other eligibility.
-Syntactic validity is never eligibility evidence.
+`capacity` is optional. Omitted, the machine inherits the Project's `maxConcurrentWorkers`
+dynamically: changing the maximum changes every inherited cap. An explicit capacity is a finite
+nonnegative safe integer and overrides the maximum; 0 prevents new reservations. `maxConcurrentWorkers`
+is a per-machine default, never a total across machines, and stays editable while scheduling is on.
 
-Order entries must be known, unique machine IDs. Local participates only when explicitly listed;
-it is never appended automatically. An empty order makes inherited placement wait. Required or
-preferred remotes may be configured outside the automatic order. Exact duplicate environment IDs
-are rejected even when an alias is disabled, so aliases cannot multiply capacity. Operators must
-configure one T3 environment per physical machine. Limits belong to this sf Project across all its
-Boards, not to the host: independent environments on one host and independent sf Projects cannot
-share a limit. Physical host equivalence, CPU balancing and host-wide quotas are outside this schema.
-Scheduling cannot be set in Board overrides or Stage configuration/frontmatter.
+`scheduling` is `{ local: { capacity }, order }`, both required. Local capacity is a finite
+nonnegative safe integer with its existing meaning; without scheduling, local capacity is
+`maxConcurrentWorkers`. Order entries must be `local` or catalog slugs, unique. Local participates
+only when explicitly listed; it is never appended automatically. An empty order makes inherited
+placement wait. Without scheduling the order is local alone: configuring a remote never routes
+inherited Stories to it, but required/preferred placement can still name it. Limits belong to this
+sf Project across all its Boards, not to the host. Host equivalence, CPU balancing and host-wide
+quotas are outside this schema. Neither setting can be set in Board overrides or Stage
+configuration/frontmatter.
 
-The pure `normalizePlacementPolicy` presents local alone at the legacy capacity/default 3 when
-scheduling is absent. When scheduling is present, **only** per-machine capacities apply in the policy;
-even an explicitly stored legacy `maxConcurrentWorkers` is ignored and preserved for compatibility.
-There is no additional overall cap in v1. Dispatch applies the same precedence: every non-terminal
-execution across all Boards counts against its machine.
+**Compatibility.** A config written before DEV-31 holds remotes in `scheduling.remotes`, with
+mapping fields. Loading promotes them to the catalog in memory, preserving IDs, names, enabled flags,
+explicit capacities, local capacity, order and Story references, and drops the mapping. Reading never
+rewrites the file; the next Project settings save writes the canonical shape. A config holding both
+`scheduling.remotes` and `remoteMachines` is rejected with an error naming the conflict rather than
+choosing one. A `scheduling` patch containing `remotes` is rejected.
 
-### Editing scheduling (DEV-12)
+The pure `normalizePlacementPolicy` returns every configured machine with its effective capacity
+(local: scheduling's local capacity, else `maxConcurrentWorkers`; remotes: their own, else
+`maxConcurrentWorkers`) and the order (scheduling's, else `["local"]`). There is no overall cap.
+Dispatch applies the same precedence: every non-terminal execution across all Boards counts
+against its machine.
 
-`PATCH /api/project/settings` (`sf project set`, Project settings → Scheduling) accepts
-`scheduling` and `maxConcurrentWorkers` beside the model settings. Omitted keys are unchanged. A
-supplied `scheduling` replaces the whole value, validated as above; `null` removes it. The write is
-atomic, preserves unrelated config, and drains the queue against the new policy, so a raised cap
-launches queued work and a lowered cap stops only new reservations. In the same mutation sf
-rejects, listing every reference and its resolution:
+### Editing remote machines and scheduling (DEV-12, DEV-31)
 
-- removing a remote that any Story's required/preferred placement names, on any Board;
-- removing a remote, or changing its `environmentId`, `project.projectId` or `project.repository`,
-  while an occupying execution holds it;
-- `scheduling: null` while either applies.
+`PATCH /api/project/settings` (`sf project set`, Project settings → Scheduling and Remote machines)
+accepts `remoteMachines`, `scheduling` and `maxConcurrentWorkers` beside the model settings. Omitted
+keys are unchanged. A supplied `remoteMachines` replaces the whole catalog; `[]` clears it. A
+supplied `scheduling` replaces the whole value; `null` removes it. Scheduling is validated against
+the resulting catalog, so a kept order cannot name a removed slug. The write is atomic, preserves
+unrelated config, and drains the queue against the new policy, so a raised cap launches queued work
+and a lowered cap stops only new reservations. In the same mutation sf rejects, listing every
+reference and its resolution, removing or changing a slug that:
 
-Renames, capacity (including 0 or below current usage), `enabled` and order changes are always
-allowed. A disabled required target makes its Stories wait with reason `disabled`. These checks clear
-no unknown occupancy or branch fence. Hand edits that bypass them still hit the dispatch guards
-(`missing-target`, `unmapped`). The response adds `policy` (`normalizePlacementPolicy`) and
-`machines`: `{ id, used, capacity, enabled, configured }` per machine from occupying executions,
-where `used` may exceed a lowered cap and `capacity` is null for a machine that is no longer
-configured. `sf status --json` returns `{ server, commands, claims, occupying, waiting, machines }`.
-The UI footer shows per-machine used/max, and Story cards and the editor show an occupying
-execution's remote as "Requested: X" with any Supervisor-reported task/thread IDs as plain text.
+- any Story's required/preferred placement names, on any Board;
+- an occupying execution holds.
+
+Label, capacity (including 0, clearing it or below current usage), `enabled` and order changes are
+always allowed, as is removing `scheduling`. A disabled required target makes its Stories wait with
+reason `disabled`. These checks clear no unknown occupancy or branch fence. Hand edits that bypass
+them still hit the dispatch guard `missing-target`. The response adds `policy`
+(`normalizePlacementPolicy`) and `machines`: `{ id, used, capacity, enabled, configured }` per
+machine from occupying executions, where `used` may exceed a lowered cap and `capacity` is null for
+a machine that is no longer configured. `sf status --json` returns `{ server, commands, claims,
+occupying, waiting, machines }`. The UI footer shows per-machine used/max whenever remotes or
+scheduling are configured, and Story cards and the editor show an occupying execution's remote as
+"Requested: X" with any Supervisor-reported task/thread IDs as plain text.
 
 ### Story placement
 
@@ -179,8 +173,8 @@ Build and verify the published artifacts.
 
 Missing placement means inherit. Shared service create/update and HTTP requests accept `placement`;
 patch omission preserves it, while `null` or explicit inherit clears the persisted property.
-New required/preferred targets must identify a configured remote (disabled is permitted);
-`local` uses local-only instead. Without scheduling, only inherit/local-only are valid new values.
+New required/preferred targets must identify a machine in `remoteMachines` (disabled is permitted);
+`local` uses local-only instead. Scheduling is not needed for them.
 Snapshots, Story details, edits and Moves preserve placement through reload. Unknown custom keys
 keep their existing behavior. `placement` is reserved in Board schemas and custom-field payloads;
 a legacy custom field with this name is a migration conflict: rename its schema ID and Story data
@@ -202,10 +196,10 @@ per-target eligibility evidence for the **resolved Stage agent/model**, and occu
 It performs no filesystem/network/T3/clock operation, input mutation, reservation or launch.
 Candidate order is:
 
-- inherit: Project order;
+- inherit: Project order (local alone without scheduling);
 - local-only: local alone;
 - required: that remote alone, with no fallback;
-- preferred: that remote then Project order with stable deduplication.
+- preferred: that remote then Project order with stable deduplication (then local, without scheduling).
 
 For each candidate it checks eligibility before capacity and selects the first eligible target whose
 usage is below capacity. Equal/above capacity (including after a cap reduction) waits; existing work
@@ -226,7 +220,7 @@ Results are `{ kind: "selected", machineId: "build-server" }` or
 reason `detail`. With no candidates, the only reason is `{ code: "no-candidates" }` (no machine ID).
 Malformed Project configuration is rejected as `SfError("invalid", ...)` at shared load/validation,
 not disguised as a wait. Tests simulate caller-owned usage to produce four build-server selections,
-two spare-server selections, two local selections, then wait regardless of legacy cap 3. This is
+two spare-server selections, two local selections, then wait regardless of `maxConcurrentWorkers`. This is
 policy evidence; production dispatch reserves remotes and requests them from the harness (DEV-11).
 
 ### Shared Worker instructions

@@ -1,9 +1,28 @@
 # Remote execution requires verified adapters and authoritative Worker commands
 
 Date: 2026-10-29. Status: accepted boundary; revised 2026-10-31 (DEV-11): the harness owns
-machine handling, and the sf-owned remote adapter and transport gates are superseded.
+machine handling, and the sf-owned remote adapter and transport gates are superseded; revised
+again 2026-10-31 (DEV-31): sf only names the machine.
 
-## Revision (2026-10-31, DEV-11)
+## Revision (2026-10-31, DEV-31)
+
+The user revised the machine contract: "The harness keeps track of the remote machine entirely. As
+such only instructions on which machine to use are passed down."
+
+- Remote machines are a Project catalog (`remoteMachines`: label, slug, enabled, optional capacity
+  inheriting `maxConcurrentWorkers`), independent of scheduling. sf stores no environment, project
+  or repository mapping for them.
+- The `machine` request is `{ id, name, instructions }`. The instructions, also appended to the
+  Worker Brief, say exactly "The user specified that this work should be done on the machine:
+  <machine_slug>" and whether local fallback is allowed.
+- Remote executions correlate with sf's own runtime identity; reported harness identities are kept
+  separately. Legacy executions keep their recorded identities.
+
+This supersedes the DEV-11 revision's "stable IDs, required/preferred intent" request contents and
+its delimited instruction block. The rest of the DEV-11 revision (harness ownership, no sf remote
+adapter) stands. See [the current boundary](../remote-workers.md#current-boundary-dev-31-2026-10-31).
+
+## Revision (2026-10-31, DEV-11; request contents superseded by DEV-31)
 
 The user revised DEV-11: "let the actual machine handling happen on the T3/Harness side. For the
 sf integration, when a user selects 'Use X Machine', it should just append additional instructions
@@ -12,7 +31,8 @@ to the request so the underlying harness knows to start on a different machine."
 - sf keeps placement policy, reservations, Claims and Story authority (DEV-9/10, ADR 0001/0002).
 - When placement selects a configured remote, sf adds a `machine` request to `worker.spawn` and
   appends delimited machine instructions to the Worker Brief. They give the machine's name and
-  stable IDs, required/preferred intent and whether local fallback is allowed.
+  stable IDs, required/preferred intent and whether local fallback is allowed. (Superseded by
+  DEV-31: only the slug, label and the machine sentence remain.)
 - The Supervisor's harness owns discovery, launch on that machine, machine preparation and the
   remote Worker's access to sf's Story commands. sf adds no remote launch, status or cancel
   adapter, worktree transfer, network transport or credentials, and invents no launch-tool
@@ -22,7 +42,7 @@ to the request so the underlying harness knows to start on a different machine."
 
 The 2026-10-29 sections below are kept as the original decision. Where they require a verified
 sf-owned adapter, a Worker/Claim-scoped transport, or a real-target test before remote dispatch,
-this revision replaces them. See [the current boundary](../remote-workers.md#current-boundary-dev-11-2026-10-31).
+these revisions replace them. See [the current boundary](../remote-workers.md#current-boundary-dev-31-2026-10-31).
 
 ## Context
 
