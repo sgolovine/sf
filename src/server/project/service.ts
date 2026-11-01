@@ -20,7 +20,7 @@ import {
   type BoardOverrides,
   type FieldDef,
   type ProjectConfig,
-  type SchedulingConfig,
+  type RemoteMachine,
 } from "#model/config";
 import { type AdapterSupport, type ExecutionReport, supportFor } from "#model/execution";
 import { modelCatalog, resolveModel } from "#model/models";
@@ -32,6 +32,7 @@ import {
   type TargetEligibility,
   validateCapacity,
   validatePlacement,
+  validateRemoteMachines,
   validateScheduling,
 } from "#model/placement";
 import type { ProjectSnapshot, StoryView } from "#model/project";
@@ -753,7 +754,7 @@ export function createService(opts: ServiceOptions) {
   /** Explicit eligibility evidence per configured machine. Missing evidence is incompatible. */
   function eligibilityFor(tx: Tx, request: { agent?: string; model?: string }) {
     const support = boundary.support();
-    const machines = ["local", ...(tx.project.scheduling?.remotes.map((r) => r.id) ?? [])];
+    const machines = ["local", ...(tx.project.remoteMachines?.map((r) => r.id) ?? [])];
     const evidence: Record<string, TargetEligibility> = boundary.eligibility?.(machines, request) ?? {
       local: support.local === true ? { failures: [] } : { failures: ["incompatible"], detail: support.local },
       ...Object.fromEntries(
@@ -765,59 +766,33 @@ export function createService(opts: ServiceOptions) {
           ]),
       ),
     };
-    // A changed mapping under an occupied slug keeps the old charge and blocks new launches there.
-    for (const remote of tx.project.scheduling?.remotes ?? []) {
-      const stale = Object.values(tx.rt.executions).find(
-        (e) =>
-          occupies(e) &&
-          e.machineId === remote.id &&
-          (e.environmentId !== remote.environmentId || e.projectId !== remote.project.projectId),
-      );
-      if (stale)
-        evidence[remote.id] = {
-          failures: [...(evidence[remote.id]?.failures ?? []), "unmapped"],
-          detail: `mapping changed while execution ${stale.id} still occupies ${remote.id}`,
-        };
-    }
     return evidence;
   }
 
   /**
-   * Rejects scheduling edits that would orphan a Story's remote target or change the identity of a
-   * remote an occupying execution holds. Renames, capacity, enable/disable and order are allowed.
+   * Rejects catalog edits that remove or change a slug a Story's placement targets or an occupying
+   * execution holds, across Boards. Labels, capacity and enabled flags may change.
    */
-  function checkSchedulingReferences(tx: Tx, prev: SchedulingConfig | undefined, next: SchedulingConfig | undefined) {
+  function checkMachineReferences(tx: Tx, prev: readonly RemoteMachine[], next: readonly RemoteMachine[]) {
     const problems: string[] = [];
-    for (const remote of prev?.remotes ?? []) {
-      const kept = next?.remotes.find((r) => r.id === remote.id);
-      if (!kept)
-        for (const story of allStories())
-          if (story.placement && "machineId" in story.placement && story.placement.machineId === remote.id)
-            problems.push(
-              `${story.key} has ${story.placement.mode} placement on ${remote.id}; change or clear its placement, or disable ${remote.id} instead of removing it`,
-            );
-      const moved =
-        !kept ||
-        kept.environmentId !== remote.environmentId ||
-        kept.project.projectId !== remote.project.projectId ||
-        kept.project.repository !== remote.project.repository;
-      if (moved)
-        for (const e of Object.values(tx.rt.executions))
-          if (occupies(e) && e.machineId === remote.id)
-            problems.push(
-              `execution ${e.id} (${e.storyKey}, ${e.status}) occupies ${remote.id}; ${kept ? "keep its environment, project and repository" : "keep the remote"} until the execution ends or is reconciled with \`sf execution\``,
-            );
+    for (const remote of prev) {
+      if (next.some((r) => r.id === remote.id)) continue;
+      for (const story of allStories())
+        if (story.placement && "machineId" in story.placement && story.placement.machineId === remote.id)
+          problems.push(
+            `${story.key} has ${story.placement.mode} placement on ${remote.id}; change or clear its placement, or disable ${remote.id} instead of removing it`,
+          );
+      for (const e of Object.values(tx.rt.executions))
+        if (occupies(e) && e.machineId === remote.id)
+          problems.push(
+            `execution ${e.id} (${e.storyKey}, ${e.status}) occupies ${remote.id}; keep the machine until the execution ends or is reconciled with \`sf execution\``,
+          );
     }
     if (problems.length)
       throw new SfError(
         "invalid",
-        `scheduling: referenced machine identities cannot change:\n- ${problems.join("\n- ")}`,
+        `remoteMachines: referenced machine slugs cannot change:\n- ${problems.join("\n- ")}`,
       );
-  }
-
-  function identityFor(tx: Tx, machineId: string) {
-    const remote = tx.project.scheduling?.remotes.find((r) => r.id === machineId);
-    return remote ? { environmentId: remote.environmentId, projectId: remote.project.projectId } : tx.rt.identity;
   }
 
   function enqueueSpawn(tx: Tx, key: string, boardId: string, stageId: string) {
@@ -927,7 +902,7 @@ export function createService(opts: ServiceOptions) {
     const executionId = `x-${crypto.randomBytes(6).toString("hex")}`;
     const worktree = { path: worktreePath(root, key), branch: storyBranch(key) };
     const mode = opts.spawnMode?.() ?? "subagent";
-    const machine = machineRequest(tx.project.scheduling, story.placement, machineId, worktree.branch);
+    const machine = machineRequest(tx.project.remoteMachines, tx.project.scheduling, story.placement, machineId);
     const brief = composeBrief({
       storyKey: key,
       story,
@@ -953,7 +928,8 @@ export function createService(opts: ServiceOptions) {
       board: boardId,
       stageId,
       machineId,
-      ...identityFor(tx, machineId),
+      // sf's own identity correlates every execution; the harness's is kept separately when reported.
+      ...tx.rt.identity,
       worktree,
       mode,
       ...(settings.agent ? { agent: settings.agent } : {}),
@@ -1123,12 +1099,16 @@ export function createService(opts: ServiceOptions) {
           validateCapacity(patch.maxConcurrentWorkers, "maxConcurrentWorkers");
           config.maxConcurrentWorkers = patch.maxConcurrentWorkers;
         }
-        if (patch.scheduling !== undefined) {
-          if (patch.scheduling !== null) validateScheduling(patch.scheduling);
-          checkSchedulingReferences(tx, config.scheduling, patch.scheduling ?? undefined);
-          if (patch.scheduling === null) delete config.scheduling;
-          else config.scheduling = patch.scheduling;
+        if (patch.remoteMachines !== undefined) {
+          validateRemoteMachines(patch.remoteMachines);
+          checkMachineReferences(tx, config.remoteMachines ?? [], patch.remoteMachines);
+          if (patch.remoteMachines.length) config.remoteMachines = patch.remoteMachines;
+          else delete config.remoteMachines;
         }
+        if (patch.scheduling === null) delete config.scheduling;
+        else if (patch.scheduling !== undefined) config.scheduling = patch.scheduling;
+        // Scheduling is checked against the resulting catalog, so a kept order cannot name a removed slug.
+        if (config.scheduling !== undefined) validateScheduling(config.scheduling, config.remoteMachines);
         writeJson(paths.config, config);
         // The closing drain reserves against the new policy: a raised cap launches queued work.
         tx.project = config;
@@ -1308,7 +1288,7 @@ export function createService(opts: ServiceOptions) {
         requireStage(config, stageId);
         const title = input.title?.trim();
         if (!title) throw new SfError("invalid", "a Story needs a title");
-        const placement = validatePlacement(input.placement, tx.project.scheduling);
+        const placement = validatePlacement(input.placement, tx.project.remoteMachines);
         validateModel(input.model);
         checkStoryModel(config, input.model, input.fields);
         const fields = cleanFields(input.fields ?? {});
@@ -1379,7 +1359,9 @@ export function createService(opts: ServiceOptions) {
         const storage = attachmentStore(paths.attachments(boardId, key));
         if (storage.hasSubmission(patch.submissionId)) return details(tx.rt, view(key, boardId, story));
         const placement =
-          patch.placement === undefined ? story.placement : validatePlacement(patch.placement, tx.project.scheduling);
+          patch.placement === undefined
+            ? story.placement
+            : validatePlacement(patch.placement, tx.project.remoteMachines);
         validateBuiltinFields(patch.fields ?? {});
         validateModel(patch.model);
         checkStoryModel(board, patch.model, patch.fields);

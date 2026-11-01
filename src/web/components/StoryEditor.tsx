@@ -386,7 +386,7 @@ export function StoryEditor({
 }
 
 const PLACEMENT_LABELS = {
-  inherit: "Inherit the Project's machine order",
+  inherit: "Inherit (the Project's machine order, or local)",
   "local-only": "Local only",
   required: "Required machine",
   preferred: "Preferred machine",
@@ -397,7 +397,7 @@ function samePlacement(a: StoryPlacement, b: StoryPlacement | undefined) {
 }
 
 function machineName(project: ProjectConfig, machineId: string) {
-  const remote = project.scheduling?.remotes.find((r) => r.id === machineId);
+  const remote = project.remoteMachines?.find((r) => r.id === machineId);
   return remote ? `${remote.name} (${remote.id})` : machineId;
 }
 
@@ -413,7 +413,7 @@ function PlacementInput({
   value: StoryPlacement;
   onChange: (placement: StoryPlacement) => void;
 }) {
-  const remotes = project.scheduling?.remotes ?? [];
+  const remotes = project.remoteMachines ?? [];
   const target = "machineId" in value ? value.machineId : undefined;
   const unresolved = target !== undefined && !remotes.some((r) => r.id === target);
   const modes = (["inherit", "local-only", "required", "preferred"] as const).filter(
@@ -469,10 +469,10 @@ function PlacementInput({
           : value.mode === "required"
             ? "Workers wait for this machine; they never start elsewhere."
             : value.mode === "preferred"
-              ? "Workers try this machine first, then the Project's machine order."
-              : project.scheduling
+              ? `Workers try this machine first, then ${project.scheduling ? "the Project's machine order" : "the Supervisor's machine"}.`
+              : remotes.length
                 ? "Where sf asks the Supervisor to start this Story's Workers."
-                : "Configure per-machine scheduling in Project settings to choose remote machines."}
+                : "Add remote machines in Project settings to choose one."}
       </p>
     </div>
   );

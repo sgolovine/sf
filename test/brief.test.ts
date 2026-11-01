@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type BriefInput, composeBrief, machineRequest, shellQuote } from "../src/server/project/brief.ts";
+import {
+  type BriefInput,
+  composeBrief,
+  machineRequest,
+  machineSentence,
+  shellQuote,
+} from "../src/server/project/brief.ts";
 import { defaultBoard } from "../src/server/project/config.ts";
-import { scheduling } from "./scheduling-fixture.ts";
+import { remoteMachines, scheduling } from "./scheduling-fixture.ts";
 
 test("brief sections are sf preamble, configured preamble, Stage Prompt, Story", () => {
   const board = defaultBoard("Development", "DEV");
@@ -138,11 +144,16 @@ test("instruction files are independently optional and blank sections preserve t
   }
 });
 
-test("a selected remote appends delimited machine instructions after the unchanged brief", () => {
+test("a selected remote appends the machine sentence after the unchanged brief; local omits it", () => {
+  const remotes = remoteMachines();
   const config = scheduling();
+  const sentence = "The user specified that this work should be done on the machine: a";
   const original = composeBrief({ ...instructionBrief, projectInstructions: "Shared", boardInstructions: "Board" });
-  assert.equal(machineRequest(config, undefined, "local", "sf/DEV-1"), undefined, "local requests no machine");
-  const required = machineRequest(config, { mode: "required", machineId: "a" }, "a", "sf/DEV-1")!;
+  assert.equal(machineRequest(remotes, config, undefined, "local"), undefined, "local requests no machine");
+  assert.ok(!original.includes("The user specified"), "a local brief has no machine sentence");
+  const required = machineRequest(remotes, config, { mode: "required", machineId: "a" }, "a")!;
+  assert.deepEqual(Object.keys(required).sort(), ["id", "instructions", "name"]);
+  assert.deepEqual([required.id, required.name], ["a", "A"]);
   const brief = composeBrief({
     ...instructionBrief,
     projectInstructions: "Shared",
@@ -150,26 +161,19 @@ test("a selected remote appends delimited machine instructions after the unchang
     machine: required,
   });
   assert.equal(brief, `${original}\n${required.instructions}\n`, "everything before the machine section is preserved");
-  assert.match(required.instructions, /^## Machine Placement\n\n<!-- sf:machine-placement -->\n/);
-  assert.match(required.instructions, /<!-- \/sf:machine-placement -->$/);
-  for (const data of ["Machine name: A", "Machine id: a", "Environment id: env-a", "Project id: project-a"])
-    assert.ok(required.instructions.includes(data), data);
-  assert.match(required.instructions, /Start this Worker on that machine using the harness's own machine handling/);
-  assert.match(required.instructions, /required\. Do not start this Worker anywhere else/);
-  assert.match(required.instructions, /may not exist on A/);
-  assert.match(required.instructions, /not evidence that the Worker runs on A/);
-  assert.deepEqual([required.placement, required.localFallback], ["required", false]);
+  assert.equal(machineSentence("a"), sentence);
+  assert.ok(required.instructions.split("\n").includes(sentence), "the exact sentence is its own line");
+  assert.ok(brief.includes(sentence));
+  assert.doesNotMatch(required.instructions, /env-|project-|github\.com|Environment|Repository/);
+  assert.match(required.instructions, /start nothing and report the launch as not started/);
 
-  const preferred = machineRequest(config, { mode: "preferred", machineId: "b" }, "b", "sf/DEV-1")!;
-  assert.deepEqual([preferred.placement, preferred.localFallback], ["preferred", true]);
+  const preferred = machineRequest(remotes, config, { mode: "preferred", machineId: "b" }, "b")!;
+  assert.ok(preferred.instructions.includes("The user specified that this work should be done on the machine: b"));
+  assert.match(preferred.instructions, /may start it on the Supervisor's machine instead/);
+  assert.match(machineRequest(remotes, { ...config, order: ["a"] }, undefined, "a")!.instructions, /start nothing/);
+  // Without scheduling, a preferred remote falls back to local.
   assert.match(
-    preferred.instructions,
-    /preferred by the Story\. If the harness cannot start it on this machine, it may start the Worker on the Supervisor's machine instead/,
-  );
-  const noLocal = machineRequest({ ...config, order: ["a"] }, undefined, "a", "sf/DEV-1")!;
-  assert.deepEqual([noLocal.placement, noLocal.localFallback], ["default", false]);
-  assert.match(
-    noLocal.instructions,
-    /chosen by the Project's machine order\. The policy does not allow local fallback/,
+    machineRequest(remotes, undefined, { mode: "preferred", machineId: "a" }, "a")!.instructions,
+    /may start it/,
   );
 });

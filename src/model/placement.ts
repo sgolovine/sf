@@ -1,5 +1,5 @@
 import { SfError } from "../server/project/errors.ts";
-import type { ProjectConfig, SchedulingConfig } from "./config.ts";
+import type { ProjectConfig, RemoteMachine, SchedulingConfig } from "./config.ts";
 
 export type StoryPlacement =
   | { mode: "inherit" }
@@ -29,66 +29,96 @@ function text(value: unknown, field: string): asserts value is string {
     invalid(field, "must be nonblank text without surrounding whitespace");
 }
 
-function identity(value: unknown, field: string) {
-  text(value, field);
-  if (/[\\/\s]/.test(value) || /^[a-z]:/i.test(value) || [".", "..", "~"].includes(value) || value.includes("://"))
-    invalid(field, "use the canonical opaque ID, not a URL or filesystem path");
-}
-
 export function validateCapacity(value: unknown, field: string): asserts value is number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     invalid(field, "must be a finite nonnegative safe integer");
 }
 
-/** Validate policy data without inferring remote support or normalizing identities. */
-export function validateScheduling(value: unknown): asserts value is SchedulingConfig {
-  const config = object(value, "scheduling", ["local", "remotes", "order"]);
+/** The remote machine catalog: unique slugs (never `local`), nonblank labels and optional capacity overrides. */
+export function validateRemoteMachines(value: unknown, field = "remoteMachines"): asserts value is RemoteMachine[] {
+  if (!Array.isArray(value)) invalid(field, "must be an array of remote machines; use [] for none");
+  const ids = new Set(["local"]);
+  for (const [index, entry] of value.entries()) {
+    const at = `${field}[${index}]`;
+    const remote = object(entry, at, ["id", "name", "enabled", "capacity"]);
+    if (typeof remote.id !== "string" || !/^[a-z][a-z0-9_-]*$/.test(remote.id))
+      invalid(`${at}.id`, "use a lowercase slug beginning with a letter");
+    if (ids.has(remote.id))
+      invalid(`${at}.id`, `duplicate or reserved ID "${remote.id}"; choose a unique machine slug other than local`);
+    ids.add(remote.id);
+    text(remote.name, `${at}.name`);
+    if (typeof remote.enabled !== "boolean") invalid(`${at}.enabled`, "must be a boolean");
+    if (remote.capacity !== undefined) validateCapacity(remote.capacity, `${at}.capacity`);
+  }
+}
+
+/** Validate policy data against the catalog it orders, without inferring remote support. */
+export function validateScheduling(
+  value: unknown,
+  remotes: readonly RemoteMachine[] = [],
+): asserts value is SchedulingConfig {
+  if (value && typeof value === "object" && Object.hasOwn(value, "remotes"))
+    invalid("scheduling.remotes", "remote machines moved to remoteMachines; keep only local and order in scheduling");
+  const config = object(value, "scheduling", ["local", "order"]);
   const local = object(config.local, "scheduling.local", ["capacity"]);
   validateCapacity(local.capacity, "scheduling.local.capacity");
-  if (!Array.isArray(config.remotes)) invalid("scheduling.remotes", "must be an array");
-  const ids = new Set(["local"]);
-  const environments = new Set<string>();
-  for (const [index, value] of config.remotes.entries()) {
-    const field = `scheduling.remotes[${index}]`;
-    const remote = object(value, field, ["id", "name", "environmentId", "project", "enabled", "capacity"]);
-    if (typeof remote.id !== "string" || !/^[a-z][a-z0-9_-]*$/.test(remote.id))
-      invalid(`${field}.id`, "use a lowercase slug beginning with a letter");
-    if (ids.has(remote.id))
-      invalid(`${field}.id`, `duplicate or reserved ID "${remote.id}"; choose a unique remote ID other than local`);
-    ids.add(remote.id);
-    text(remote.name, `${field}.name`);
-    identity(remote.environmentId, `${field}.environmentId`);
-    if (environments.has(remote.environmentId as string))
-      invalid(
-        `${field}.environmentId`,
-        "duplicate environment alias; configure each environment once, even when disabled",
-      );
-    environments.add(remote.environmentId as string);
-    const project = object(remote.project, `${field}.project`, ["projectId", "repository"]);
-    identity(project.projectId, `${field}.project.projectId`);
-    text(project.repository, `${field}.project.repository`);
-    const parts = project.repository.split("/");
-    if (
-      parts.length < 2 ||
-      !parts[0]!.split(".").every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label)) ||
-      parts.some((part) => !part || part === "." || part === "..") ||
-      /[\s\\:@?#]/.test(project.repository)
-    )
-      invalid(
-        `${field}.project.repository`,
-        "use the exact catalog repositoryIdentity.canonicalKey (host/repository/path), not a clone URL or checkout path",
-      );
-    if (typeof remote.enabled !== "boolean") invalid(`${field}.enabled`, "must be a boolean");
-    validateCapacity(remote.capacity, `${field}.capacity`);
-  }
+  const ids = new Set(["local", ...remotes.map((r) => r.id)]);
   if (!Array.isArray(config.order)) invalid("scheduling.order", "must be an array of machine IDs; use [] to wait");
   const seen = new Set<string>();
   for (const id of config.order) {
     if (typeof id !== "string" || !ids.has(id))
-      invalid("scheduling.order", `unknown machine ID "${String(id)}"; configure it first`);
+      invalid("scheduling.order", `unknown machine ID "${String(id)}"; add it to remoteMachines first`);
     if (seen.has(id)) invalid("scheduling.order", `duplicate machine ID "${id}"; list each machine once`);
     seen.add(id);
   }
+}
+
+/**
+ * The validated catalog and scheduling of a stored Project config. A legacy `scheduling.remotes` (DEV-9)
+ * is promoted to the catalog in memory, dropping its environment/project/repository mapping; the next
+ * settings save writes the canonical shape. Both catalogs at once is a conflict, never a silent choice.
+ */
+export function readMachines(raw: { remoteMachines?: unknown; scheduling?: unknown }): {
+  remoteMachines?: RemoteMachine[];
+  scheduling?: SchedulingConfig;
+} {
+  let catalog = raw.remoteMachines;
+  let scheduling = raw.scheduling;
+  let field = "remoteMachines";
+  if (
+    scheduling &&
+    typeof scheduling === "object" &&
+    !Array.isArray(scheduling) &&
+    Object.hasOwn(scheduling, "remotes")
+  ) {
+    if (Object.hasOwn(raw, "remoteMachines"))
+      invalid(
+        "scheduling.remotes",
+        "conflicts with remoteMachines; move each legacy remote into remoteMachines (id, name, enabled, capacity) and delete scheduling.remotes",
+      );
+    const { remotes, ...rest } = scheduling as Record<string, unknown>;
+    field = "scheduling.remotes";
+    if (!Array.isArray(remotes)) invalid(field, "must be an array");
+    catalog = remotes.map((entry, index) => {
+      const legacy = object(entry, `${field}[${index}]`, [
+        "id",
+        "name",
+        "environmentId",
+        "project",
+        "enabled",
+        "capacity",
+      ]);
+      const { environmentId: _environment, project: _project, ...kept } = legacy;
+      return kept;
+    });
+    scheduling = rest;
+  }
+  if (catalog !== undefined) validateRemoteMachines(catalog, field);
+  if (scheduling !== undefined) validateScheduling(scheduling, catalog ?? []);
+  return {
+    ...(catalog !== undefined ? { remoteMachines: catalog } : {}),
+    ...(scheduling !== undefined ? { scheduling } : {}),
+  };
 }
 
 /** Parse structure separately so stale persisted targets can still be edited or cleared. */
@@ -109,31 +139,38 @@ export function parsePlacement(value: unknown): StoryPlacement | undefined {
   return { mode: placement.mode, machineId: placement.machineId };
 }
 
-export function validatePlacement(value: unknown, scheduling?: SchedulingConfig): StoryPlacement | undefined {
+export function validatePlacement(value: unknown, remotes: readonly RemoteMachine[] = []): StoryPlacement | undefined {
   const placement = parsePlacement(value);
-  if (placement && "machineId" in placement && !scheduling?.remotes.some((r) => r.id === placement.machineId))
-    invalid("placement.machineId", `unknown remote "${placement.machineId}"; configure it or clear placement`);
+  if (placement && "machineId" in placement && !remotes.some((r) => r.id === placement.machineId))
+    invalid(
+      "placement.machineId",
+      `unknown remote "${placement.machineId}"; add it to remoteMachines or clear placement`,
+    );
   return placement;
 }
 
 export type PlacementPolicy = { machines: Record<string, { capacity: number; enabled: boolean }>; order: string[] };
 
-/** With scheduling, per-machine caps replace the legacy total; dispatch reserves against this policy. */
-export function normalizePlacementPolicy(
-  config: Pick<ProjectConfig, "scheduling" | "maxConcurrentWorkers">,
-): PlacementPolicy {
-  if (config.scheduling === undefined) {
-    const capacity = config.maxConcurrentWorkers ?? 3;
-    validateCapacity(capacity, "maxConcurrentWorkers");
-    return { machines: { local: { capacity, enabled: true } }, order: ["local"] };
-  }
-  validateScheduling(config.scheduling);
+type MachineConfig = Pick<ProjectConfig, "scheduling" | "remoteMachines" | "maxConcurrentWorkers">;
+
+/**
+ * Every configured machine with its effective capacity, and the order inherited placement uses.
+ * `maxConcurrentWorkers` is local capacity without scheduling and each remote's default capacity; it is
+ * never a cap across machines. Without scheduling the order is local only: remotes are used only when a
+ * Story's placement names them.
+ */
+export function normalizePlacementPolicy(config: MachineConfig): PlacementPolicy {
+  const max = config.maxConcurrentWorkers ?? 3;
+  validateCapacity(max, "maxConcurrentWorkers");
+  const remotes = config.remoteMachines ?? [];
+  validateRemoteMachines(remotes);
+  if (config.scheduling !== undefined) validateScheduling(config.scheduling, remotes);
   return {
     machines: Object.fromEntries([
-      ["local", { capacity: config.scheduling.local.capacity, enabled: true }],
-      ...config.scheduling.remotes.map((r) => [r.id, { capacity: r.capacity, enabled: r.enabled }]),
+      ["local", { capacity: config.scheduling?.local.capacity ?? max, enabled: true }],
+      ...remotes.map((r) => [r.id, { capacity: r.capacity ?? max, enabled: r.enabled }]),
     ]),
-    order: [...config.scheduling.order],
+    order: config.scheduling ? [...config.scheduling.order] : ["local"],
   };
 }
 
@@ -144,7 +181,7 @@ export type MachineUsage = { id: string; used: number; capacity: number | null; 
  * hold leftover occupancy (removed by hand) are listed with capacity null.
  */
 export function machineUsage(
-  config: Pick<ProjectConfig, "scheduling" | "maxConcurrentWorkers">,
+  config: MachineConfig,
   executions: Iterable<{ machineId: string; status: string }>,
 ): MachineUsage[] {
   const policy = normalizePlacementPolicy(config);
