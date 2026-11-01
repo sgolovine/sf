@@ -1,0 +1,38 @@
+# DEV-16 development evidence
+
+Branch: sf/DEV-16
+Implementation: 10fd4ef (feat(web): create Boards in a modal dialog)
+Merged origin/main: 146bbcf (main at 1d93c24)
+
+## Changes
+
+CreateBoard uses the existing Radix-backed Dialog primitives. App keeps modal visibility separate from Board/settings navigation. Empty Projects open it once and retain an explicit creation action. Form values reset on reopening. The API and default Stages are unchanged. Pending requests synchronously guard repeated submission, block Escape/outside dismissal, disable inputs and Cancel, and hide the close control. Errors are local role=alert messages that retain entered values. Success selects the returned Board id with existing session updates.
+
+Updated CONTEXT.md and core spec. Added an isolated HTTP regression test for uninitialized Project creation, default Stages, duplicate Name and Key rejection without extra Boards, and successful retry.
+
+## Checks
+
+- pnpm check: passed after merging main.
+- pnpm test: 144 passed, 0 failed after merging main (131 passed before main merge).
+- git diff --check: passed; branch clean and pushed.
+
+## Running UI
+
+Ran current source UI via pnpm sf:dev start against a temporary Project, not the factory Project. T3 preview snapshot timed out twice; used the playwright-browser skill's Chromium daemon.
+
+Passed browser selector assertions:
+- Empty Project initially displays creation modal with Name focused and submit disabled.
+- Shift+Tab from Name wraps to Close; Tab returns to Name.
+- Escape closes initial dialog, restores focus to the empty-state New Board action; Cancel abandons entered values; reopening is empty.
+- Key typed as `one` becomes `ONE`; Enter creates First and displays its Board with the five default Stages.
+- Duplicate Name shows `Board first already exists`; duplicate Key shows `Board key ONE is already used by first`; entered Name stays intact; corrected retry creates/selects Second and updates sidebar.
+- Closing from Board Settings preserves settings; closing from Project settings preserves that screen. Focus returns to sidebar New Board.
+- A local forwarding proxy delayed POST /api/boards by 2.5 seconds: pending form remained open after Escape and Enter, Cancel was disabled, and the proxy observed one request per attempt. Success selected the new Board.
+- At 360x320, dialog fits horizontally; keyboard navigation scrolls to Cancel within the dialog. Screenshots capture initial and scrolled positions.
+- Whitespace-only Name/Key keeps submission disabled; Cancel returns focus to New Board.
+
+Attached images: pending.png, narrow.png, narrow-scrolled.png.
+
+## Validation follow-through
+
+Please explicitly exercise a physical outside-overlay click both idle and pending, plus a session refresh while an empty Project's dialog is dismissed. These use shared Radix dismissal and a one-time initialization ref, respectively; source was checked, but these two cases were not directly exercised by the browser command runner. Validate again on the merged head (browser evidence predates merging main; the merge added placement/backend/spec changes and no conflicting UI changes).

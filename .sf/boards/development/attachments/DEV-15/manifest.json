@@ -1,0 +1,19 @@
+{
+  "files": [
+    {
+      "id": "724bfbb4-2474-42e6-b95e-e9b0240f3515",
+      "name": "image.png",
+      "mediaType": "image/png",
+      "size": 76800
+    },
+    {
+      "id": "7b753d91-a2e8-4173-aa57-fc20ad505365",
+      "name": "dev15-ui-evidence.zip",
+      "mediaType": "application/octet-stream",
+      "size": 474212
+    }
+  ],
+  "submissions": [
+    "ea856e6f-7454-40ec-9caf-049edee3a45a"
+  ]
+}

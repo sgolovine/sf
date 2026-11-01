@@ -111,5 +111,12 @@
       "type": "number"
     }
   ],
-  "overrides": {}
+  "overrides": {
+    "worker": {
+      "model": "claude-opus-5-5"
+    },
+    "worktree": {}
+  },
+  "storyNumber": 24,
+  "modelOptions": []
 }

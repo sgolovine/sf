@@ -1,0 +1,37 @@
+{
+  "files": [
+    {
+      "id": "5d907009-e7e8-4c69-97f7-b5a2022b9c7a",
+      "name": "dev16-validation.md",
+      "mediaType": "application/octet-stream",
+      "size": 3137
+    },
+    {
+      "id": "f96f5a53-886c-4b9f-a22a-b9898f7bb615",
+      "name": "pending.png",
+      "mediaType": "application/octet-stream",
+      "size": 43151
+    },
+    {
+      "id": "180356ae-c567-4077-9faf-5e0f284beac2",
+      "name": "narrow.png",
+      "mediaType": "application/octet-stream",
+      "size": 21352
+    },
+    {
+      "id": "c97075f3-941f-41ee-ab3a-074b5b826300",
+      "name": "narrow-scrolled.png",
+      "mediaType": "application/octet-stream",
+      "size": 16531
+    },
+    {
+      "id": "471b3fda-6e25-4976-8645-d09875a3069d",
+      "name": "pr-body.md",
+      "mediaType": "application/octet-stream",
+      "size": 3745
+    }
+  ],
+  "submissions": [
+    "aada6e2a-5d34-4670-b451-3fe1525beac9"
+  ]
+}

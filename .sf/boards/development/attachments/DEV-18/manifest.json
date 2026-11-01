@@ -1,0 +1,43 @@
+{
+  "files": [
+    {
+      "id": "50fb267c-773c-4c6c-bc1a-df6b6ee2c6cd",
+      "name": "image.png",
+      "mediaType": "image/png",
+      "size": 35698
+    },
+    {
+      "id": "6857f2aa-a683-4e71-9536-81ff01de8132",
+      "name": "before-1280x560-settings-StagePrompts.png",
+      "mediaType": "application/octet-stream",
+      "size": 11435
+    },
+    {
+      "id": "c525f3cb-fe44-4b3a-b6be-65d050581baf",
+      "name": "merged-1280x560-settings-StagePrompts.png",
+      "mediaType": "application/octet-stream",
+      "size": 48647
+    },
+    {
+      "id": "0d8f2d7c-6c43-43ce-9b64-5ab50e02fdf4",
+      "name": "merged-390x700-settings-StagePrompts.png",
+      "mediaType": "application/octet-stream",
+      "size": 40206
+    },
+    {
+      "id": "f7ea08dc-2f16-42b9-a386-5c3da3007596",
+      "name": "merged-1280x560-project-settings.png",
+      "mediaType": "application/octet-stream",
+      "size": 52305
+    },
+    {
+      "id": "1bc35f9f-4f85-4230-8aef-bcc8e3c47292",
+      "name": "DEV-18-layout-measurements.txt",
+      "mediaType": "application/octet-stream",
+      "size": 6032
+    }
+  ],
+  "submissions": [
+    "9fcb7bf6-92e5-4757-a5b3-5813fcd89b03"
+  ]
+}

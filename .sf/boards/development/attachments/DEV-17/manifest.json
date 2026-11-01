@@ -1,0 +1,39 @@
+{
+  "files": [
+    {
+      "id": "85f11e42-65ca-4933-85ea-b9a31c4d5224",
+      "name": "image.png",
+      "mediaType": "image/png",
+      "size": 254672
+    },
+    {
+      "id": "a5385d36-bc62-4dad-a848-4edbe13d10db",
+      "name": "image.png",
+      "mediaType": "image/png",
+      "size": 9225
+    },
+    {
+      "id": "289c37a3-33b0-4ff4-a660-7cc64e993206",
+      "name": "image.png",
+      "mediaType": "image/png",
+      "size": 98364
+    },
+    {
+      "id": "0751d8a8-9556-4ccb-964a-366691ee0d63",
+      "name": "desktop.png",
+      "mediaType": "application/octet-stream",
+      "size": 95015
+    },
+    {
+      "id": "bd26efda-fd51-497c-bec9-877bfed9c269",
+      "name": "narrow.png",
+      "mediaType": "application/octet-stream",
+      "size": 52337
+    }
+  ],
+  "submissions": [
+    "4cffe626-3b3b-4e04-962c-8f1fb7fa78b6",
+    "a3dad626-0c7f-4bee-bb49-26ff7e70bf61",
+    "aa03f5cc-1ee8-40da-9895-1cbef1d4c4a0"
+  ]
+}

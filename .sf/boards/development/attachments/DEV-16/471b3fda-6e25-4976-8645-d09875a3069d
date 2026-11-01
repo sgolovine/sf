@@ -1,0 +1,47 @@
+Create Board opens the shared dialog over the current Board or settings screen, preserving navigation. It prevents duplicate submissions and dismissal while pending, reports errors inside the dialog, and supports first-Board creation.
+
+Story: DEV-16
+
+## Acceptance criteria and evidence
+
+- [x] Shared Dialog primitives, overlay, accessible title/description, Name/Key inputs, Cancel/Create/Close: verified in source and running DOM.
+- [x] Board, Board Settings (Stages tab), and Project settings remain selected. Exercised Cancel, Close, Escape, and physical outside clicks at (10,10). Dismissal creates nothing; reopening resets values.
+- [x] Name receives focus. Shift+Tab wraps to Close; Tab returns to Name. Dismissal returns focus to New Board, with the empty-state action as startup fallback. At 360×320 the dialog fits horizontally and scrolls internally to reach both buttons.
+- [x] Blank and whitespace-only fields disable Create. Typed `one` becomes `ONE`. Enter created First/ONE; button submission created Second/TWO. HTTP regression confirms all five default Stage IDs.
+- [x] Held POST /boards using a browser fetch wrapper: inputs and Cancel disabled, Close absent, `aria-busy=true`. Escape/outside click left it open; second form submission kept the request count at one. Releasing the request closed the dialog and selected Pending/PEND.
+- [x] Duplicate Name and duplicate Key produced inline `role=alert` errors, preserved values, and allowed successful correction/retry.
+- [x] Successful creation selected the new Board and refreshed the sidebar through existing SSE/session handling.
+- [x] Initial empty-Project dialog dismissed to usable empty state and reopened. Two CLI `say` session updates did not reopen it. HTTP regression starts with an uninitialized Project and verifies first-Board initialization.
+- [x] UI validation and screenshots completed independently in this validation Stage.
+
+## Validation
+
+Validated `146bbcf008ad449f01a016488ec2f6ec8f09fee3`; clean worktree matched `origin/sf/DEV-16` after `git fetch --prune`.
+
+- `pnpm check`: passed, including Biome and both TypeScript projects.
+- `pnpm test`: passed, 144/144 tests.
+- `pnpm build`: passed; bundle-size warning only.
+- Used temporary Projects and servers, without touching the Supervisor's live Project.
+- T3 snapshot/locator automation timed out; Playwright provided assertions and screenshots. T3 evaluation and coordinate clicks verified pending requests and physical outside dismissal.
+- PR targets `main`, the repository default; the skill's `master` branch does not exist.
+
+## Screenshots
+
+Captured at `146bbcf`, light appearance. Before is merge base `1d93c24`. Desktop captures are 1280×800 and start from Second's Stages settings. The old creation page loses that screen; the dialog preserves it.
+
+| Before | After |
+| --- | --- |
+| <img width="1280" height="800" alt="03-before-settings" src="https://github.com/user-attachments/assets/beec5e2c-bd1c-4630-a624-fae78e70673e" /> | <img width="1280" height="800" alt="03-after-settings" src="https://github.com/user-attachments/assets/6f58c755-a645-4659-a028-13f34dea6b3d" /> |
+
+At 360×320, the form scrolls internally to reach all controls.
+
+<img width="360" height="320" alt="04-after-narrow" src="https://github.com/user-attachments/assets/352f3720-4a91-4b3d-b513-453d39919b2e" />
+<img width="360" height="320" alt="05-after-narrow-scrolled" src="https://github.com/user-attachments/assets/59b10692-97d2-44ee-bc49-ac9d61174f26" />
+
+Duplicate-Key error at 1280×720, preserving values:
+
+<img width="1280" height="720" alt="02-after-error" src="https://github.com/user-attachments/assets/ffc2283d-ea9d-4cba-bcb9-c4bf384cb290" />
+
+## Known gaps
+
+None. Validation did not change source code.
