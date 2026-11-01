@@ -38,7 +38,7 @@ in its result or evidence text.
 
 ### Controls and verification (DEV-12, 2026-10-31)
 
-Users configure machines with `sf project set --scheduling-file` or Project settings → Scheduling,
+Users configure machines with `sf project set --scheduling-file` or Settings → Project → Scheduling,
 and set Story placement with `--placement`/`--machine` or the Story editor. sf rejects changes that
 would orphan a Story's target or remap a machine an execution occupies; disabling is always allowed.
 Status shows per-machine used/max and, for each Story, the machine sf **requested**, with any

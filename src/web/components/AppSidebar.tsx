@@ -1,4 +1,4 @@
-import { KanbanSquare, Monitor, Moon, Plus, Sun } from "lucide-react";
+import { KanbanSquare, Monitor, Moon, Plus, Settings, Sun } from "lucide-react";
 import type { BoardSnapshot } from "#model/project";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,11 +32,13 @@ type Props = {
   creating: boolean;
   onSelect: (id: string) => void;
   onNewBoard: () => void;
-  onProjectSettings: () => void;
+  /** Whether the Settings screen is shown. */
+  settings: boolean;
+  onSettings: () => void;
 };
 
-/** Names the current Board and lists the Project's Boards; "New Board" sits at the bottom. */
-export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewBoard, onProjectSettings }: Props) {
+/** Names the current Board and lists the Project's Boards; Settings and "New Board" sit at the bottom. */
+export function AppSidebar({ boards, title, activeId, creating, settings, onSelect, onNewBoard, onSettings }: Props) {
   return (
     <Sidebar>
       <SidebarHeader>
@@ -62,8 +64,13 @@ export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewB
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <SidebarMenuButton onClick={onProjectSettings}>Project settings</SidebarMenuButton>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton isActive={settings} onClick={onSettings}>
+              <Settings />
+              <span>Settings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton isActive={creating} onClick={onNewBoard}>
               <Plus />

@@ -16,7 +16,7 @@ type Props = {
   act: Act;
   onOpenStory: (key: string) => void;
   onCreateStory: (stageId: string) => void;
-  /** Opens Board Settings on the Stages tab. */
+  /** Opens Settings on the Board's Stages section. */
   onOpenStages: () => void;
 };
 
@@ -55,7 +55,7 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages, onCr
             type="button"
             className="cursor-pointer truncate rounded-sm text-sm font-semibold hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             onClick={onOpenStages}
-            title="Board Settings: Stages"
+            title="Settings: Stages"
           >
             {stage.name} <span className="font-normal text-muted-foreground">{stories.length}</span>
           </button>
