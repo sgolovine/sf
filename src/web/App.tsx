@@ -8,13 +8,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { useSession } from "./api/hooks.ts";
 import { AppSidebar } from "./components/AppSidebar.tsx";
-import { BoardSettings, type SettingsTab } from "./components/BoardSettings/BoardSettings.tsx";
+import { Settings as SettingsScreen, type SettingsTab } from "./components/BoardSettings/BoardSettings.tsx";
 import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
-import { ModelSettings } from "./components/ModelSettings.tsx";
-import { RemoteMachinesSettings } from "./components/RemoteMachinesSettings.tsx";
-import { SchedulingSettings } from "./components/SchedulingSettings.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
 import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
@@ -27,8 +24,8 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
  */
 type View =
   | { kind: "board"; boardId: string | null }
-  | { kind: "settings"; boardId: string; tab: SettingsTab }
-  | { kind: "project-settings" };
+  /** Project and Board settings; `boardId` is the Board in context, or null when there is none. */
+  | { kind: "settings"; boardId: string | null; tab: SettingsTab };
 
 export function App() {
   const { data: session, error } = useSession();
@@ -84,7 +81,7 @@ export function App() {
   useEffect(() => {
     if (!session) return;
     const boards = session.project?.boards ?? [];
-    const boardId = view.kind === "project-settings" ? null : view.boardId;
+    const boardId = view.boardId;
     if (route.kind === "edit") {
       const owner = boards.find((b) => b.stories.some((s) => s.key === route.key));
       if (!owner) navigate(NO_STORY, true);
@@ -127,9 +124,10 @@ export function App() {
   const { capabilities, listening } = session.supervisor;
   const project = session.project;
   const boards = project?.boards ?? [];
-  const selectedId = view.kind === "project-settings" ? null : view.boardId;
-  const board = boards.find((b) => b.id === selectedId) ?? boards[0];
-  const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
+  const board = boards.find((b) => b.id === view.boardId) ?? boards[0];
+  // Settings for a Board that no longer exists fall back to the Board view.
+  const settings =
+    view.kind === "settings" && project && (view.boardId === null || board?.id === view.boardId) ? view : null;
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
     ` · ${listening ? "listening" : "busy or away"}`;
@@ -140,7 +138,7 @@ export function App() {
     closeStory();
   };
   const openBoard = (boardId: string) => openView({ kind: "board", boardId });
-  const openSettings = (boardId: string, tab: SettingsTab) => openView({ kind: "settings", boardId, tab });
+  const openSettings = (boardId: string | null, tab: SettingsTab) => openView({ kind: "settings", boardId, tab });
 
   return (
     <SidebarProvider>
@@ -149,7 +147,8 @@ export function App() {
         title={board?.config.name}
         activeId={board?.id}
         creating={creating}
-        onProjectSettings={() => openView({ kind: "project-settings" })}
+        settings={!!settings}
+        onSettings={() => openSettings(board?.id ?? null, "project-worker")}
         onSelect={openBoard}
         onNewBoard={openCreateBoard}
       />
@@ -163,20 +162,9 @@ export function App() {
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <SidebarTrigger className="shrink-0" />
               {/* The sidebar shows the Board name; the header names only the other views. */}
-              {(view.kind === "project-settings" || settings) && (
-                <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-              )}
-              <h1
-                className={cn(
-                  "min-w-0 truncate font-medium",
-                  view.kind !== "project-settings" && !settings && "sr-only",
-                )}
-              >
-                {view.kind === "project-settings"
-                  ? "Project settings"
-                  : settings
-                    ? "Board Settings"
-                    : (board?.config.name ?? "Boards")}
+              {settings && <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />}
+              <h1 className={cn("min-w-0 truncate font-medium", !settings && "sr-only")}>
+                {settings ? "Settings" : (board?.config.name ?? "Boards")}
               </h1>
             </div>
             {board && (
@@ -208,7 +196,7 @@ export function App() {
                   <span className="hidden @md/header:inline">Back to board</span>
                 </Button>
               )}
-              {board && !settings && view.kind !== "project-settings" && (
+              {board && !settings && (
                 <>
                   <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
                     <Plus />
@@ -221,12 +209,12 @@ export function App() {
                         variant="outline"
                         className="shrink-0"
                         onClick={() => openSettings(board.id, "stages")}
-                        aria-label="Board Settings"
+                        aria-label="Settings"
                       >
                         <Settings />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Board Settings</TooltipContent>
+                    <TooltipContent>Settings</TooltipContent>
                   </Tooltip>
                 </>
               )}
@@ -239,12 +227,14 @@ export function App() {
         <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
 
-          {view.kind === "project-settings" && project ? (
-            <div key={JSON.stringify(project.config)} className="flex flex-col divide-y">
-              <ModelSettings project={project.config} act={act} />
-              <SchedulingSettings project={project.config} act={act} />
-              <RemoteMachinesSettings project={project.config} act={act} />
-            </div>
+          {settings ? (
+            <SettingsScreen
+              project={project!.config}
+              board={board}
+              tab={settings.tab}
+              onTab={(tab) => openSettings(board?.id ?? null, tab)}
+              act={act}
+            />
           ) : !board ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
               <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
@@ -252,14 +242,6 @@ export function App() {
                 New Board
               </Button>
             </div>
-          ) : settings ? (
-            <BoardSettings
-              project={project!.config}
-              board={board}
-              tab={settings.tab}
-              onTab={(tab) => openSettings(board.id, tab)}
-              act={act}
-            />
           ) : (
             <BoardView
               board={board}

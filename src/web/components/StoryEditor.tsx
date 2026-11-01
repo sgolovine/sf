@@ -472,7 +472,7 @@ function PlacementInput({
               ? `Workers try this machine first, then ${project.scheduling ? "the Project's machine order" : "the Supervisor's machine"}.`
               : remotes.length
                 ? "Where sf asks the Supervisor to start this Story's Workers."
-                : "Add remote machines in Project settings to choose one."}
+                : "Add remote machines in Settings → Project → Remote machines to choose one."}
       </p>
     </div>
   );

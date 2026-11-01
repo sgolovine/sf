@@ -40,8 +40,8 @@ The Supervisor reports the launch through the existing `sf done`/`sf fail`/`sf e
 results. The reservation stays charged to the requested machine even if the harness used a
 permitted local fallback.
 
-Users configure machines with `sf project set --remote-machines-file` or Project settings → Remote
-machines, the order with `--scheduling-file` or Project settings → Scheduling, and Story placement
+Users configure machines with `sf project set --remote-machines-file` or Settings → Project →
+Remote machines, the order with `--scheduling-file` or Settings → Project → Scheduling, and Story placement
 with `--placement`/`--machine` or the Story editor. sf rejects removing or changing a slug a Story's
 placement or an occupying execution uses; label, capacity and enabled changes are always allowed.
 Status shows per-machine used/max and, for each Story, the machine sf **requested**, with any
