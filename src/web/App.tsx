@@ -16,6 +16,7 @@ import { ModelSettings } from "./components/ModelSettings.tsx";
 import { SchedulingSettings } from "./components/SchedulingSettings.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
+import { ThemeMenu } from "./components/ThemeMenu.tsx";
 import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -221,6 +222,7 @@ export function App() {
               </Tooltip>
             </>
           )}
+          <ThemeMenu />
         </header>
 
         {/* relative: absolutely positioned descendants (such as the hidden checkbox a Radix Switch adds inside a
