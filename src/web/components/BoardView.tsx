@@ -21,7 +21,7 @@ type Props = {
 };
 
 // Columns stretch to the Board's height; cards scroll in their own region so the footer stays at the bottom.
-const columnClass = "flex min-h-48 w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
+const columnClass = "flex w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
 const cardsClass = "-mx-1 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-1";
 
 /** The kanban: one column per Stage. Drag a card onto a column to Move its Story. */
