@@ -20,7 +20,9 @@ type Props = {
   onOpenStages: () => void;
 };
 
-const columnClass = "flex min-h-32 w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
+// Columns stretch to the Board's height; cards scroll in their own region so the footer stays at the bottom.
+const columnClass = "flex min-h-48 w-72 shrink-0 flex-col gap-2 rounded-lg bg-muted p-2";
+const cardsClass = "-mx-1 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-1";
 
 /** The kanban: one column per Stage. Drag a card onto a column to Move its Story. */
 export function BoardView({ board, runtime, act, onOpenStory, onOpenStages, onCreateStory }: Props) {
@@ -65,21 +67,23 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages, onCr
             </Badge>
           )}
         </header>
-        {stories.map((s) => (
-          <StoryCard
-            key={s.key}
-            story={s}
-            board={board.config}
-            runtime={runtime}
-            act={act}
-            onOpen={() => onOpenStory(s.key)}
-          />
-        ))}
+        <div className={cardsClass}>
+          {stories.map((s) => (
+            <StoryCard
+              key={s.key}
+              story={s}
+              board={board.config}
+              runtime={runtime}
+              act={act}
+              onOpen={() => onOpenStory(s.key)}
+            />
+          ))}
+        </div>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="justify-start text-muted-foreground"
+          className="shrink-0 justify-start bg-muted text-muted-foreground"
           aria-label={`New Story in ${stage.name}`}
           onClick={() => onCreateStory(stage.id)}
         >
@@ -91,23 +95,25 @@ export function BoardView({ board, runtime, act, onOpenStory, onOpenStages, onCr
   };
 
   return (
-    <div className="flex min-h-0 flex-1 items-start gap-3 overflow-auto p-4">
+    <div className="flex min-h-0 flex-1 gap-3 overflow-auto p-4">
       {stages.map(column)}
       {orphans.length > 0 && (
         <section className={cn(columnClass, "border border-dashed border-destructive/50")}>
           <header className="flex h-6 shrink-0 items-center px-1 text-sm font-semibold text-destructive">
             Unknown Stage
           </header>
-          {orphans.map((s) => (
-            <StoryCard
-              key={s.key}
-              story={s}
-              board={board.config}
-              runtime={runtime}
-              act={act}
-              onOpen={() => onOpenStory(s.key)}
-            />
-          ))}
+          <div className={cardsClass}>
+            {orphans.map((s) => (
+              <StoryCard
+                key={s.key}
+                story={s}
+                board={board.config}
+                runtime={runtime}
+                act={act}
+                onOpen={() => onOpenStory(s.key)}
+              />
+            ))}
+          </div>
         </section>
       )}
     </div>
