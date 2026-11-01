@@ -1,50 +1,39 @@
-import type { SchedulingConfig } from "#model/config";
-
-type Remote = SchedulingConfig["remotes"][number];
+import type { RemoteMachine } from "#model/config";
 
 /**
- * A remote row in the scheduling form. Capacities are edited as text; the server validates them on save.
- * `key` stays fixed while the row's machine ID is edited, so the order can follow a rename.
+ * A row in the remote machine form. Capacity is edited as text: blank inherits the Project maximum.
+ * `key` stays fixed while the row's slug is edited, and `saved` is the slug it was loaded with, so the
+ * scheduling order can follow a rename.
  */
-export type RemoteDraft = Omit<Remote, "capacity"> & { key: string; capacity: string };
+export type RemoteDraft = Omit<RemoteMachine, "capacity"> & { key: string; saved?: string; capacity: string };
 
-/** The order's slot for the Supervisor's machine. Remote keys start with `#`, which a machine ID cannot. */
-export const LOCAL_SLOT = "local";
-
-/** Form state: `order` holds `LOCAL_SLOT` and remote draft keys, not machine IDs. */
-export type SchedulingDraft = { remotes: RemoteDraft[]; order: string[] };
-
-export function draftScheduling(current: SchedulingConfig | undefined): SchedulingDraft {
-  const remotes = (current?.remotes ?? []).map((r, i) => ({ ...r, key: `#${i}`, capacity: String(r.capacity) }));
-  const slotOf = (id: string) => (id === "local" ? LOCAL_SLOT : (remotes.find((r) => r.id === id)?.key ?? id));
-  return { remotes, order: current?.order.map(slotOf) ?? [LOCAL_SLOT] };
+export function draftRemotes(current: readonly RemoteMachine[] | undefined): RemoteDraft[] {
+  return (current ?? []).map((r, i) => ({ ...r, key: `#${i}`, saved: r.id, capacity: String(r.capacity ?? "") }));
 }
 
 export function blankRemote(remotes: RemoteDraft[]): RemoteDraft {
   const next = Math.max(-1, ...remotes.map((r) => Number(r.key.slice(1)))) + 1;
-  return {
-    key: `#${next}`,
-    id: "",
-    name: "",
-    environmentId: "",
-    project: { projectId: "", repository: "" },
-    enabled: true,
-    capacity: "1",
-  };
-}
-
-/** The machine ID an order slot stands for; unmatched slots are passed through for the server to reject. */
-export function slotId(slot: string, remotes: RemoteDraft[]): string {
-  return slot === LOCAL_SLOT ? "local" : (remotes.find((r) => r.key === slot)?.id ?? slot);
+  return { key: `#${next}`, id: "", name: "", enabled: true, capacity: "" };
 }
 
 /** Blank text becomes NaN, so the server reports the field instead of reading it as 0. */
 export const toNumber = (text: string) => (text.trim() === "" ? Number.NaN : Number(text));
 
-export function toScheduling(local: string, draft: SchedulingDraft): SchedulingConfig {
-  return {
-    local: { capacity: toNumber(local) },
-    remotes: draft.remotes.map(({ key: _, ...r }) => ({ ...r, capacity: toNumber(r.capacity) })),
-    order: draft.order.map((slot) => slotId(slot, draft.remotes)),
-  };
+/** The catalog to save. A blank capacity is omitted, which restores inheritance. */
+export function toRemoteMachines(drafts: RemoteDraft[]): RemoteMachine[] {
+  return drafts.map(({ id, name, enabled, capacity }) => ({
+    id,
+    name,
+    enabled,
+    ...(capacity.trim() === "" ? {} : { capacity: toNumber(capacity) }),
+  }));
+}
+
+/** The scheduling order after the catalog edit: renamed slugs keep their position, removed ones leave. */
+export function followOrder(order: readonly string[], drafts: RemoteDraft[]): string[] {
+  return order.flatMap((id) => {
+    if (id === "local") return [id];
+    const row = drafts.find((r) => r.saved === id);
+    return row ? [row.id] : [];
+  });
 }

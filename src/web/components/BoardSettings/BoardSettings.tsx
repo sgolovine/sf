@@ -4,12 +4,20 @@ import type { BoardSnapshot } from "#model/project";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Act } from "../ErrorBanner.tsx";
 import { ModelSettings } from "../ModelSettings.tsx";
+import { RemoteMachinesSettings } from "../RemoteMachinesSettings.tsx";
 import { SchedulingSettings } from "../SchedulingSettings.tsx";
 import { CustomFieldsTab } from "./CustomFieldsTab.tsx";
 import { StagePromptsTab } from "./StagePromptsTab.tsx";
 import { StagesTab } from "./StagesTab.tsx";
 
-export type SettingsTab = "project-worker" | "scheduling" | "board-worker" | "stages" | "fields" | "prompts";
+export type SettingsTab =
+  | "project-worker"
+  | "scheduling"
+  | "remote-machines"
+  | "board-worker"
+  | "stages"
+  | "fields"
+  | "prompts";
 
 type Props = {
   project: ProjectConfig;
@@ -23,6 +31,7 @@ type Props = {
 const projectSections = [
   ["project-worker", "Worker"],
   ["scheduling", "Scheduling"],
+  ["remote-machines", "Remote machines"],
 ] as const;
 
 const boardSections = [
@@ -97,6 +106,9 @@ export function Settings({ project, board, tab: requested, onTab, act }: Props) 
           </TabsContent>
           <TabsContent value="scheduling">
             <SchedulingSettings key={JSON.stringify(project)} project={project} act={act} />
+          </TabsContent>
+          <TabsContent value="remote-machines">
+            <RemoteMachinesSettings key={JSON.stringify(project)} project={project} act={act} />
           </TabsContent>
           {board && (
             <>

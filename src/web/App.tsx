@@ -258,7 +258,7 @@ export function App() {
           {project && (
             <span className="shrink-0">
               Workers{" "}
-              {project.config.scheduling
+              {project.config.scheduling || project.config.remoteMachines?.length
                 ? machineUsage(project.config, Object.values(project.runtime.executions ?? {}))
                     .map(
                       (m) => `${m.id} ${m.used}/${m.capacity ?? "?"}${m.configured && !m.enabled ? " (disabled)" : ""}`,

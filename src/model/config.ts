@@ -21,29 +21,33 @@ export type StageHil = { flag: string; comment?: string };
 
 export type WorkerSettings = { agent: string | null; model: string | null };
 
+/**
+ * A remote machine in the Project's catalog. sf only names it to the Supervisor's harness, which owns
+ * discovery, preparation and launch there. `capacity` omitted inherits the Project's `maxConcurrentWorkers`.
+ */
+export type RemoteMachine = { id: string; name: string; enabled: boolean; capacity?: number };
+
+/** Per-machine scheduling: local capacity and the machine order, by catalog ID. */
 export type SchedulingConfig = {
   local: { capacity: number };
-  remotes: {
-    id: string;
-    name: string;
-    environmentId: string;
-    project: { projectId: string; repository: string };
-    enabled: boolean;
-    capacity: number;
-  }[];
   order: string[];
 };
 
 /** `.sf/sf.config.json`. */
 export type ProjectConfig = {
   version: 1;
+  /** The remote machine catalog, independent of `scheduling`. */
+  remoteMachines?: RemoteMachine[];
   scheduling?: SchedulingConfig;
   modelOptions?: ModelOption[];
   worker: WorkerSettings;
   worktree: { baseBranch: string | null };
   claimTimeoutMinutes: number;
   briefPreamble: string;
-  /** Project-wide; cannot be overridden per Board. */
+  /**
+   * Project-wide; cannot be overridden per Board. Local capacity without `scheduling`, and the default
+   * capacity of each remote machine without its own.
+   */
   maxConcurrentWorkers: number;
 };
 

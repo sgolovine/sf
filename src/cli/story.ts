@@ -12,7 +12,7 @@ import {
   type WorktreeResponse,
 } from "#model/api";
 import { ATTACHMENT_LIMIT, type Attachment } from "#model/attachment";
-import type { ProjectConfig, SchedulingConfig, StageConfig } from "#model/config";
+import type { ProjectConfig, RemoteMachine, SchedulingConfig, StageConfig } from "#model/config";
 import { modelDescription, type ResolvedModel } from "#model/models";
 import type { StoryPlacement } from "#model/placement";
 import type { ProjectSnapshot } from "#model/project";
@@ -28,7 +28,8 @@ export const PROJECT_COMMANDS = new Set(["init", "project", "board", "stage", "s
 export const PROJECT_HELP = `Project commands (all accept --project <dir>, --json; Workers add --worker <id>):
   sf init
   sf project show | set [--model <slug>] [--model-option <slug>]...
-               [--max-workers <n>] [--scheduling-file <json-path>]  (file: a whole scheduling object, or null)
+               [--max-workers <n>] [--remote-machines-file <json-path>]  (file: the whole catalog array; [] clears)
+               [--scheduling-file <json-path>]  (file: a whole scheduling object, or null)
   sf board list | create <name> --key <KEY> | show <board>
   sf board set <board> [--model <slug>] [--model-option <slug>]...
   sf stage add <board> <name> [--after <stage-id>]
@@ -379,20 +380,21 @@ function formatBoard({ id, config, prompts, effectiveModel }: BoardResponse) {
 function formatProject({ config, effectiveModel, policy, machines }: ProjectSettingsResponse) {
   const lines = [`Project model: ${modelDescription(effectiveModel)}`];
   const used = (id: string) => machines.find((m) => m.id === id)?.used ?? 0;
-  if (!config.scheduling) {
-    lines.push(`Scheduling: legacy, ${used("local")}/${config.maxConcurrentWorkers} Workers on local`);
-  } else {
-    lines.push(
-      "Scheduling: per-machine capacities (maxConcurrentWorkers is ignored)",
-      `  local  cap ${config.scheduling.local.capacity}  used ${used("local")}`,
-    );
-    for (const r of config.scheduling.remotes)
+  const cap = (id: string) => policy.machines[id]?.capacity;
+  lines.push(
+    config.scheduling
+      ? "Scheduling: per-machine, in the machine order below"
+      : "Scheduling: off; Stories without a placement run on local",
+    `  local  cap ${cap("local")}${config.scheduling ? "" : " (maxConcurrentWorkers)"}  used ${used("local")}`,
+  );
+  if (config.remoteMachines?.length) {
+    lines.push(`Remote machines (default cap ${config.maxConcurrentWorkers}, from maxConcurrentWorkers):`);
+    for (const r of config.remoteMachines)
       lines.push(
-        `  ${r.id}  "${r.name}"  environment ${r.environmentId}  project ${r.project.projectId}  ${r.project.repository}` +
-          `  ${r.enabled ? "enabled" : "disabled"}  cap ${r.capacity}  used ${used(r.id)}`,
+        `  ${r.id}  "${r.name}"  ${r.enabled ? "enabled" : "disabled"}  cap ${cap(r.id)}${r.capacity === undefined ? " (inherited)" : ""}  used ${used(r.id)}`,
       );
-    lines.push(`Order: ${policy.order.join(", ") || "(empty: Stories without a placement wait)"}`);
   }
+  if (config.scheduling) lines.push(`Order: ${policy.order.join(", ") || "(empty: Stories without a placement wait)"}`);
   for (const m of machines) if (!m.configured) lines.push(`  ${m.id}  not configured  used ${m.used}`);
   return lines.join("\n");
 }
@@ -503,34 +505,46 @@ function placementPatch(flags: Flags): { placement?: StoryPlacement | null } {
   return { placement: mode === "inherit" ? null : { mode: "local-only" } };
 }
 
-/** `--max-workers` and `--scheduling-file`; the service validates the values. */
-function schedulingPatch(flags: Flags): { maxConcurrentWorkers?: number; scheduling?: SchedulingConfig | null } {
-  const patch: { maxConcurrentWorkers?: number; scheduling?: SchedulingConfig | null } = {};
+type SchedulingPatch = {
+  maxConcurrentWorkers?: number;
+  remoteMachines?: RemoteMachine[];
+  scheduling?: SchedulingConfig | null;
+};
+
+/** `--max-workers`, `--remote-machines-file` and `--scheduling-file`; the service validates the values. */
+function schedulingPatch(flags: Flags): SchedulingPatch {
+  const patch: SchedulingPatch = {};
   const max = flags["max-workers"];
   if (max !== undefined) {
     if (typeof max !== "string" || !/^\d+$/.test(max))
       throw new SfError("invalid", "--max-workers needs a nonnegative integer");
     patch.maxConcurrentWorkers = Number(max);
   }
-  const file = flags["scheduling-file"];
-  if (file !== undefined) {
-    if (typeof file !== "string" || !file) throw new SfError("invalid", "--scheduling-file needs a JSON file path");
-    let text: string;
-    try {
-      text = fs.readFileSync(file, "utf8");
-    } catch (err) {
-      throw new SfError("invalid", `--scheduling-file ${file}: ${(err as Error).message}`);
-    }
-    try {
-      patch.scheduling = JSON.parse(text);
-    } catch (err) {
-      throw new SfError(
-        "invalid",
-        `--scheduling-file ${file}: not valid JSON (${(err as Error).message}); it must hold a whole scheduling object or null`,
-      );
-    }
-  }
+  const remotes = jsonFile(flags, "remote-machines-file", "the whole remote machine catalog array, or []");
+  if (remotes !== undefined) patch.remoteMachines = remotes as RemoteMachine[];
+  const scheduling = jsonFile(flags, "scheduling-file", "a whole scheduling object or null");
+  if (scheduling !== undefined) patch.scheduling = scheduling as SchedulingConfig | null;
   return patch;
+}
+
+function jsonFile(flags: Flags, flag: string, holds: string): unknown {
+  const file = flags[flag];
+  if (file === undefined) return undefined;
+  if (typeof file !== "string" || !file) throw new SfError("invalid", `--${flag} needs a JSON file path`);
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    throw new SfError("invalid", `--${flag} ${file}: ${(err as Error).message}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new SfError(
+      "invalid",
+      `--${flag} ${file}: not valid JSON (${(err as Error).message}); it must hold ${holds}`,
+    );
+  }
 }
 
 function dependencyPatch(flags: Flags): { dependsOn?: string[] } {

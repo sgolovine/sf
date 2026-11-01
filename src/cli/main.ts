@@ -263,8 +263,8 @@ function formatCommand({ id, command }: CommandRecord) {
       ...(command.machine
         ? [
             "",
-            `Machine: start this Worker on ${command.machine.name} (${command.machine.id}) with your harness's machine handling,`,
-            `  placement ${command.machine.placement}, ${command.machine.localFallback ? "local fallback permitted" : "no local fallback"}. The brief ends with these instructions; keep them when forwarding it.`,
+            `Machine: ${command.machine.name} (${command.machine.id}). Your harness owns that machine; the brief ends with these instructions, keep them when forwarding it:`,
+            command.machine.instructions,
           ]
         : []),
       "",
