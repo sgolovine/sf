@@ -1,3 +1,6 @@
+---
+model: gpt-6.1-sol
+---
 If `requires_review_hil` is true, a human has not cleared this Story yet: release the Claim and stop.
 
 Otherwise, read `.agents/skills/sf-review/SKILL.md` in the Project (the Supervisor's checkout named above) and follow it, using this Story and its `pr_url` as the input. Do not change code.

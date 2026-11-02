@@ -1,0 +1,49 @@
+{
+  "files": [
+    {
+      "id": "64ddcf7d-18b1-4765-a28f-bae1ebfdddc3",
+      "name": "desktop-before.png",
+      "mediaType": "application/octet-stream",
+      "size": 105678
+    },
+    {
+      "id": "2af804e7-7eae-4fbe-83f9-9a012f0e337e",
+      "name": "desktop-after.png",
+      "mediaType": "application/octet-stream",
+      "size": 112304
+    },
+    {
+      "id": "e4e5a7b6-53fc-489f-a38b-292591b24387",
+      "name": "narrow-before.png",
+      "mediaType": "application/octet-stream",
+      "size": 25343
+    },
+    {
+      "id": "95ed5513-5965-409d-8be9-2241198d5af6",
+      "name": "narrow-after.png",
+      "mediaType": "application/octet-stream",
+      "size": 27927
+    },
+    {
+      "id": "ec970b1a-e181-484c-bcaa-09cb721af075",
+      "name": "narrow-hscroll.png",
+      "mediaType": "application/octet-stream",
+      "size": 24751
+    },
+    {
+      "id": "a525d2e0-f5fb-4498-8bb5-f4b80d385f5b",
+      "name": "veryshort-before.png",
+      "mediaType": "application/octet-stream",
+      "size": 15775
+    },
+    {
+      "id": "25330765-d2fe-4a1d-880c-8396c924afbd",
+      "name": "veryshort-after.png",
+      "mediaType": "application/octet-stream",
+      "size": 16640
+    }
+  ],
+  "submissions": [
+    "5f9ba024-a07a-4645-841d-94e9897cc9d0"
+  ]
+}

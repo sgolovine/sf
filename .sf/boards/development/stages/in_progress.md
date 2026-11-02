@@ -1,3 +1,6 @@
+---
+model: claude-opus-5-5
+---
 If `requires_dev_hil` is true, a human has not cleared this Story yet: release the Claim and stop.
 
 Otherwise, read `.agents/skills/sf-develop/SKILL.md` in the Project (the Supervisor's checkout named above) and follow it, using this Story as the input and your Story Worktree as the workspace. If `pr_url` is set, the Story came back from In Validation or In Review: the findings on that pull request are the work.

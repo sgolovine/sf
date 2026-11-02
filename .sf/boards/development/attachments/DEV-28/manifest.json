@@ -1,0 +1,32 @@
+{
+  "files": [
+    {
+      "id": "b8c8f619-d8be-42bb-bba9-c0ec94b93340",
+      "name": "00-before-shortcut.png",
+      "mediaType": "application/octet-stream",
+      "size": 80087
+    },
+    {
+      "id": "d34302d9-e7d2-4655-9fc1-f46c4209f7d2",
+      "name": "02-after-submit.png",
+      "mediaType": "application/octet-stream",
+      "size": 39108
+    },
+    {
+      "id": "74e908a0-86e3-499a-a75d-80dca4bc3f8b",
+      "name": "03-delete-confirm.png",
+      "mediaType": "application/octet-stream",
+      "size": 83807
+    },
+    {
+      "id": "fca85000-dd50-4fb2-b053-2b858877d0ee",
+      "name": "04-pending.png",
+      "mediaType": "application/octet-stream",
+      "size": 80476
+    }
+  ],
+  "submissions": [
+    "469f4795-174b-4664-add2-8cf47684f88d",
+    "767ba030-f6ce-4791-a9e2-c51b9c0cd9d6"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "files": [
+    {
+      "id": "555a022f-8908-4811-a95a-a10db35bcc45",
+      "name": "03-ledger.png",
+      "mediaType": "application/octet-stream",
+      "size": 103946
+    },
+    {
+      "id": "a79e0753-8d38-4c46-a8b9-1bc6bad39b88",
+      "name": "04-pending.png",
+      "mediaType": "application/octet-stream",
+      "size": 105375
+    },
+    {
+      "id": "87158d54-79f2-42dd-8ad2-12c5058a70e9",
+      "name": "05-error.png",
+      "mediaType": "application/octet-stream",
+      "size": 110064
+    },
+    {
+      "id": "c8d89899-b714-4b58-a998-b244ba099d0e",
+      "name": "06-request-sent.png",
+      "mediaType": "application/octet-stream",
+      "size": 110430
+    },
+    {
+      "id": "517600eb-e657-4bcd-9ab8-eea3c1f85517",
+      "name": "07-terminal-refresh.png",
+      "mediaType": "application/octet-stream",
+      "size": 105816
+    }
+  ],
+  "submissions": []
+}

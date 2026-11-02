@@ -1,0 +1,20 @@
+{
+  "files": [
+    {
+      "id": "4ca731e0-8d10-4a77-a9e5-97086ddf7bd4",
+      "name": "dev27-current-light.png",
+      "mediaType": "application/octet-stream",
+      "size": 34659
+    },
+    {
+      "id": "b76df903-c15f-4133-85db-0fd0889aaed1",
+      "name": "dev27-current-dark.png",
+      "mediaType": "application/octet-stream",
+      "size": 35090
+    }
+  ],
+  "submissions": [
+    "4906403b-bb67-45f8-8e9d-9f1101175265",
+    "9304fefc-1c9d-4b5e-9b49-bef67b6d094e"
+  ]
+}
