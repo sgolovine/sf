@@ -14,6 +14,7 @@ import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
+import { ThemeMenu } from "./components/ThemeMenu.tsx";
 import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -218,6 +219,7 @@ export function App() {
                   </Tooltip>
                 </>
               )}
+              <ThemeMenu />
             </div>
           </div>
         </header>
