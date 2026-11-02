@@ -238,7 +238,7 @@ sf reads these files from the service's Project root in the Supervisor's checkou
 - The Board key used in Story Keys (for example `DEV`).
 - `storyNumber`, the highest allocated Story number. Allocation and deletion preserve this committed high-water mark, accounting for existing files on older Boards, so deleted Keys are never reused.
 - The ordered Stage list. Each Stage has a stable slug id, a display name, a prompt enabled/disabled flag, and optional agent overrides. The model override is YAML frontmatter in the Stage Markdown file. The Stage Prompt text is in `stages/<stage-id>.md`. Renaming a Stage changes only its display name.
-- The Story schema: custom fields with types `text`, `number`, `single-select`, `multi-select`, `boolean`, or `date`.
+- The Story schema: custom fields with types `text`, `markdown`, `number`, `single-select`, `multi-select`, `boolean`, or `date`. A `markdown` field holds a string like `text`, stored in the same frontmatter key, but the Story editor shows it as a Write/Preview markdown editor like the Description.
 - Overrides of `sf.config.json` settings (see the table above).
 
 ### Story file
