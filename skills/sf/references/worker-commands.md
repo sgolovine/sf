@@ -27,8 +27,9 @@ sf board create Development --key DEV          # Backlog, TODO, In Progress, In 
 sf board show DEV
 sf project show
 sf project set --model gpt-6.1-sol --model-option vendor/custom
-sf project set --max-workers 4                       # legacy total, local only
-sf project set --scheduling-file scheduling.json     # per-machine caps, remotes, order; a file holding null removes it
+sf project set --max-workers 4                       # per-machine default (local without scheduling, remotes without a cap)
+sf project set --remote-machines-file remotes.json   # remote machine catalog array; a file holding [] clears it
+sf project set --scheduling-file scheduling.json     # local capacity and machine order; a file holding null removes it
 sf board set DEV --model claude-opus-5-5 --model-option vendor/board-custom
 sf stage add DEV "In Fixup" --after in_review
 sf stage set DEV todo --name "Ready for Development" --prompt-file prompts/ready.md --prompt-enabled true
@@ -74,7 +75,7 @@ The Story stays in its Stage, marked in the UI with the comment. When a human cl
 
 ## Configuration
 
-`.sf/sf.config.json` holds the Project defaults: `worker.agent`/`worker.model`, `worktree.baseBranch`, `claimTimeoutMinutes` (120), `briefPreamble`, `maxConcurrentWorkers` (3) and optional `scheduling` (per-machine capacities that replace `maxConcurrentWorkers`). Use `sf project set` for model/catalog, `--max-workers` and `--scheduling-file` changes; sf rejects scheduling changes that would remove a machine a Story's placement names or remap one a running Worker occupies, and allows disabling it instead; other settings can be edited by hand and the next sf command picks them up. A Board can override all but `maxConcurrentWorkers` under `overrides` in its `board.config.json`, and a Stage can override `agent` and `model`.
+`.sf/sf.config.json` holds the Project defaults: `worker.agent`/`worker.model`, `worktree.baseBranch`, `claimTimeoutMinutes` (120), `briefPreamble`, `maxConcurrentWorkers` (3, a per-machine default), optional `remoteMachines` (`{ id, name, enabled, capacity? }`; omitted capacity inherits `maxConcurrentWorkers`) and optional `scheduling` (local capacity and machine order). Use `sf project set` for model/catalog, `--max-workers`, `--remote-machines-file` and `--scheduling-file` changes; sf rejects removing or changing a machine slug a Story's placement names or a running Worker occupies, and allows disabling it instead; other settings can be edited by hand and the next sf command picks them up. A Board can override all but `maxConcurrentWorkers`, `remoteMachines` and `scheduling` under `overrides` in its `board.config.json`, and a Stage can override `agent` and `model`.
 
 ### Worker model inheritance
 
