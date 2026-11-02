@@ -34,7 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, sfApi } from "../api/client.ts";
-import { reportedIds } from "../lib/execution.ts";
+import { machineName, reportedIds } from "../lib/execution.ts";
 import { DependencyPicker } from "./DependencyPicker.tsx";
 import type { Act } from "./ErrorBanner.tsx";
 import { Markdown } from "./Markdown.tsx";
@@ -394,11 +394,6 @@ const PLACEMENT_LABELS = {
 
 function samePlacement(a: StoryPlacement, b: StoryPlacement | undefined) {
   return JSON.stringify(a) === JSON.stringify(b ?? { mode: "inherit" });
-}
-
-function machineName(project: ProjectConfig, machineId: string) {
-  const remote = project.scheduling?.remotes.find((r) => r.id === machineId);
-  return remote ? `${remote.name} (${remote.id})` : machineId;
 }
 
 /** Built-in Story placement. Required/preferred need a configured remote; stale targets stay visible to clear. */

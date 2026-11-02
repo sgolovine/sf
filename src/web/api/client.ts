@@ -4,6 +4,8 @@ import {
   type CreateStoryRequest,
   type DeleteStoryResponse,
   type ErrorResponse,
+  type ExecutionsResponse,
+  type ExecutionView,
   routes,
   type SearchResponse,
   type StoryDetails,
@@ -94,6 +96,12 @@ export const sfApi = {
   removeWorktree: (key: string) =>
     request<WorktreeResponse>("POST", routes.storyWorktree(key), { action: "remove", force: true }),
   search: (q: string) => request<SearchResponse>("GET", routes.search(q)),
+
+  listExecutions: () => request<ExecutionsResponse>("GET", routes.executions),
+  /** Asks the Supervisor to look the execution up. Resolves when the request is recorded, not when it is answered. */
+  reconcileExecution: (id: string) => request<ExecutionView>("POST", routes.executionReconcile(id), {}),
+  /** Asks the Supervisor to stop the execution. Only terminal evidence later frees its slot. */
+  cancelExecution: (id: string) => request<ExecutionView>("POST", routes.executionCancel(id), {}),
 
   /** Subscribes to live state. Returns an unsubscribe function. */
   subscribe(onState: (state: SessionState) => void, onError?: () => void) {

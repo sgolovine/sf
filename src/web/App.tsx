@@ -12,6 +12,7 @@ import { BoardSettings, type SettingsTab } from "./components/BoardSettings/Boar
 import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
+import { ExecutionsView } from "./components/ExecutionsView.tsx";
 import { ModelSettings } from "./components/ModelSettings.tsx";
 import { SchedulingSettings } from "./components/SchedulingSettings.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
@@ -27,7 +28,9 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 type View =
   | { kind: "board"; boardId: string | null }
   | { kind: "settings"; boardId: string; tab: SettingsTab }
-  | { kind: "project-settings" };
+  | { kind: "project-settings" }
+  /** The Project-wide execution ledger; `boardId` is the Board to return to. */
+  | { kind: "executions"; boardId: string | null };
 
 export function App() {
   const { data: session, error } = useSession();
@@ -129,6 +132,7 @@ export function App() {
   const selectedId = view.kind === "project-settings" ? null : view.boardId;
   const board = boards.find((b) => b.id === selectedId) ?? boards[0];
   const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
+  const otherView = view.kind === "project-settings" || view.kind === "executions" || !!settings;
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
     ` · ${listening ? "listening" : "busy or away"}`;
@@ -158,17 +162,15 @@ export function App() {
         <header className="@container/header flex h-12 shrink-0 items-center gap-2 border-b px-3">
           <SidebarTrigger className="shrink-0" />
           {/* The sidebar shows the Board name; the header names only the other views. */}
-          {(view.kind === "project-settings" || settings) && (
-            <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          )}
-          <h1
-            className={cn("min-w-0 truncate font-medium", view.kind !== "project-settings" && !settings && "sr-only")}
-          >
+          {otherView && <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />}
+          <h1 className={cn("min-w-0 truncate font-medium", !otherView && "sr-only")}>
             {view.kind === "project-settings"
               ? "Project settings"
-              : settings
-                ? "Board Settings"
-                : (board?.config.name ?? "Boards")}
+              : view.kind === "executions"
+                ? "Executions"
+                : settings
+                  ? "Board Settings"
+                  : (board?.config.name ?? "Boards")}
           </h1>
           <span className="flex-1" />
           {board && (
@@ -187,7 +189,7 @@ export function App() {
               </kbd>
             </Button>
           )}
-          {board && settings && (
+          {board && (settings || view.kind === "executions") && (
             <Button
               size="sm"
               variant="outline"
@@ -199,7 +201,7 @@ export function App() {
               <span className="hidden @md/header:inline">Back to board</span>
             </Button>
           )}
-          {board && !settings && view.kind !== "project-settings" && (
+          {board && !otherView && (
             <>
               <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
                 <Plus />
@@ -233,6 +235,8 @@ export function App() {
               <ModelSettings project={project.config} act={act} />
               <SchedulingSettings project={project.config} act={act} />
             </div>
+          ) : view.kind === "executions" && project ? (
+            <ExecutionsView project={project.config} boards={boards} act={act} />
           ) : !board ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
               <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
@@ -262,7 +266,12 @@ export function App() {
 
         <footer className="flex h-8 shrink-0 items-center gap-3 border-t px-3 text-xs whitespace-nowrap text-muted-foreground">
           {project && (
-            <span className="shrink-0">
+            <button
+              type="button"
+              className="shrink-0 rounded-sm hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              onClick={() => openView({ kind: "executions", boardId: board?.id ?? null })}
+              title="Open Executions"
+            >
               Workers{" "}
               {project.config.scheduling
                 ? machineUsage(project.config, Object.values(project.runtime.executions ?? {}))
@@ -272,7 +281,7 @@ export function App() {
                     .join(" · ")
                 : `${Object.values(project.runtime.executions ?? {}).filter((e) => e.status !== "terminal").length}/${project.config.maxConcurrentWorkers}`}
               {project.runtime.queue.length > 0 && ` · ${project.runtime.queue.length} waiting`}
-            </span>
+            </button>
           )}
           <span className="flex min-w-0 items-center gap-1.5" title={supervisorText}>
             <span
