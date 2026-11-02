@@ -4,6 +4,7 @@ DEV-10 (2026-10-31). sf schedules Workers from a durable per-Project **execution
 `.sf/runtime/state.json` (runtime version 2). This document is the Supervisor protocol and the
 operator recovery guide. Since DEV-11, a reserved remote is requested from the Supervisor's
 harness with a machine request ([remote Workers](remote-workers.md)); DEV-12 adds the controls and status UI.
+Since DEV-31, remotes come from the Project's `remoteMachines` catalog and carry no harness mapping.
 
 ## Claim versus execution
 
@@ -37,8 +38,10 @@ evidence, any conflict, the outstanding Supervisor attempt and retry timing.
 | `terminal` | Confirmed `completed`, `failed`, `cancelled` or `not-started` | no |
 
 Local identities are generated once (`sfe-…` environment, `sfp-…` Project) and survive restarts
-and checkout moves. Remote entries record the configured `environmentId` and `project.projectId`.
-Verified adapter IDs reported by the Supervisor are kept beside sf's own, never instead of them.
+and checkout moves. Since DEV-31 remote entries record the same sf identities, with the machine
+slug in `machineId`; entries recorded earlier keep the configured `environmentId` and
+`project.projectId` they were created with, and reports still correlate against those. Verified
+adapter IDs reported by the Supervisor are kept beside sf's own, never instead of them.
 
 ## Dispatch
 
@@ -47,14 +50,15 @@ slot, creates the Claim and writes the launch intent, then saves. Only after the
 the lock, the intent is published to the Supervisor's command queue, deduplicated by launch
 identity. A crash at any point republishes the same intent; it never creates a new identity.
 
-- Capacity: without `scheduling`, local only at `maxConcurrentWorkers` (default 3). With
-  `scheduling`, only per-machine caps. Every non-terminal entry counts, across all Boards.
+- Capacity: per machine. Local is `scheduling.local.capacity`, or `maxConcurrentWorkers` (default
+  3) without scheduling; each remote is its own capacity, or `maxConcurrentWorkers` when it has
+  none. There is no total across machines. Every non-terminal entry counts, across all Boards.
   A lowered cap or cap 0 stops new reservations; running Workers are never stopped.
 - Eligibility: local needs a registered Supervisor with a thread or subagent tool (an
   unregistered Supervisor keeps commands waiting, as before). Configured, enabled remotes need the
-  same launch ability; the harness owns machine handling. A remote whose environment/project mapping changed while one of its executions
-  is occupying is `unmapped` until that execution ends. Removing a machine never hides its
-  occupying entries or their branch fences.
+  same launch ability; the harness owns machine handling. sf cannot remove a slug an occupying
+  execution holds, and removing one by hand never hides its occupying entries or their branch
+  fences.
 - Queue: oldest first (`queuedAt`, then a stable sequence number). Each drain skips entries that
   must wait (capacity, eligibility, `branch-occupied`) and continues to later eligible work,
   recording the latest wait reasons on the entry. A newer Move replaces a Story's request.

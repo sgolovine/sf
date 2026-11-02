@@ -8,7 +8,7 @@ import {
   type TargetEligibility,
 } from "#model/placement";
 
-import { scheduling } from "./scheduling-fixture.ts";
+import { machines, remoteMachines } from "./scheduling-fixture.ts";
 
 const eligible: Record<string, TargetEligibility> = Object.fromEntries(
   ["a", "b", "local"].map((id) => [id, { failures: [] }]),
@@ -16,7 +16,7 @@ const eligible: Record<string, TargetEligibility> = Object.fromEntries(
 
 test("pure first-fit fills 4 + 2 + 2 independent of the legacy cap", () => {
   for (const maxConcurrentWorkers of [3, 1, 100]) {
-    const config = { scheduling: scheduling(), maxConcurrentWorkers };
+    const config = { ...machines(), maxConcurrentWorkers };
     const policy = normalizePlacementPolicy(config);
     const usage: Record<string, number> = {};
     const before = JSON.stringify({ config, policy, eligible });
@@ -43,7 +43,7 @@ test("pure first-fit fills 4 + 2 + 2 independent of the legacy cap", () => {
 });
 
 test("override candidates, fallback and preferred stable deduplication", () => {
-  const policy = normalizePlacementPolicy({ scheduling: scheduling(), maxConcurrentWorkers: 3 });
+  const policy = normalizePlacementPolicy({ ...machines(), maxConcurrentWorkers: 3 });
   const cases: [StoryPlacement, Record<string, number>, string][] = [
     [{ mode: "inherit" }, {}, "a"],
     [{ mode: "local-only" }, {}, "local"],
@@ -78,7 +78,7 @@ test("override candidates, fallback and preferred stable deduplication", () => {
 });
 
 test("eligibility priority precedes capacity; missing evidence never implies eligibility", () => {
-  const policy = normalizePlacementPolicy({ scheduling: scheduling(), maxConcurrentWorkers: 3 });
+  const policy = normalizePlacementPolicy({ ...machines(), maxConcurrentWorkers: 3 });
   for (const used of [0, 99]) {
     for (const [index, code] of ELIGIBILITY_REASONS.entries()) {
       assert.deepEqual(
@@ -133,17 +133,83 @@ test("zero and reduced caps wait; invalid supplied usage is rejected", () => {
 });
 
 test("valid machine slugs do not read inherited usage from object prototypes", () => {
-  const config = scheduling();
-  config.remotes[0]!.id = "constructor";
-  config.remotes[0]!.capacity = 0;
-  config.order = ["constructor"];
+  const config = machines();
+  config.remoteMachines[0]!.id = "constructor";
+  config.remoteMachines[0]!.capacity = 0;
+  config.scheduling.order = ["constructor"];
   assert.deepEqual(
     selectPlacement(
-      normalizePlacementPolicy({ scheduling: config, maxConcurrentWorkers: 3 }),
+      normalizePlacementPolicy({ ...config, maxConcurrentWorkers: 3 }),
       undefined,
       { constructor: { failures: [] } },
       {},
     ),
     { kind: "wait", reasons: [{ machineId: "constructor", code: "capacity" }] },
+  );
+});
+
+test("omitted remote capacity inherits the Project maximum; explicit and zero overrides stay", () => {
+  const remotes = [...remoteMachines(), { id: "c", name: "C", enabled: true, capacity: 0 }];
+  delete remotes[1]!.capacity;
+  for (const maxConcurrentWorkers of [1, 3, 7]) {
+    const policy = normalizePlacementPolicy({ remoteMachines: remotes, maxConcurrentWorkers });
+    assert.deepEqual(policy.machines, {
+      local: { capacity: maxConcurrentWorkers, enabled: true },
+      a: { capacity: 4, enabled: true },
+      b: { capacity: maxConcurrentWorkers, enabled: true },
+      c: { capacity: 0, enabled: true },
+    });
+    // The maximum is a per-machine default, not a total, and scheduling keeps its explicit local capacity.
+    const scheduled = normalizePlacementPolicy({
+      remoteMachines: remotes,
+      scheduling: { local: { capacity: 2 }, order: ["b"] },
+      maxConcurrentWorkers,
+    });
+    assert.equal(scheduled.machines.local?.capacity, 2);
+    assert.equal(scheduled.machines.b?.capacity, maxConcurrentWorkers);
+  }
+  assert.deepEqual(
+    selectPlacement(
+      normalizePlacementPolicy({ remoteMachines: remotes, maxConcurrentWorkers: 3 }),
+      { mode: "required", machineId: "c" },
+      { ...eligible, c: { failures: [] } },
+      {},
+    ),
+    { kind: "wait", reasons: [{ machineId: "c", code: "capacity" }] },
+    "zero prevents new reservations",
+  );
+});
+
+test("without scheduling, inherit stays local and remotes are reached only by Story placement", () => {
+  const policy = normalizePlacementPolicy({ remoteMachines: remoteMachines(), maxConcurrentWorkers: 1 });
+  assert.deepEqual(policy.order, ["local"]);
+  const all = { ...eligible };
+  assert.deepEqual(selectPlacement(policy, undefined, all, {}), { kind: "selected", machineId: "local" });
+  assert.deepEqual(selectPlacement(policy, undefined, all, { local: 1 }), {
+    kind: "wait",
+    reasons: [{ machineId: "local", code: "capacity" }],
+  });
+  assert.deepEqual(selectPlacement(policy, { mode: "required", machineId: "b" }, all, {}), {
+    kind: "selected",
+    machineId: "b",
+  });
+  assert.deepEqual(selectPlacement(policy, { mode: "preferred", machineId: "b" }, all, { b: 2 }), {
+    kind: "selected",
+    machineId: "local",
+  });
+  assert.deepEqual(selectPlacement(policy, { mode: "required", machineId: "b" }, all, { b: 2 }), {
+    kind: "wait",
+    reasons: [{ machineId: "b", code: "capacity" }],
+  });
+  const disabled = remoteMachines();
+  disabled[0]!.enabled = false;
+  assert.equal(
+    selectPlacement(
+      normalizePlacementPolicy({ remoteMachines: disabled, maxConcurrentWorkers: 1 }),
+      { mode: "required", machineId: "a" },
+      all,
+      {},
+    ).kind,
+    "wait",
   );
 });

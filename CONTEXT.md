@@ -75,12 +75,18 @@ A file belonging to a Story, stored with display metadata under the Supervisorâ€
 **Dependency wait**:
 A Story's built-in `dependsOn` list names prerequisite Story keys in the same Project, across Boards. sf starts no Worker until every key is Done. The current Stage stays unchanged. Workers record a wait and release atomically with `sf story wait`; dependency completion resumes that Stage through the normal capacity queue. HIL is independent and is never automatically cleared. Missing prerequisites remain unresolved; supported deletion rejects referenced Stories.
 
+**Remote machine**:
+An entry in the Project's `remoteMachines` catalog: a machine label, a stable machine slug, an enabled
+flag and an optional maximum concurrent Workers that otherwise inherits the Project maximum. sf only
+names the machine to the Supervisor's harness, which discovers, prepares and launches on it.
+_Avoid_: Remote environment, environment mapping
+
 **Placement policy**:
-Optional Project `scheduling` defines local/remote capacities, stable environment/project mappings,
-and explicit machine order. Built-in Story `placement` inherits, selects local-only, requires a remote,
-or prefers a remote with ordered fallback. DEV-9 persists/validates these and provides a pure selector;
-dispatch uses it to reserve capacity per machine (DEV-10). When it selects a configured remote, sf adds
-a machine request and machine instructions to the Worker launch request; the Supervisor's harness owns
-machine handling (DEV-11). Users edit both through `sf project set`/`sf story --placement` or the UI;
-sf rejects edits that orphan a placement or remap an occupied machine (DEV-12). See the core spec for
-schema, precedence and eligibility reasons.
+Optional Project `scheduling` holds local capacity and an explicit machine order over `local` and
+catalog slugs. Built-in Story `placement` inherits, selects local-only, requires a remote, or prefers a
+remote with ordered fallback; without scheduling, inheriting means local and remotes are reached only
+by placement. Dispatch reserves capacity per machine (DEV-10). When it selects a remote, the Worker
+launch request and Brief say "The user specified that this work should be done on the machine:
+<machine_slug>" (DEV-11, simplified in DEV-31). Users edit both through `sf project set`/`sf story
+--placement` or the UI; sf rejects edits that remove or change a slug a placement or occupying
+execution uses (DEV-12). See the core spec for schema, precedence and eligibility reasons.
