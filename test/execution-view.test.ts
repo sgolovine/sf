@@ -37,20 +37,8 @@ test("recoveryBlocked allows requests only for delivered, occupying executions",
 test("usage heads count only occupying entries and show unknown capacity as unknown", () => {
   const config = {
     maxConcurrentWorkers: 3,
-    scheduling: {
-      local: { capacity: 1 },
-      remotes: [
-        {
-          id: "gpu",
-          name: "GPU box",
-          environmentId: "env",
-          project: { projectId: "p", repository: "github.com/acme/app" },
-          enabled: false,
-          capacity: 2,
-        },
-      ],
-      order: ["local", "gpu"],
-    },
+    remoteMachines: [{ id: "gpu", name: "GPU box", enabled: false, capacity: 2 }],
+    scheduling: { local: { capacity: 1 }, order: ["local", "gpu"] },
   };
   const usage = machineUsage(config, [
     { machineId: "local", status: "running" },

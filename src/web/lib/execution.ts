@@ -46,7 +46,7 @@ export function capacityText(capacity: number | null) {
 }
 
 /** A configured remote's name with its ID; anything else (local, removed machines) by ID. */
-export function machineName(project: Pick<ProjectConfig, "scheduling">, machineId: string) {
-  const remote = project.scheduling?.remotes.find((r) => r.id === machineId);
+export function machineName(project: Pick<ProjectConfig, "remoteMachines">, machineId: string) {
+  const remote = project.remoteMachines?.find((r) => r.id === machineId);
   return remote ? `${remote.name} (${remote.id})` : machineId;
 }

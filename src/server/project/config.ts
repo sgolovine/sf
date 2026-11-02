@@ -9,7 +9,7 @@ import {
   type StageConfig,
 } from "#model/config";
 import { type ModelOption, resolveModel } from "#model/models";
-import { validateScheduling } from "#model/placement";
+import { readMachines } from "#model/placement";
 import { SfError } from "./errors.ts";
 import { readJson, writeJson } from "./fsutil.ts";
 import { sfPaths } from "./paths.ts";
@@ -30,11 +30,14 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
 export function loadProjectConfig(root: string): ProjectConfig {
   const raw = readJson<Partial<ProjectConfig>>(sfPaths(root).config);
   if (!raw) throw new SfError("no_project", `no sf Project at ${root} (run \`sf init\`)`);
-  if (Object.hasOwn(raw, "scheduling")) validateScheduling(raw.scheduling);
+  // Reading never rewrites the file: a legacy catalog is promoted in memory until the next settings save.
+  const { remoteMachines: _remoteMachines, scheduling: _scheduling, ...rest } = raw;
+  const machines = readMachines(raw);
   const d = DEFAULT_PROJECT_CONFIG;
   return {
     ...d,
-    ...raw,
+    ...rest,
+    ...machines,
     version: 1,
     worker: { ...d.worker, ...raw.worker },
     worktree: { ...d.worktree, ...raw.worktree },
@@ -186,6 +189,7 @@ export function validateOverrides(overrides: BoardOverrides) {
   if (!overrides || typeof overrides !== "object") invalid("overrides must be an object");
   if ("maxConcurrentWorkers" in overrides) invalid("maxConcurrentWorkers is Project-wide and cannot be set per Board");
   if ("scheduling" in overrides) invalid("scheduling is Project-wide and cannot be set per Board");
+  if ("remoteMachines" in overrides) invalid("remoteMachines is Project-wide and cannot be set per Board");
   const t = overrides.claimTimeoutMinutes;
   if (t !== undefined && !(typeof t === "number" && t > 0)) invalid("claimTimeoutMinutes must be a positive number");
 }

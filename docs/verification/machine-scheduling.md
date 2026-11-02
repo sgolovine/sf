@@ -85,5 +85,5 @@ Test files are under `test/`. Run them with `pnpm test`.
 | --- | --- | --- |
 | Focused scheduler/service/CLI/HTTP coverage | pass | the files above; `pnpm test` |
 | Editor/status UI verified | pass (observed) | Manual run above. Validation adds the screenshots. |
-| Setup, capacity, fallback, overrides and recovery docs | pass | [README](../../README.md#machine-scheduling), [core spec](../specs/01-core-function.md#machine-scheduling-policy-dev-9-policy-dev-10-dispatch), [remote Workers](../remote-workers.md), `skills/sf/references/commands.md` |
+| Setup, capacity, fallback, overrides and recovery docs | pass | [README](../../README.md#machine-scheduling), [core spec](../specs/01-core-function.md#remote-machines-and-scheduling-dev-9101112-separated-in-dev-31), [remote Workers](../remote-workers.md), `skills/sf/references/commands.md` |
 | Fake adapters certify compatibility | not claimed | No real remote environment was used. A machine request is not evidence of remote execution. |

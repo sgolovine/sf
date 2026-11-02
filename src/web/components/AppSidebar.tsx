@@ -1,6 +1,5 @@
-import { KanbanSquare, Monitor, Moon, Plus, Sun } from "lucide-react";
+import { KanbanSquare, Plus, Settings } from "lucide-react";
 import type { BoardSnapshot } from "#model/project";
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -14,14 +13,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useTheme } from "@/hooks/use-theme";
-import type { Theme } from "@/lib/theme";
-
-const THEMES = [
-  { value: "light", label: "Light", Icon: Sun },
-  { value: "dark", label: "Dark", Icon: Moon },
-  { value: "system", label: "System", Icon: Monitor },
-] satisfies { value: Theme; label: string; Icon: typeof Sun }[];
 
 type Props = {
   boards: BoardSnapshot[];
@@ -32,11 +23,13 @@ type Props = {
   creating: boolean;
   onSelect: (id: string) => void;
   onNewBoard: () => void;
-  onProjectSettings: () => void;
+  /** Whether the Settings screen is shown. */
+  settings: boolean;
+  onSettings: () => void;
 };
 
-/** Names the current Board and lists the Project's Boards; "New Board" sits at the bottom. */
-export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewBoard, onProjectSettings }: Props) {
+/** Names the current Board and lists the Project's Boards; Settings and "New Board" sit at the bottom. */
+export function AppSidebar({ boards, title, activeId, creating, settings, onSelect, onNewBoard, onSettings }: Props) {
   return (
     <Sidebar>
       <SidebarHeader>
@@ -62,8 +55,13 @@ export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewB
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <SidebarMenuButton onClick={onProjectSettings}>Project settings</SidebarMenuButton>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton isActive={settings} onClick={onSettings}>
+              <Settings />
+              <span>Settings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton isActive={creating} onClick={onNewBoard}>
               <Plus />
@@ -71,31 +69,7 @@ export function AppSidebar({ boards, title, activeId, creating, onSelect, onNewB
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <ThemePicker />
       </SidebarFooter>
     </Sidebar>
-  );
-}
-
-/** Light / Dark / System, saved in this browser; the current choice is pressed. */
-function ThemePicker() {
-  const { theme, setTheme } = useTheme();
-  return (
-    <fieldset aria-label="Theme" className="flex items-center gap-1 px-2">
-      <span className="mr-auto text-xs text-muted-foreground">Theme</span>
-      {THEMES.map(({ value, label, Icon }) => (
-        <Button
-          key={value}
-          size="icon-sm"
-          variant={theme === value ? "secondary" : "ghost"}
-          aria-pressed={theme === value}
-          aria-label={label}
-          title={label}
-          onClick={() => setTheme(value)}
-        >
-          <Icon />
-        </Button>
-      ))}
-    </fieldset>
   );
 }

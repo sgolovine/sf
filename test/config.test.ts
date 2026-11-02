@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BoardConfig, FieldDef, StageConfig } from "#model/config";
-import { validateScheduling } from "#model/placement";
+import { readMachines, validateRemoteMachines, validateScheduling } from "#model/placement";
 import {
   DEFAULT_PROJECT_CONFIG,
   defaultBoard,
@@ -11,7 +11,7 @@ import {
   validateBoard,
 } from "../src/server/project/config.ts";
 import { SfError } from "../src/server/project/errors.ts";
-import { scheduling } from "./scheduling-fixture.ts";
+import { legacyScheduling, machines, remoteMachines, scheduling } from "./scheduling-fixture.ts";
 
 test("default Board has the five Stages", () => {
   const board = defaultBoard("Development", "DEV");
@@ -91,71 +91,91 @@ test("validateBoard checks Stage HIL fields", () => {
   assert.throws(() => validateBoard(withHil("done", { flag: "hil" })), /Done cannot have HIL fields/);
 });
 
-test("scheduling validates complete shapes and canonical mapping identities", () => {
-  validateScheduling(scheduling());
+test("scheduling validates complete shapes against the catalog it orders", () => {
+  validateScheduling(scheduling(), remoteMachines());
   validateScheduling({ ...scheduling(), order: [] });
+  validateScheduling({ local: { capacity: 0 }, order: ["local"] });
   const cases: unknown[] = [
     null,
     [],
     {},
     { ...scheduling(), local: null },
-    { ...scheduling(), remotes: {} },
     { ...scheduling(), order: null },
     { ...scheduling(), order: ["missing"] },
     { ...scheduling(), order: ["local", "local"] },
     { ...scheduling(), extra: true },
+    { ...scheduling(), remotes: [] },
   ];
-  for (const capacity of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "2", null, undefined]) {
+  for (const capacity of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "2", null, undefined])
     cases.push({ ...scheduling(), local: { capacity } });
-    const config = scheduling();
-    config.remotes[0]!.capacity = capacity as number;
-    cases.push(config);
-  }
+  for (const config of cases)
+    assert.throws(
+      () => validateScheduling(config, remoteMachines()),
+      (error: unknown) => error instanceof SfError && error.code === "invalid" && /scheduling/.test(error.message),
+    );
+  assert.throws(() => validateScheduling(scheduling()), /unknown machine ID "a"; add it to remoteMachines/);
+});
+
+test("the remote machine catalog validates slugs, labels, enabled and optional capacity", () => {
+  validateRemoteMachines(remoteMachines());
+  validateRemoteMachines([]);
+  validateRemoteMachines([{ id: "x", name: "X", enabled: false }]);
+  validateRemoteMachines([{ id: "x", name: "X", enabled: true, capacity: 0 }]);
+  const cases: unknown[] = [null, {}, [null]];
+  for (const capacity of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "2", null])
+    cases.push([{ id: "x", name: "X", enabled: true, capacity }]);
   for (const patch of [
     { id: "local" },
     { id: "b" },
     { id: "Bad" },
+    { id: "1x" },
     { name: " " },
     { name: " a" },
-    { environmentId: "env-b" },
-    { environmentId: "https://host/id" },
-    { environmentId: "/tmp/id" },
+    { name: undefined },
     { enabled: "true" },
-    { project: null },
-    { project: { projectId: "../path", repository: "github.com/o/r" } },
+    { environmentId: "env-a" },
+    { project: { projectId: "p", repository: "github.com/o/r" } },
   ]) {
-    const config = scheduling();
-    Object.assign(config.remotes[0]!, patch);
-    cases.push(config);
+    const catalog = remoteMachines();
+    Object.assign(catalog[0]!, patch);
+    cases.push(catalog);
   }
-  for (const repository of [
-    "https://github.com/o/r",
-    "git@github.com:o/r",
-    "/tmp/repo",
-    "./repo",
-    "github.com/o//r",
-    "github.com/o/../r",
-    "github.com/o/r/",
-    "github.com/o/r?q",
-    "github.com/o/r#f",
-    "github.com/o/ r",
-    "github.com",
-  ]) {
-    const config = scheduling();
-    config.remotes[0]!.project.repository = repository;
-    cases.push(config);
-  }
-  const alias = scheduling();
-  alias.remotes[0]!.enabled = false;
-  alias.remotes[0]!.environmentId = "env-b";
-  cases.push(alias);
-  for (const config of cases)
+  for (const catalog of cases)
     assert.throws(
-      () => validateScheduling(config),
-      (error: unknown) => error instanceof SfError && error.code === "invalid" && /scheduling/.test(error.message),
+      () => validateRemoteMachines(catalog),
+      (error: unknown) => error instanceof SfError && error.code === "invalid" && /remoteMachines/.test(error.message),
     );
+});
+
+test("legacy scheduling.remotes is promoted to the catalog in memory; both catalogs conflict", () => {
+  const legacy = legacyScheduling();
+  legacy.remotes[1]!.enabled = false;
+  assert.deepEqual(readMachines({ scheduling: legacy }), {
+    remoteMachines: [
+      { id: "a", name: "A", enabled: true, capacity: 4 },
+      { id: "b", name: "B", enabled: false, capacity: 2 },
+    ],
+    scheduling: { local: { capacity: 2 }, order: ["a", "b", "local"] },
+  });
+  assert.deepEqual(readMachines({}), {});
+  assert.deepEqual(readMachines(machines()), machines());
+  assert.throws(
+    () => readMachines({ remoteMachines: [], scheduling: legacyScheduling() }),
+    /scheduling\.remotes: conflicts with remoteMachines; move each legacy remote/,
+  );
+  const bad = legacyScheduling();
+  bad.remotes[0]!.capacity = -1;
+  assert.throws(() => readMachines({ scheduling: bad }), /scheduling\.remotes\[0\]\.capacity/);
+  assert.throws(() => readMachines({ scheduling: { ...legacyScheduling(), order: ["c"] } }), /unknown machine ID "c"/);
+});
+
+test("machines and scheduling are Project-wide", () => {
   const board = defaultBoard("Dev", "DEV");
   assert.throws(() => validateBoard({ ...board, overrides: { scheduling: scheduling() } as never }), /Project-wide/);
+  assert.throws(
+    () => validateBoard({ ...board, overrides: { remoteMachines: remoteMachines() } as never }),
+    /remoteMachines is Project-wide/,
+  );
   assert.throws(
     () => validateBoard({ ...board, stages: board.stages.map((s) => ({ ...s, scheduling: {} })) }),
     /per Stage/,

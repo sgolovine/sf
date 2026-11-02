@@ -1,3 +1,4 @@
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { Attachment } from "#model/attachment";
@@ -102,9 +103,14 @@ export function StoryEditor({
   const [deleting, setDeleting] = useState(false);
   const schema = board.config.schema.filter((f) => f.id !== "model");
   const hil = story && activeHil(board.config, story);
+  const canSubmit = !submitting && !deleting && !confirmDelete && !!title.trim();
+  // Blocks a second save before the submitting state renders.
+  const saving = useRef(false);
+  const content = useRef<HTMLDivElement>(null);
 
   const save = async () => {
-    if (submitting || deleting || confirmDelete) return;
+    if (!canSubmit || saving.current) return;
+    saving.current = true;
     setSubmitting(true);
     setError("");
     try {
@@ -137,13 +143,25 @@ export function StoryEditor({
       if (uncertain) setError(`${(err as Error).message}. Retry to confirm this submission before editing it.`);
       else submission.current = null;
     } finally {
+      saving.current = false;
       setSubmitting(false);
     }
   };
 
+  // Ctrl+Enter acts like the submit button. Focus falls to the body when the fieldset disables;
+  // keys from portaled popovers and nested dialogs are left alone.
+  useHotkey(
+    "Control+Enter",
+    (e) => {
+      const target = e.target as Node;
+      if (target === document.body || content.current?.contains(target)) void save();
+    },
+    { enabled: canSubmit, ignoreInputs: false, requireReset: true },
+  );
+
   return (
     <Dialog open onOpenChange={(open) => !open && !submitting && !deleting && onClose()}>
-      <DialogContent className="flex max-h-[90svh] flex-col overflow-hidden sm:max-w-xl">
+      <DialogContent ref={content} className="flex max-h-[90svh] flex-col overflow-hidden sm:max-w-xl">
         <form
           className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={(e) => {
@@ -375,7 +393,7 @@ export function StoryEditor({
             <Button type="button" variant="outline" onClick={onClose} disabled={submitting || deleting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting || deleting || confirmDelete || !title.trim()}>
+            <Button type="submit" disabled={!canSubmit}>
               {retryOnly ? "Retry submission" : story ? "Save" : "Create Story"}
             </Button>
           </DialogFooter>
@@ -386,7 +404,7 @@ export function StoryEditor({
 }
 
 const PLACEMENT_LABELS = {
-  inherit: "Inherit the Project's machine order",
+  inherit: "Inherit (the Project's machine order, or local)",
   "local-only": "Local only",
   required: "Required machine",
   preferred: "Preferred machine",
@@ -408,7 +426,7 @@ function PlacementInput({
   value: StoryPlacement;
   onChange: (placement: StoryPlacement) => void;
 }) {
-  const remotes = project.scheduling?.remotes ?? [];
+  const remotes = project.remoteMachines ?? [];
   const target = "machineId" in value ? value.machineId : undefined;
   const unresolved = target !== undefined && !remotes.some((r) => r.id === target);
   const modes = (["inherit", "local-only", "required", "preferred"] as const).filter(
@@ -464,10 +482,10 @@ function PlacementInput({
           : value.mode === "required"
             ? "Workers wait for this machine; they never start elsewhere."
             : value.mode === "preferred"
-              ? "Workers try this machine first, then the Project's machine order."
-              : project.scheduling
+              ? `Workers try this machine first, then ${project.scheduling ? "the Project's machine order" : "the Supervisor's machine"}.`
+              : remotes.length
                 ? "Where sf asks the Supervisor to start this Story's Workers."
-                : "Configure per-machine scheduling in Project settings to choose remote machines."}
+                : "Add remote machines in Settings → Project → Remote machines to choose one."}
       </p>
     </div>
   );

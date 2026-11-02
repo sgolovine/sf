@@ -264,11 +264,11 @@ test("online CLI/API dependencies share validation, atomic wait and independent 
 });
 
 test("HTTP forwards placement, validates shared policy and preserves it through reload", async () => {
-  const { scheduling } = await import("./scheduling-fixture.ts");
+  const { machines } = await import("./scheduling-fixture.ts");
   const { sfPaths } = await import("../src/server/project/paths.ts");
   const file = sfPaths(root).config;
   const original = fs.readFileSync(file, "utf8");
-  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(original), scheduling: scheduling() }));
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(original), ...machines() }));
   try {
     await call("POST", routes.boards, { name: "Placement", key: "PLC" });
     const placement = { mode: "required", machineId: "b" };

@@ -43,7 +43,7 @@ export function ModelSettings({
         );
       }}
     >
-      <h2 className="text-lg font-semibold">{board ? "Board Worker settings" : "Project settings"}</h2>
+      <h2 className="text-lg font-semibold">{board ? "Board Worker settings" : "Project Worker settings"}</h2>
       <ModelSelector
         value={model}
         onChange={setModel}
