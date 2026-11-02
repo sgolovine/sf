@@ -136,6 +136,30 @@ after checking the actual thread, subagent or task. A report that contradicts an
 (for example `running` after `not-started`) occupies the slot again as `unknown` with a
 `conflict` until it is reconciled.
 
+### In the web UI
+
+Click the **Workers** usage in the footer to open **Executions**, a Project-wide view across
+every Board. **Back to board** (or any Board in the sidebar) returns. The view heads with
+used/capacity per machine, counted from occupying ledger entries: a machine sf has no limit
+for (removed from the configuration) shows capacity `unknown`, disabled machines and machines
+above a lowered cap are labelled. It lists occupying executions, newest first; **Show ended
+executions** adds the terminal history the server retains, which never counts toward usage.
+
+Each entry shows its Story, Board and Stage, the machine sf *requested* (where the harness was
+asked to start it, not proof of where it runs), status and outcome, whether the Worker still
+holds the Claim, and what sf is waiting for. Task, thread and label values the Supervisor
+reported, evidence, conflicts, missing recovery inputs and any outstanding request are shown as
+plain text beside it. A Claim ending does not end an execution: an occupying entry without a
+live Claim is labelled **Claim ended · awaiting end evidence**, and an `unknown` entry
+**Unknown · awaiting evidence**.
+
+**Reconcile** and **Request cancel** call the same routes as `sf execution reconcile|cancel`.
+They are unavailable for ended executions and for `reserved` ones whose launch was never
+delivered. A successful request only means the Supervisor was asked: the entry keeps its slot
+and status until correlated evidence arrives, and a cancellation request alone never releases
+capacity. A rejection shows in the error banner and can be retried. The view refreshes on every
+state update and every 5 s while open, so the Supervisor's answer appears without reopening it.
+
 ## Migration from runtime version 1
 
 Loading a version 1 runtime migrates it in memory; the first mutation saves version 2. IDs are

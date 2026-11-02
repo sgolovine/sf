@@ -66,6 +66,7 @@ export function useExecutionRequest(id: string) {
   return useMutation({
     mutationFn: (kind: ExecutionAttempt["kind"]) =>
       kind === "reconcile" ? sfApi.reconcileExecution(id) : sfApi.cancelExecution(id),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: executionsKey }),
+    // Not awaited: the request's own result should not wait for the list to reload.
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: executionsKey }),
   });
 }
