@@ -9,5 +9,22 @@
   },
   "claimTimeoutMinutes": 120,
   "briefPreamble": "",
-  "maxConcurrentWorkers": 3
+  "maxConcurrentWorkers": 3,
+  "remoteMachines": [
+    {
+      "id": "rook",
+      "name": "Rook",
+      "enabled": true,
+      "capacity": 5
+    }
+  ],
+  "scheduling": {
+    "local": {
+      "capacity": 3
+    },
+    "order": [
+      "local",
+      "rook"
+    ]
+  }
 }
