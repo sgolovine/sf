@@ -1,6 +1,14 @@
 import type { ModelOption } from "./models.ts";
-export type FieldType = "text" | "number" | "single-select" | "multi-select" | "boolean" | "date";
-export const FIELD_TYPES: readonly FieldType[] = ["text", "number", "single-select", "multi-select", "boolean", "date"];
+export type FieldType = "text" | "markdown" | "number" | "single-select" | "multi-select" | "boolean" | "date";
+export const FIELD_TYPES: readonly FieldType[] = [
+  "text",
+  "markdown",
+  "number",
+  "single-select",
+  "multi-select",
+  "boolean",
+  "date",
+];
 
 /** A custom field in a Board's Story schema. `options` is for the select types. */
 export type FieldDef = { id: string; name: string; type: FieldType; options?: string[] };
