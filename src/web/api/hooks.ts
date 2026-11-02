@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { CommandRecord } from "#model/commands";
+import type { ExecutionAttempt } from "#model/runtime";
 import { sfApi } from "./client.ts";
 
 export const sessionKey = ["sf", "session"] as const;
@@ -40,5 +41,32 @@ export function useSearch(q: string) {
     queryFn: () => sfApi.search(query),
     enabled: query !== "",
     placeholderData: keepPreviousData,
+  });
+}
+
+export const executionsKey = ["sf", "executions"] as const;
+
+/**
+ * The Project's execution ledger while a view shows it. It refetches on every session update
+ * (runtime changes arrive over SSE) and polls every 5 s while the page is visible as a fallback.
+ */
+export function useExecutions() {
+  const queryClient = useQueryClient();
+  const { dataUpdatedAt } = useSession();
+  useEffect(() => {
+    // Each SSE update stamps a new dataUpdatedAt on the session query.
+    if (dataUpdatedAt) void queryClient.invalidateQueries({ queryKey: executionsKey });
+  }, [queryClient, dataUpdatedAt]);
+  return useQuery({ queryKey: executionsKey, queryFn: sfApi.listExecutions, refetchInterval: 5000 });
+}
+
+/** A reconcile or cancel request; the ledger is refetched afterwards rather than edited optimistically. */
+export function useExecutionRequest(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (kind: ExecutionAttempt["kind"]) =>
+      kind === "reconcile" ? sfApi.reconcileExecution(id) : sfApi.cancelExecution(id),
+    // Not awaited: the request's own result should not wait for the list to reload.
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: executionsKey }),
   });
 }

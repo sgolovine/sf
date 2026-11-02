@@ -12,6 +12,7 @@ import { Settings as SettingsScreen, type SettingsTab } from "./components/Board
 import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
+import { ExecutionsView } from "./components/ExecutionsView.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
 import { ThemeMenu } from "./components/ThemeMenu.tsx";
@@ -26,7 +27,9 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 type View =
   | { kind: "board"; boardId: string | null }
   /** Project and Board settings; `boardId` is the Board in context, or null when there is none. */
-  | { kind: "settings"; boardId: string | null; tab: SettingsTab };
+  | { kind: "settings"; boardId: string | null; tab: SettingsTab }
+  /** The Project-wide execution ledger; `boardId` is the Board to return to. */
+  | { kind: "executions"; boardId: string | null };
 
 export function App() {
   const { data: session, error } = useSession();
@@ -129,6 +132,8 @@ export function App() {
   // Settings for a Board that no longer exists fall back to the Board view.
   const settings =
     view.kind === "settings" && project && (view.boardId === null || board?.id === view.boardId) ? view : null;
+  const executions = view.kind === "executions" && !!project;
+  const otherView = !!settings || executions;
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
     ` · ${listening ? "listening" : "busy or away"}`;
@@ -163,9 +168,9 @@ export function App() {
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <SidebarTrigger className="shrink-0" />
               {/* The sidebar shows the Board name; the header names only the other views. */}
-              {settings && <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />}
-              <h1 className={cn("min-w-0 truncate font-medium", !settings && "sr-only")}>
-                {settings ? "Settings" : (board?.config.name ?? "Boards")}
+              {otherView && <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />}
+              <h1 className={cn("min-w-0 truncate font-medium", !otherView && "sr-only")}>
+                {settings ? "Settings" : executions ? "Executions" : (board?.config.name ?? "Boards")}
               </h1>
             </div>
             {board && (
@@ -185,7 +190,7 @@ export function App() {
               </Button>
             )}
             <div className="flex shrink-0 items-center gap-2 justify-self-end @3xl/header:col-start-3">
-              {board && settings && (
+              {board && otherView && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -197,7 +202,7 @@ export function App() {
                   <span className="hidden @md/header:inline">Back to board</span>
                 </Button>
               )}
-              {board && !settings && (
+              {board && !otherView && (
                 <>
                   <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
                     <Plus />
@@ -237,6 +242,8 @@ export function App() {
               onTab={(tab) => openSettings(board?.id ?? null, tab)}
               act={act}
             />
+          ) : executions ? (
+            <ExecutionsView project={project.config} boards={boards} act={act} />
           ) : !board ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
               <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
@@ -258,7 +265,12 @@ export function App() {
 
         <footer className="flex h-8 shrink-0 items-center gap-3 border-t px-3 text-xs whitespace-nowrap text-muted-foreground">
           {project && (
-            <span className="shrink-0">
+            <button
+              type="button"
+              className="shrink-0 rounded-sm hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              onClick={() => openView({ kind: "executions", boardId: board?.id ?? null })}
+              title="Open Executions"
+            >
               Workers{" "}
               {project.config.scheduling || project.config.remoteMachines?.length
                 ? machineUsage(project.config, Object.values(project.runtime.executions ?? {}))
@@ -268,7 +280,7 @@ export function App() {
                     .join(" · ")
                 : `${Object.values(project.runtime.executions ?? {}).filter((e) => e.status !== "terminal").length}/${project.config.maxConcurrentWorkers}`}
               {project.runtime.queue.length > 0 && ` · ${project.runtime.queue.length} waiting`}
-            </span>
+            </button>
           )}
           <span className="flex min-w-0 items-center gap-1.5" title={supervisorText}>
             <span

@@ -83,6 +83,7 @@ export function validateFields(schema: FieldDef[], fields: Record<string, unknow
     };
     switch (f.type) {
       case "text":
+      case "markdown":
         if (typeof v !== "string") bad("text");
         break;
       case "number":

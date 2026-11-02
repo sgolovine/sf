@@ -33,12 +33,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { ApiError, sfApi } from "../api/client.ts";
-import { reportedIds } from "../lib/execution.ts";
+import { machineName, reportedIds } from "../lib/execution.ts";
 import { DependencyPicker } from "./DependencyPicker.tsx";
 import type { Act } from "./ErrorBanner.tsx";
-import { Markdown } from "./Markdown.tsx";
+import { MarkdownEditor } from "./MarkdownEditor.tsx";
 import { ModelSelector } from "./ModelSelector.tsx";
 import { encodeAttachments, StoryAttachments } from "./StoryAttachments.tsx";
 
@@ -82,7 +81,6 @@ export function StoryEditor({
   }, [story?.model, story?.stage, initialStage]);
   const [body, setBody] = useState(story?.body ?? "");
   // Open existing descriptions rendered; start empty ones ready to type.
-  const [bodyTab, setBodyTab] = useState<"write" | "preview">(story?.body.trim() ? "preview" : "write");
   const [fields, setFields] = useState<Record<string, unknown>>(story?.fields ?? {});
   const [pending, setPending] = useState<File[]>([]);
   const [persisted, setPersisted] = useState<Attachment[]>([]);
@@ -223,7 +221,7 @@ export function StoryEditor({
                     Custom Fields
                   </TabsTrigger>
                 </TabsList>
-                <TabsContent value="details" className="min-w-0 space-y-4">
+                <TabsContent value="details" forceMount className="min-w-0 space-y-4 data-[state=inactive]:hidden">
                   <div className="grid gap-2">
                     <Label htmlFor={`${id}-title`}>Title</Label>
                     <Input id={`${id}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
@@ -276,45 +274,9 @@ export function StoryEditor({
                       )}
                     </p>
                   )}
-                  <Tabs value={bodyTab} onValueChange={(v) => setBodyTab(v as "write" | "preview")} className="gap-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor={`${id}-body`}>Description</Label>
-                      <TabsList aria-label="Description mode">
-                        <TabsTrigger type="button" value="write">
-                          Write
-                        </TabsTrigger>
-                        <TabsTrigger type="button" value="preview">
-                          Preview
-                        </TabsTrigger>
-                      </TabsList>
-                    </div>
-                    <TabsContent value="write">
-                      <Textarea
-                        id={`${id}-body`}
-                        value={body}
-                        onChange={(e) => setBody(e.target.value)}
-                        rows={8}
-                        className="min-h-40 font-mono"
-                        placeholder="Markdown supported"
-                      />
-                    </TabsContent>
-                    <TabsContent value="preview">
-                      {/* biome-ignore lint/a11y/noStaticElementInteractions: double-click shortcut; the Write tab is the accessible path */}
-                      <div
-                        className="min-h-40 cursor-text rounded-md border px-3 py-2"
-                        onDoubleClick={() => setBodyTab("write")}
-                        title="Double-click to edit"
-                      >
-                        {body.trim() ? (
-                          <Markdown>{body}</Markdown>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Nothing to preview.</p>
-                        )}
-                      </div>
-                    </TabsContent>
-                  </Tabs>
+                  <MarkdownEditor id={`${id}-body`} label="Description" value={body} onChange={setBody} />
                 </TabsContent>
-                <TabsContent value="fields" className="min-w-0 space-y-4">
+                <TabsContent value="fields" forceMount className="min-w-0 space-y-4 data-[state=inactive]:hidden">
                   {schema.length ? (
                     schema.map((f) => (
                       <FieldInput
@@ -414,11 +376,6 @@ function samePlacement(a: StoryPlacement, b: StoryPlacement | undefined) {
   return JSON.stringify(a) === JSON.stringify(b ?? { mode: "inherit" });
 }
 
-function machineName(project: ProjectConfig, machineId: string) {
-  const remote = project.remoteMachines?.find((r) => r.id === machineId);
-  return remote ? `${remote.name} (${remote.id})` : machineId;
-}
-
 /** Built-in Story placement. Required/preferred need a configured remote; stale targets stay visible to clear. */
 function PlacementInput({
   id,
@@ -506,6 +463,17 @@ function FieldInput({ id, field, value, onChange }: FieldProps) {
     </div>
   );
   switch (field.type) {
+    case "markdown":
+      return (
+        <MarkdownEditor
+          id={id}
+          label={field.name}
+          value={typeof value === "string" ? value : ""}
+          onChange={(v) => onChange(v || null)}
+          rows={4}
+          minHeight="min-h-24"
+        />
+      );
     case "number":
       return labelled(
         <Input
