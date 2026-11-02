@@ -20,6 +20,7 @@ const schema: FieldDef[] = [
   { id: "tags", name: "Tags", type: "multi-select", options: ["ui", "api"] },
   { id: "urgent", name: "Urgent", type: "boolean" },
   { id: "due", name: "Due", type: "date" },
+  { id: "spec", name: "Spec", type: "markdown" },
 ];
 
 test("parse and serialize round-trip keeps unknown keys", () => {
@@ -46,9 +47,9 @@ test("nextStoryNumber is max + 1 for the Board key", () => {
   assert.equal(nextStoryNumber(dir, "DEV"), 8);
 });
 
-test("all six field types validate", () => {
+test("all seven field types validate", () => {
   const fields = Object.fromEntries(
-    ["notes=hi", "points=3", "priority=high", "tags=ui,api", "urgent=true", "due=2026-03-04"].map((a) =>
+    ["notes=hi", "points=3", "priority=high", "tags=ui,api", "urgent=true", "due=2026-03-04", "spec=# Plan"].map((a) =>
       parseFieldArg(schema, a),
     ),
   );
@@ -59,6 +60,7 @@ test("all six field types validate", () => {
     tags: ["ui", "api"],
     urgent: true,
     due: "2026-03-04",
+    spec: "# Plan",
   });
   validateFields(schema, fields);
   for (const bad of [
@@ -68,6 +70,8 @@ test("all six field types validate", () => {
     { urgent: "yes" },
     { due: "tomorrow" },
     { notes: 1 },
+    { spec: 1 },
+    { spec: ["a"] },
   ])
     assert.throws(() => validateFields(schema, bad), SfError);
 });
@@ -75,6 +79,17 @@ test("all six field types validate", () => {
 test("parseFieldArg rejects unknown fields and clears on empty", () => {
   assert.throws(() => parseFieldArg(schema, "nope=1"), /unknown field/);
   assert.deepEqual(parseFieldArg(schema, "notes="), ["notes", null]);
+  assert.deepEqual(parseFieldArg(schema, "spec="), ["spec", null]);
+});
+
+test("markdown fields keep multi-line strings through the frontmatter", () => {
+  const spec = "# Plan\n\n- one\n- two\n\n```ts\nconst x = 1;\n```\n";
+  assert.deepEqual(parseFieldArg(schema, `spec=${spec}`), ["spec", spec]);
+  validateFields(schema, { spec });
+  assert.throws(() => validateFields(schema, { spec: 3 }), /field spec must be text/);
+  const story = parseStory(serializeStory({ title: "t", stage: "backlog", fields: { spec }, body: "Body\n" }));
+  assert.equal(story.fields.spec, spec);
+  assert.equal(story.body, "Body\n");
 });
 
 test("placement is built-in metadata, preserved once and cleared by inheritance", () => {
