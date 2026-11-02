@@ -10,7 +10,7 @@ import type { ExecutionBoundary, Service } from "../src/server/project/service.t
 import { OnlineService } from "../src/server/services/OnlineService.ts";
 import { StoreService } from "../src/server/services/StoreService.ts";
 import { setupProject, user, worker } from "./helpers.ts";
-import { scheduling } from "./scheduling-fixture.ts";
+import { legacyScheduling, machines, remoteMachines, scheduling } from "./scheduling-fixture.ts";
 
 type Published = { id: string; command: SupervisorCommand; key: string; status: CommandStatus };
 
@@ -151,7 +151,7 @@ test("timeout and force-release keep an unknown reservation that reconciliation 
 });
 
 test("cap 0 and lowered caps stop new reservations without stopping running Workers", async () => {
-  const { svc, root, spawns } = await project({ scheduling: { ...scheduling(), order: ["local"] } });
+  const { svc, root, spawns } = await project({ ...machines(), scheduling: { ...scheduling(), order: ["local"] } });
   for (const title of ["A", "B", "C"]) await svc.createStory("DEV", { title, stage: "todo" }, user);
   assert.equal(spawns().length, 2);
   for (const s of spawns()) await launch(svc, s);
@@ -176,9 +176,12 @@ test("cap 0 and lowered caps stop new reservations without stopping running Work
 });
 
 test("eligible FIFO skips full or unavailable pins without blocking later work", async () => {
-  const remotes = { ...scheduling(), local: { capacity: 1 }, order: ["local"] };
-  remotes.remotes[0]!.capacity = 1;
-  const { svc, spawns } = await project({ scheduling: remotes }, { remote: true });
+  const remotes = remoteMachines();
+  remotes[0]!.capacity = 1;
+  const { svc, spawns } = await project(
+    { remoteMachines: remotes, scheduling: { local: { capacity: 1 }, order: ["local"] } },
+    { remote: true },
+  );
   const required = { mode: "required", machineId: "a" } as const;
   await svc.createStory("DEV", { title: "A1", stage: "todo", placement: required }, user);
   await svc.createStory("DEV", { title: "A2", stage: "todo", placement: required }, user);
@@ -194,7 +197,8 @@ test("eligible FIFO skips full or unavailable pins without blocking later work",
     ["DEV-1@a", "DEV-3@local", "DEV-4@b"],
   );
   const a = spawns()[0]!.execution!;
-  assert.deepEqual([a.environmentId, a.projectId], ["env-a", "project-a"]);
+  const { identity } = runtime(svc);
+  assert.deepEqual([a.environmentId, a.projectId], [identity.environmentId, identity.projectId], "sf-owned identity");
   assert.deepEqual((await svc.showStory("DEV-2", user)).wait?.reasons, [{ machineId: "a", code: "capacity" }]);
   assert.deepEqual((await svc.showStory("DEV-5", user)).wait?.reasons, [{ machineId: "local", code: "capacity" }]);
   // Repeated drains keep the original order and age.
@@ -217,7 +221,7 @@ test("eligible FIFO skips full or unavailable pins without blocking later work",
 });
 
 test("production remotes are requested from the harness: required and preferred reserve the machine", async () => {
-  const { svc, spawns } = await project({ scheduling: { ...scheduling(), order: ["local"] } });
+  const { svc, spawns } = await project({ remoteMachines: remoteMachines() });
   await svc.createStory("DEV", { title: "Req", stage: "todo", placement: { mode: "required", machineId: "b" } }, user);
   await svc.createStory(
     "DEV",
@@ -230,46 +234,88 @@ test("production remotes are requested from the harness: required and preferred 
     ["DEV-1@b", "DEV-2@b", "DEV-3@local"],
   );
   const [req, pref, local] = spawns();
-  assert.deepEqual(
-    [req!.machine?.placement, req!.machine?.localFallback, pref!.machine?.placement, pref!.machine?.localFallback],
-    ["required", false, "preferred", true],
-  );
+  for (const s of [req, pref])
+    assert.ok(s!.machine!.instructions.includes("The user specified that this work should be done on the machine: b"));
+  assert.match(req!.machine!.instructions, /start nothing/);
+  assert.match(pref!.machine!.instructions, /may start it on the Supervisor's machine/);
   assert.equal(local!.machine, undefined, "local launches carry no machine request");
   assert.ok(req!.brief.endsWith(`${req!.machine!.instructions}\n`), "the brief ends with the machine instructions");
 });
 
 test("remotes wait while the Supervisor can launch nothing", async () => {
-  const { svc, spawns } = await project(
-    { scheduling: scheduling() },
-    { local: "no tool", remote: "the Supervisor reports no thread or subagent tool" },
-  );
+  const { svc, spawns } = await project(machines(), {
+    local: "no tool",
+    remote: "the Supervisor reports no thread or subagent tool",
+  });
   await svc.createStory("DEV", { title: "Req", stage: "todo", placement: { mode: "required", machineId: "b" } }, user);
   assert.equal(spawns().length, 0);
   const wait = (await svc.showStory("DEV-1", user)).wait?.reasons[0];
   assert.equal(wait?.code, "incompatible");
 });
 
-test("a changed mapping under an occupied slug keeps its charge and blocks that slug", async () => {
-  const config = scheduling();
-  const { svc, root, spawns } = await project({ scheduling: { ...config, order: ["a"] } }, { remote: true });
-  await svc.createStory("DEV", { title: "One", stage: "todo" }, user);
-  await svc.createStory("DEV", { title: "Two", stage: "todo" }, user);
+test("legacy remote executions with harness mapping stay reconcilable after reload", async () => {
+  const { svc, root, spawns, make, commands } = await project(
+    { scheduling: { ...legacyScheduling(), order: ["a"] } as never },
+    { remote: true },
+  );
+  await svc.createStory("DEV", { title: "Delivered", stage: "todo" }, user);
+  await svc.createStory("DEV", { title: "Queued", stage: "todo" }, user);
   assert.equal(spawns().length, 2);
-  const file = sfPaths(root).config;
-  const json = JSON.parse(fs.readFileSync(file, "utf8"));
-  json.scheduling.remotes[0].environmentId = "env-moved";
-  fs.writeFileSync(file, JSON.stringify(json));
-  await svc.createStory("DEV", { title: "Three", stage: "todo" }, user);
-  assert.equal(spawns().length, 2);
-  assert.equal((await svc.showStory("DEV-3", user)).wait?.reasons[0]?.code, "unmapped");
-  // Removing the machine cannot hide its occupied entries or their branch fences.
-  json.scheduling.remotes = json.scheduling.remotes.slice(1);
-  json.scheduling.order = ["local"];
-  fs.writeFileSync(file, JSON.stringify(json));
-  await svc.sweep();
-  assert.equal(occupying(svc).length, 3);
-  assert.equal(spawns()[2]?.storyKey, "DEV-3");
-  await assert.rejects(svc.ensureStoryWorktree("DEV-1"), { code: "claimed" });
+  await launch(svc, spawns()[0]!);
+  // Rewrite both as pre-DEV-31 records: configured mapping identities and a detailed machine request.
+  const state = loadRuntime(root);
+  const legacyMachine = {
+    id: "a",
+    name: "A",
+    environmentId: "env-a",
+    projectId: "project-a",
+    repository: "github.com/sgolovine/sf",
+    placement: "default",
+    localFallback: false,
+    instructions: "## Machine Placement\n\n<!-- sf:machine-placement -->\nold\n<!-- /sf:machine-placement -->",
+  };
+  for (const e of Object.values(state.executions)) {
+    Object.assign(e, { environmentId: "env-a", projectId: "project-a" });
+    if (e.intent)
+      Object.assign(e.intent, {
+        execution: { ...e.intent.execution, environmentId: "env-a", projectId: "project-a" },
+        machine: legacyMachine,
+      });
+  }
+  fs.writeFileSync(sfPaths(root).stateJson, JSON.stringify(state));
+  const [delivered, queued] = spawns().map((s) => s.execution!.id);
+  commands.find(
+    (c) => c.command.type === "worker.spawn" && (c.command as WorkerSpawnCommand).execution?.id === queued,
+  )!.status = "cancelled";
+  const restarted = make(true);
+  await restarted.recover();
+  // Occupancy, branch fences and the undelivered intent survive; nothing is relaunched as new work.
+  assert.equal(occupying(restarted).length, 2);
+  await assert.rejects(restarted.ensureStoryWorktree("DEV-1"), { code: "claimed" });
+  const republished = spawns().filter((s) => s.execution?.id === queued);
+  assert.equal(republished.length, 2);
+  assert.deepEqual(
+    republished.at(-1)?.machine,
+    legacyMachine as never,
+    "the legacy queued intent is republished as recorded",
+  );
+  assert.equal(spawns().filter((s) => s.execution?.id === delivered).length, 1, "a delivered launch is never retried");
+  // Reports correlate against the recorded legacy identities.
+  await assert.rejects(
+    restarted.reportExecution(delivered!, { ...ended, environmentId: "env-other" }),
+    /does not match/,
+  );
+  await restarted.reportExecution(delivered!, { ...ended, environmentId: "env-a", projectId: "project-a" });
+  assert.equal(occupying(restarted).length, 1);
+  // Missing mapping fields never block future launches on the slug.
+  await restarted.updateProject({ model: "m" });
+  assert.doesNotMatch(fs.readFileSync(sfPaths(root).config, "utf8"), /env-a|project-a/);
+  await restarted.updateProject({ remoteMachines: [{ id: "a", name: "A", enabled: true, capacity: 4 }] });
+  await assert.rejects(restarted.updateProject({ scheduling: null, remoteMachines: [] }), /occupies a/);
+  await restarted.createStory("DEV", { title: "New", stage: "todo" }, user);
+  const fresh = spawns().find((s) => s.storyKey === "DEV-3")!;
+  assert.equal(fresh.execution?.machineId, "a");
+  assert.deepEqual(fresh.execution?.environmentId, runtime(restarted).identity.environmentId);
 });
 
 test("cancellation during preparation never delivers; confirmed failures free the slot", async () => {

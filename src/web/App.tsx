@@ -8,12 +8,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { useSession } from "./api/hooks.ts";
 import { AppSidebar } from "./components/AppSidebar.tsx";
-import { BoardSettings, type SettingsTab } from "./components/BoardSettings/BoardSettings.tsx";
+import { Settings as SettingsScreen, type SettingsTab } from "./components/BoardSettings/BoardSettings.tsx";
 import { BoardView } from "./components/BoardView.tsx";
 import { CreateBoard } from "./components/CreateBoard.tsx";
 import { type Act, ErrorBanner } from "./components/ErrorBanner.tsx";
-import { ModelSettings } from "./components/ModelSettings.tsx";
-import { SchedulingSettings } from "./components/SchedulingSettings.tsx";
 import { SearchDialog } from "./components/SearchDialog.tsx";
 import { StoryEditor } from "./components/StoryEditor.tsx";
 import { NO_STORY, parseStoryPath, type StoryRoute, storyPath } from "./lib/storyRoute.ts";
@@ -26,8 +24,8 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
  */
 type View =
   | { kind: "board"; boardId: string | null }
-  | { kind: "settings"; boardId: string; tab: SettingsTab }
-  | { kind: "project-settings" };
+  /** Project and Board settings; `boardId` is the Board in context, or null when there is none. */
+  | { kind: "settings"; boardId: string | null; tab: SettingsTab };
 
 export function App() {
   const { data: session, error } = useSession();
@@ -83,7 +81,7 @@ export function App() {
   useEffect(() => {
     if (!session) return;
     const boards = session.project?.boards ?? [];
-    const boardId = view.kind === "project-settings" ? null : view.boardId;
+    const boardId = view.boardId;
     if (route.kind === "edit") {
       const owner = boards.find((b) => b.stories.some((s) => s.key === route.key));
       if (!owner) navigate(NO_STORY, true);
@@ -126,9 +124,10 @@ export function App() {
   const { capabilities, listening } = session.supervisor;
   const project = session.project;
   const boards = project?.boards ?? [];
-  const selectedId = view.kind === "project-settings" ? null : view.boardId;
-  const board = boards.find((b) => b.id === selectedId) ?? boards[0];
-  const settings = view.kind === "settings" && board?.id === view.boardId ? view : null;
+  const board = boards.find((b) => b.id === view.boardId) ?? boards[0];
+  // Settings for a Board that no longer exists fall back to the Board view.
+  const settings =
+    view.kind === "settings" && project && (view.boardId === null || board?.id === view.boardId) ? view : null;
   const supervisorText =
     `Supervisor: ${capabilities ? `${capabilities.agent} · ${capabilities.app}` : "not registered"}` +
     ` · ${listening ? "listening" : "busy or away"}`;
@@ -139,7 +138,7 @@ export function App() {
     closeStory();
   };
   const openBoard = (boardId: string) => openView({ kind: "board", boardId });
-  const openSettings = (boardId: string, tab: SettingsTab) => openView({ kind: "settings", boardId, tab });
+  const openSettings = (boardId: string | null, tab: SettingsTab) => openView({ kind: "settings", boardId, tab });
 
   return (
     <SidebarProvider>
@@ -148,79 +147,79 @@ export function App() {
         title={board?.config.name}
         activeId={board?.id}
         creating={creating}
-        onProjectSettings={() => openView({ kind: "project-settings" })}
+        settings={!!settings}
+        onSettings={() => openSettings(board?.id ?? null, "project-worker")}
         onSelect={openBoard}
         onNewBoard={openCreateBoard}
       />
       {/* Fixed height: only the content region scrolls, so the header and footer stay in place. */}
       <SidebarInset className="h-svh min-w-0">
         {/* Container queries hide secondary text when the main area (not the window) is narrow. */}
-        <header className="@container/header flex h-12 shrink-0 items-center gap-2 border-b px-3">
-          <SidebarTrigger className="shrink-0" />
-          {/* The sidebar shows the Board name; the header names only the other views. */}
-          {(view.kind === "project-settings" || settings) && (
-            <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          )}
-          <h1
-            className={cn("min-w-0 truncate font-medium", view.kind !== "project-settings" && !settings && "sr-only")}
-          >
-            {view.kind === "project-settings"
-              ? "Project settings"
-              : settings
-                ? "Board Settings"
-                : (board?.config.name ?? "Boards")}
-          </h1>
-          <span className="flex-1" />
-          {board && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-9 shrink justify-start px-2 font-normal text-muted-foreground @md/header:w-64"
-              onClick={() => setSearching(true)}
-              aria-label="Search Stories"
-              aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
-            >
-              <Search />
-              <span className="hidden @md/header:inline">Search Stories…</span>
-              <kbd className="ml-auto hidden rounded border bg-muted px-1.5 font-sans text-[0.7rem] @md/header:inline">
-                {isMac ? "⌘K" : "Ctrl K"}
-              </kbd>
-            </Button>
-          )}
-          {board && settings && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="shrink-0"
-              onClick={() => openBoard(board.id)}
-              aria-label="Back to board"
-            >
-              <ArrowLeft />
-              <span className="hidden @md/header:inline">Back to board</span>
-            </Button>
-          )}
-          {board && !settings && view.kind !== "project-settings" && (
-            <>
-              <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
-                <Plus />
-                <span className="hidden @md/header:inline">New Story</span>
+        {/* Wide headers use equal side columns so search sits at the header's true center whatever the side
+            controls hold; narrower ones fall back to a flex row so nothing collides. */}
+        <header className="@container/header h-12 shrink-0 border-b px-3">
+          <div className="flex h-full items-center gap-2 @3xl/header:grid @3xl/header:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <SidebarTrigger className="shrink-0" />
+              {/* The sidebar shows the Board name; the header names only the other views. */}
+              {settings && <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />}
+              <h1 className={cn("min-w-0 truncate font-medium", !settings && "sr-only")}>
+                {settings ? "Settings" : (board?.config.name ?? "Boards")}
+              </h1>
+            </div>
+            {board && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-9 shrink justify-start px-2 font-normal text-muted-foreground @md/header:w-64"
+                onClick={() => setSearching(true)}
+                aria-label="Search Stories"
+                aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
+              >
+                <Search />
+                <span className="hidden @md/header:inline">Search Stories…</span>
+                <kbd className="ml-auto hidden rounded border bg-muted px-1.5 font-sans text-[0.7rem] @md/header:inline">
+                  {isMac ? "⌘K" : "Ctrl K"}
+                </kbd>
               </Button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon-sm"
-                    variant="outline"
-                    className="shrink-0"
-                    onClick={() => openSettings(board.id, "stages")}
-                    aria-label="Board Settings"
-                  >
-                    <Settings />
+            )}
+            <div className="flex shrink-0 items-center gap-2 justify-self-end @3xl/header:col-start-3">
+              {board && settings && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => openBoard(board.id)}
+                  aria-label="Back to board"
+                >
+                  <ArrowLeft />
+                  <span className="hidden @md/header:inline">Back to board</span>
+                </Button>
+              )}
+              {board && !settings && (
+                <>
+                  <Button size="sm" className="shrink-0" onClick={() => openCreateStory()} aria-label="New Story">
+                    <Plus />
+                    <span className="hidden @md/header:inline">New Story</span>
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>Board Settings</TooltipContent>
-              </Tooltip>
-            </>
-          )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon-sm"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() => openSettings(board.id, "stages")}
+                        aria-label="Settings"
+                      >
+                        <Settings />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Settings</TooltipContent>
+                  </Tooltip>
+                </>
+              )}
+            </div>
+          </div>
         </header>
 
         {/* relative: absolutely positioned descendants (such as the hidden checkbox a Radix Switch adds inside a
@@ -228,11 +227,14 @@ export function App() {
         <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
           {failure && <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />}
 
-          {view.kind === "project-settings" && project ? (
-            <div key={JSON.stringify(project.config)} className="flex flex-col divide-y">
-              <ModelSettings project={project.config} act={act} />
-              <SchedulingSettings project={project.config} act={act} />
-            </div>
+          {settings ? (
+            <SettingsScreen
+              project={project!.config}
+              board={board}
+              tab={settings.tab}
+              onTab={(tab) => openSettings(board?.id ?? null, tab)}
+              act={act}
+            />
           ) : !board ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
               <p className="text-muted-foreground">No Boards yet. Create a Board to get started.</p>
@@ -240,14 +242,6 @@ export function App() {
                 New Board
               </Button>
             </div>
-          ) : settings ? (
-            <BoardSettings
-              project={project!.config}
-              board={board}
-              tab={settings.tab}
-              onTab={(tab) => openSettings(board.id, tab)}
-              act={act}
-            />
           ) : (
             <BoardView
               board={board}
@@ -264,7 +258,7 @@ export function App() {
           {project && (
             <span className="shrink-0">
               Workers{" "}
-              {project.config.scheduling
+              {project.config.scheduling || project.config.remoteMachines?.length
                 ? machineUsage(project.config, Object.values(project.runtime.executions ?? {}))
                     .map(
                       (m) => `${m.id} ${m.used}/${m.capacity ?? "?"}${m.configured && !m.enabled ? " (disabled)" : ""}`,

@@ -1,7 +1,14 @@
 import type { MachineUsage, PlacementPolicy, StoryPlacement } from "#model/placement";
 import type { AttachmentSubmission } from "./attachment.ts";
 import type { CommandRecord, SupervisorCommand } from "./commands.ts";
-import type { BoardConfig, BoardOverrides, FieldDef, ProjectConfig, SchedulingConfig } from "./config.ts";
+import type {
+  BoardConfig,
+  BoardOverrides,
+  FieldDef,
+  ProjectConfig,
+  RemoteMachine,
+  SchedulingConfig,
+} from "./config.ts";
 import type { ExecutionReport } from "./execution.ts";
 import type { ModelOption, ResolvedModel } from "./models.ts";
 import type { StoryView } from "./project.ts";
@@ -64,11 +71,15 @@ export type FileChangesResponse = { changes: FileChange[] };
 export type ErrorResponse = { error: string; code?: SfErrorCode };
 
 export type CreateBoardRequest = { name: string; key: string };
-/** Omitted keys are unchanged. `scheduling` replaces the whole value; null removes it (legacy cap). */
+/**
+ * Omitted keys are unchanged. `remoteMachines` replaces the whole catalog; [] clears it. `scheduling`
+ * replaces the whole value; null removes it (local capacity is then `maxConcurrentWorkers`).
+ */
 export type UpdateProjectRequest = {
   model?: string | null;
   modelOptions?: ModelOption[];
   addModelOptions?: ModelOption[];
+  remoteMachines?: RemoteMachine[];
   scheduling?: SchedulingConfig | null;
   maxConcurrentWorkers?: number;
 };

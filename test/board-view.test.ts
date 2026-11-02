@@ -53,6 +53,10 @@ test("configured Stages have named creation buttons after cards; Unknown Stage d
     assert.ok(html.includes(`aria-label="New Story in ${stage.name}"`));
   }
   assert.ok(html.indexOf("Existing card") < html.indexOf('aria-label="New Story in Backlog"'));
+  // Every column, including Unknown Stage, scrolls its cards in a region that ends before the creation button.
+  assert.equal((html.match(/overflow-y-auto/g) ?? []).length, board.config.stages.length + 1);
+  const backlog = html.slice(0, html.indexOf('aria-label="New Story in Backlog"'));
+  assert.ok(backlog.lastIndexOf("</div>") > backlog.indexOf("Existing card"));
   assert.ok(html.includes("Unknown Stage"));
   assert.doesNotMatch(html.slice(html.indexOf("Unknown Stage")), /New Story/);
 });
